@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: gold-analyzer
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+      - key: TWELVEDATA_API_KEY
+        sync: false
+      - key: ALLOWED_USER_IDS
+        sync: false

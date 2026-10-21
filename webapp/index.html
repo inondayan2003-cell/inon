@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>אנליסט הזהב</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <header class="top">
+      <div>
+        <div class="sym"><span class="dot" id="mkt"></span><span id="symbol">זהב</span></div>
+        <div class="price" id="price">—</div>
+        <div class="chg" id="chg"></div>
+      </div>
+      <button class="icon-btn" id="refresh" aria-label="רענון">⟳</button>
+    </header>
+
+    <section class="card verdict" id="verdictCard">
+      <div class="verdict-label" id="verdict">טוען ניתוח…</div>
+      <div class="gauge"><div class="gauge-mid"></div><div class="gauge-fill" id="gaugeFill"></div></div>
+      <div class="gauge-scale"><span>שורט -100</span><span id="score">0</span><span>+100 לונג</span></div>
+      <div class="badges" id="badges"></div>
+    </section>
+
+    <section class="card" id="tradeCard" hidden>
+      <h2 id="tradeTitle">עסקה פעילה</h2>
+      <div class="plan" id="tradePlan"></div>
+    </section>
+
+    <section class="card" id="planCard" hidden>
+      <h2 id="planTitle">תוכנית מסחר</h2>
+      <div class="plan" id="plan"></div>
+      <ul class="reasons" id="reasons"></ul>
+    </section>
+
+    <section class="card">
+      <h2>יישור טווחי זמן</h2>
+      <div class="tfs" id="tfs"></div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="tabs" id="tabs">
+        <button data-tf="5m">5M</button><button data-tf="15m" class="on">15M</button>
+        <button data-tf="1h">1H</button><button data-tf="4h">4H</button>
+      </div>
+      <div id="chart"></div>
+      <div class="legend"><i class="l21"></i>EMA21 <i class="l50"></i>EMA50 <i class="l200"></i>EMA200</div>
+    </section>
+
+    <section class="card">
+      <h2>רמות מפתח</h2>
+      <div class="levels" id="levels"></div>
+    </section>
+
+    <section class="card">
+      <h2>ביצועי הסיגנלים</h2>
+      <div class="stats" id="stats"></div>
+      <div class="history" id="history"></div>
+    </section>
+
+    <section class="card alerts">
+      <div>
+        <h2>התראות לטלגרם</h2>
+        <p class="muted">סיגנלים לונג/שורט, יעדים וסטופים</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="alerts" disabled><span></span></label>
+    </section>
+
+    <p class="disclaimer">ניתוח טכני אוטומטי בלבד, לא ייעוץ השקעות. מסחר בזהב כרוך בסיכון גבוה.</p>
+    <p class="disclaimer" id="updated"></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
