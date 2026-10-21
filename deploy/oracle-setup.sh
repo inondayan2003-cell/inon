@@ -23,12 +23,17 @@ q() { oci "$@" 2>/dev/null; }  # שקט, להחזרת ערכים
 INST="$(q compute instance list -c "$C" --display-name "$NAME" --lifecycle-state RUNNING --query 'data[0].id' --raw-output || true)"
 
 if [ -z "$INST" ] || [ "$INST" = "null" ]; then
-  say "טוקנים (ההקלדה מוסתרת - הדבק ולחץ Enter)"
-  read -rsp "הטוקן מ-BotFather: " BOT_TOKEN </dev/tty; echo
+  # אפשר להעביר מראש בשורת הפקודה:  BOT_TOKEN=... TWELVEDATA_API_KEY=... bash <(curl ...)
+  BOT_TOKEN="${BOT_TOKEN:-}"
+  TD_KEY="${TWELVEDATA_API_KEY:-}"
+  if [ -z "$BOT_TOKEN" ]; then
+    say "טוקנים (ההקלדה מוסתרת - הדבק ולחץ Enter)"
+    read -rsp "הטוקן מ-BotFather: " BOT_TOKEN </dev/tty; echo
+    read -rsp "המפתח מ-Twelve Data: " TD_KEY </dev/tty; echo
+  fi
   BOT_TOKEN="$(printf '%s' "$BOT_TOKEN" | tr -d '[:space:]')"
-  [[ "$BOT_TOKEN" == *:* ]] || die "הטוקן לא נראה תקין (צריך להיות בפורמט 123456:ABC...)"
-  read -rsp "המפתח מ-Twelve Data: " TD_KEY </dev/tty; echo
   TD_KEY="$(printf '%s' "$TD_KEY" | tr -d '[:space:]')"
+  [[ "$BOT_TOKEN" == *:* ]] || die "הטוקן לא נראה תקין (צריך להיות בפורמט 123456:ABC...)"
 
   # ---------- רשת נפרדת ----------
   say "יוצר רשת נפרדת (gold-vcn) - הרשת של השרת הקיים לא משתנה"
