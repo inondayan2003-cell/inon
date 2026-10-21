@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # התקנה/עדכון של אנליסט הזהב על שרת לינוקס (Ubuntu או Oracle Linux).
 # שימוש:  curl -fsSL https://raw.githubusercontent.com/inondayan2003-cell/inon/claude/telegram-stocks-gold-analyzer-akepc8/deploy/install.sh | sudo bash
+# אוטומטי (cloud-init בזמן יצירת השרת): מגדירים BOT_TOKEN ו-TWELVEDATA_API_KEY כמשתני סביבה לפני ההרצה.
 set -euo pipefail
 
 REPO="https://github.com/inondayan2003-cell/inon.git"
@@ -24,7 +25,7 @@ free_gb="$(df -BG --output=avail / | tail -1 | tr -dc 0-9)"
 [ "$free_gb" -ge 3 ] || die "יש רק ${free_gb}GB פנויים בדיסק, צריך לפחות 3GB. לא נגעתי בכלום."
 mem_mb="$(free -m | awk '/^Mem:/{print $7}')"
 printf 'זיכרון פנוי: %sMB · דיסק פנוי: %sGB\n' "$mem_mb" "$free_gb"
-[ "$mem_mb" -ge 450 ] || die "יש רק ${mem_mb}MB זיכרון פנוי - הבוט החדש עלול להאט את הבוט הקיים. לא נגעתי בכלום. שלח את ההודעה ל-Claude."
+[ "$mem_mb" -ge 300 ] || die "יש רק ${mem_mb}MB זיכרון פנוי - הבוט החדש עלול להאט שירותים אחרים. לא נגעתי בכלום. שלח את ההודעה ל-Claude."
 
 say "מתקין כלים (git, curl)"
 if command -v apt-get >/dev/null; then
@@ -62,10 +63,16 @@ IP="$(curl -fsS https://api.ipify.org || curl -fsS https://ifconfig.me)"
 DOMAIN="${IP//./-}.sslip.io"
 
 if [ ! -f .env ]; then
-  say "הגדרות (ההקלדה מוסתרת, הדבק ולחץ Enter)"
-  read -rsp "BOT_TOKEN מ-BotFather: " BOT_TOKEN </dev/tty; echo
+  BOT_TOKEN="${BOT_TOKEN:-}"
+  TD_KEY="${TWELVEDATA_API_KEY:-}"
+  if [ -z "$BOT_TOKEN" ]; then
+    say "הגדרות (ההקלדה מוסתרת, הדבק ולחץ Enter)"
+    read -rsp "BOT_TOKEN מ-BotFather: " BOT_TOKEN </dev/tty; echo
+    read -rsp "TWELVEDATA_API_KEY (אפשר להשאיר ריק): " TD_KEY </dev/tty; echo
+  fi
+  BOT_TOKEN="$(printf '%s' "$BOT_TOKEN" | tr -d '[:space:]')"
+  TD_KEY="$(printf '%s' "$TD_KEY" | tr -d '[:space:]')"
   [[ "$BOT_TOKEN" == *:* ]] || die "הטוקן לא נראה תקין (צריך להיות בפורמט 123456:ABC...)"
-  read -rsp "TWELVEDATA_API_KEY (אפשר להשאיר ריק): " TD_KEY </dev/tty; echo
   umask 077
   cat > .env <<ENV
 BOT_TOKEN=${BOT_TOKEN}
@@ -92,6 +99,34 @@ elif command -v iptables >/dev/null; then
     sed -i '0,/^-A INPUT/s//-A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT\n-A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT\n&/' "$RULES"
   fi
 fi
+
+# בשרת קטן (1GB) מוסיפים swap כדי שהבנייה לא תיתקע. רק אם אין swap בכלל.
+if [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 2000 ] && [ "$(swapon --show | wc -l)" -eq 0 ]; then
+  say "מוסיף 2GB swap"
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+say "מגדיר עדכון אוטומטי (בודק כל 15 דקות אם יש גרסה חדשה ב-GitHub)"
+cat > /etc/systemd/system/gold-update.service <<UNIT
+[Unit]
+Description=Gold analyzer auto-update
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $DIR/deploy/update.sh
+UNIT
+cat > /etc/systemd/system/gold-update.timer <<UNIT
+[Unit]
+Description=Gold analyzer auto-update timer
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable -q --now gold-update.timer
 
 say "בונה ומפעיל (בפעם הראשונה זה לוקח כמה דקות)"
 docker compose up -d --build
