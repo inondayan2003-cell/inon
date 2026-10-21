@@ -41,7 +41,17 @@
 עם המפתח הבוט עובד על **XAU/USD ספוט**, כלומר אותו מחיר שאתה רואה אצל הברוקר.
 בלי מפתח הבוט משתמש ב-Yahoo (GC=F, חוזה עתידי), שהמחיר שלו גבוה בכמה דולרים מהספוט.
 
-### 3. העלאה לשרת (Render, חינם)
+### 3. העלאה לשרת משלך (Oracle Cloud או כל שרת לינוקס) ← מומלץ
+1. ב-Oracle Console: **Networking → Virtual Cloud Networks → ה-VCN שלך → Security Lists → Default** ושם **Add Ingress Rules**:
+   Source CIDR `0.0.0.0/0`, IP Protocol `TCP`, Destination Port Range `80,443`.
+2. התחבר לשרת ב-SSH והרץ:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/inondayan2003-cell/inon/claude/telegram-stocks-gold-analyzer-akepc8/deploy/install.sh | sudo bash
+   ```
+   הסקריפט מתקין Docker, מבקש את הטוקן ואת המפתח, ומפעיל את הבוט עם HTTPS אוטומטי (כתובת בסגנון `https://1-2-3-4.sslip.io`).
+3. לעדכון גרסה בעתיד, מריצים את אותה פקודה שוב.
+
+### 3ב. חלופה: Render (חינם)
 1. היכנס ל-[render.com](https://render.com) עם GitHub, ובחר **New → Blueprint** ואת ה-repo הזה (קובץ `render.yaml` מגדיר הכל).
 2. מלא את המשתנים: `BOT_TOKEN` ו-`TWELVEDATA_API_KEY`.
 3. אחרי שהשירות עולה, העתק את הכתובת שלו (למשל `https://gold-analyzer.onrender.com`), הגדר אותה ב-`WEBAPP_URL` ושמור.
