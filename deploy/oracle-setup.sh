@@ -31,8 +31,11 @@ if [ -z "$INST" ] || [ "$INST" = "null" ]; then
     read -rsp "הטוקן מ-BotFather: " BOT_TOKEN </dev/tty; echo
     read -rsp "המפתח מ-Twelve Data: " TD_KEY </dev/tty; echo
   fi
-  BOT_TOKEN="$(printf '%s' "$BOT_TOKEN" | tr -d '[:space:]')"
-  TD_KEY="$(printf '%s' "$TD_KEY" | tr -d '[:space:]')"
+  # גם אם הודבקה בטעות שורה שלמה - שולפים ממנה רק את הטוקן ואת המפתח
+  ALL="$BOT_TOKEN $TD_KEY"
+  BOT_TOKEN="$(grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' <<<"$ALL" | head -1 || true)"
+  TD_KEY="$(grep -oE 'TWELVEDATA_API_KEY=[0-9a-f]{32}' <<<"$ALL" | cut -d= -f2 | head -1 || true)"
+  [ -n "$TD_KEY" ] || TD_KEY="$(grep -oE '(^| )[0-9a-f]{32}( |$)' <<<"$ALL" | tr -d ' ' | head -1 || true)"
   [[ "$BOT_TOKEN" == *:* ]] || die "הטוקן לא נראה תקין (צריך להיות בפורמט 123456:ABC...)"
 
   # ---------- רשת נפרדת ----------
