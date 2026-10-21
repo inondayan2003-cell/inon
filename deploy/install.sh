@@ -75,6 +75,14 @@ elif command -v iptables >/dev/null; then
   if command -v netfilter-persistent >/dev/null; then netfilter-persistent save >/dev/null 2>&1 || true; fi
 fi
 
+# לא דורסים שירות אחר שכבר יושב על 80/443 (למשל בוט אחר באותו שרת)
+if ! docker compose ps -q caddy 2>/dev/null | grep -q .; then
+  busy="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:(80|443)$/' || true)"
+  [ -z "$busy" ] || die "פורט 80/443 כבר תפוס ע\"י שירות אחר בשרת:
+$busy
+לא נגעתי בכלום. שלח את ההודעה הזאת ל-Claude."
+fi
+
 say "בונה ומפעיל (בפעם הראשונה זה לוקח כמה דקות)"
 docker compose up -d --build
 
