@@ -1,9 +1,13 @@
 # הרצה על שרת משלך (למשל Oracle Cloud): האפליקציה + Caddy שמנפיק HTTPS אוטומטית
+name: gold-analyzer
+
 services:
   app:
     build: .
     restart: unless-stopped
     env_file: .env
+    mem_limit: 400m   # תקרה: גם אם משהו משתבש, הבוט הזה לא יחנוק את השרת
+    cpus: 0.5
     environment:
       - DB_PATH=/data/bot.db
     volumes:
@@ -11,6 +15,7 @@ services:
 
   caddy:
     image: caddy:2
+    mem_limit: 100m
     restart: unless-stopped
     ports:
       - "80:80"

@@ -13,6 +13,19 @@ die() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "צריך להריץ עם sudo"
 . /etc/os-release
 
+say "בודק שהשרת פנוי (בלי לשנות כלום)"
+if ! [ -f "$DIR/.env" ]; then
+  busy="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:(80|443)$/' || true)"
+  [ -z "$busy" ] || die "פורט 80/443 כבר תפוס ע\"י שירות אחר בשרת:
+$busy
+לא נגעתי בכלום. שלח את ההודעה הזאת ל-Claude."
+fi
+free_gb="$(df -BG --output=avail / | tail -1 | tr -dc 0-9)"
+[ "$free_gb" -ge 3 ] || die "יש רק ${free_gb}GB פנויים בדיסק, צריך לפחות 3GB. לא נגעתי בכלום."
+mem_mb="$(free -m | awk '/^Mem:/{print $7}')"
+printf 'זיכרון פנוי: %sMB · דיסק פנוי: %sGB\n' "$mem_mb" "$free_gb"
+[ "$mem_mb" -ge 450 ] || die "יש רק ${mem_mb}MB זיכרון פנוי - הבוט החדש עלול להאט את הבוט הקיים. לא נגעתי בכלום. שלח את ההודעה ל-Claude."
+
 say "מתקין כלים (git, curl)"
 if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
@@ -64,7 +77,7 @@ fi
 sed -i '/^WEBAPP_URL=/d; /^DOMAIN=/d' .env
 printf 'WEBAPP_URL=https://%s\nDOMAIN=%s\n' "$DOMAIN" "$DOMAIN" >> .env
 
-say "פותח פורטים 80/443 בחומת האש של השרת"
+say "פותח פורטים 80/443 (רק מוסיף כללים, לא משנה כללים קיימים)"
 if command -v firewall-cmd >/dev/null && systemctl is-active -q firewalld; then
   firewall-cmd -q --permanent --add-service=http --add-service=https
   firewall-cmd -q --reload
@@ -72,15 +85,12 @@ elif command -v iptables >/dev/null; then
   for p in 80 443; do
     iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport "$p" -j ACCEPT
   done
-  if command -v netfilter-persistent >/dev/null; then netfilter-persistent save >/dev/null 2>&1 || true; fi
-fi
-
-# לא דורסים שירות אחר שכבר יושב על 80/443 (למשל בוט אחר באותו שרת)
-if ! docker compose ps -q caddy 2>/dev/null | grep -q .; then
-  busy="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:(80|443)$/' || true)"
-  [ -z "$busy" ] || die "פורט 80/443 כבר תפוס ע\"י שירות אחר בשרת:
-$busy
-לא נגעתי בכלום. שלח את ההודעה הזאת ל-Claude."
+  # שמירה לאחר הפעלה מחדש: מוסיפים שורה לקובץ, בלי לשמור מחדש את כל הכללים של השרת
+  RULES=/etc/iptables/rules.v4
+  if [ -f "$RULES" ] && ! grep -q -- "--dport 443 -j ACCEPT" "$RULES"; then
+    cp "$RULES" "$RULES.bak-gold"
+    sed -i '0,/^-A INPUT/s//-A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT\n-A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT\n&/' "$RULES"
+  fi
 fi
 
 say "בונה ומפעיל (בפעם הראשונה זה לוקח כמה דקות)"
