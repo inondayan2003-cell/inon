@@ -13,6 +13,8 @@ say() { printf '\n\033[1;33m==> %s\033[0m\n' "$*"; }
 ok()  { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
+trap 'printf "\n\033[1;31m✗ נעצר בשורה %s. שלח צילום מסך ל-Claude. (הרצה חוזרת ממשיכה מאיפה שנעצר)\033[0m\n" "$LINENO" >&2' ERR
+
 command -v oci >/dev/null || die "צריך להריץ את זה בתוך Cloud Shell של Oracle"
 C="${OCI_TENANCY:-}"
 [ -n "$C" ] || die "לא נמצא OCI_TENANCY - צריך להריץ בתוך Cloud Shell"
@@ -72,7 +74,7 @@ if [ -z "$INST" ] || [ "$INST" = "null" ]; then
   ok "הרשת מוכנה"
 
   # ---------- מפתח SSH (נשמר ב-Cloud Shell, לגישה עתידית) ----------
-  [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -f "$KEY"
+  [ -f "$KEY" ] || ssh-keygen -q -t rsa -b 4096 -N "" -f "$KEY"  # Cloud Shell במצב FIPS לא מאפשר ed25519
 
   # ---------- סקריפט ההתקנה שירוץ בשרת בעלייה הראשונה ----------
   INIT="$(mktemp)"
