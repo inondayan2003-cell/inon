@@ -2,6 +2,7 @@
 import datetime as dt
 import lzma
 import struct
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -9,23 +10,26 @@ import httpx
 import numpy as np
 import pandas as pd
 
-URL = "https://datafeed.dukascopy.com/datafeed/{sym}/{y}/{m:02d}/{d:02d}/BID_candles_min_1.bi5"
+HOSTS = ["https://datafeed.dukascopy.com", "http://datafeed.dukascopy.com", "https://www.dukascopy.com"]
+PATH = "/datafeed/{sym}/{y}/{m:02d}/{d:02d}/BID_candles_min_1.bi5"
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36"}
 REC = struct.Struct(">5if")  # שניות מתחילת היום, open, close, low, high, volume
 
 
 def _day(client: httpx.Client, sym: str, day: dt.date, scale: float) -> pd.DataFrame | None:
-    url = URL.format(sym=sym, y=day.year, m=day.month - 1, d=day.day)  # חודשים מתחילים מ-0
-    for attempt in range(4):
+    path = PATH.format(sym=sym, y=day.year, m=day.month - 1, d=day.day)  # חודשים מתחילים מ-0
+    for attempt in range(6):
         try:
-            r = client.get(url, timeout=30)
+            r = client.get(HOSTS[attempt % len(HOSTS)] + path, timeout=20, headers=HEADERS, follow_redirects=True)
             if r.status_code == 404 or not r.content:
                 return None
             r.raise_for_status()
             raw = lzma.decompress(r.content)
             break
         except Exception:
-            if attempt == 3:
+            if attempt == 5:
                 raise
+            time.sleep(2 * (attempt + 1))
     rows = [REC.unpack_from(raw, i) for i in range(0, len(raw), REC.size)]
     if not rows:
         return None
@@ -50,7 +54,7 @@ def fetch_minutes(start: dt.date, end: dt.date, cache: Path, sym: str = "XAUUSD"
                 frames.append(pd.read_parquet(f))
                 continue
             days = [d.date() for d in pd.date_range(p.start_time, p.end_time, freq="D") if d.date() <= end]
-            with ThreadPoolExecutor(16) as ex:
+            with ThreadPoolExecutor(4) as ex:
                 parts = [x for x in ex.map(lambda d: _day(client, sym, d, scale), days) if x is not None]
             if not parts:
                 continue
