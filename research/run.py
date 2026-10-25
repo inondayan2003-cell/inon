@@ -22,13 +22,12 @@ from research.features import extra_features
 from research.strategies import candidates
 
 
-def build(m1: pd.DataFrame) -> list[dict]:
+def build(m1: pd.DataFrame) -> pd.DataFrame:
     m5 = resample(m1, "5min")
     md = MarketData(m5=m5, h1=resample(m1, "1h"), symbol="XAU/USD", source="dukascopy")
     enriched = {tf: enrich(df, TIMEFRAMES[tf]) for tf, df in build_frames(md).items()}
     tl = build_timeline(enriched)
-    tl = tl.merge(extra_features(m5), on="t", how="left")
-    return tl.to_dict("records")
+    return tl.merge(extra_features(m5), on="t", how="left")
 
 
 def simulate(rows: list[dict], make) -> list[dict]:
@@ -60,6 +59,7 @@ def main():
     ap.add_argument("--cost", type=float, default=0.35, help="ספרד+עמלה+החלקה לעסקה, בדולרים לאונקיה")
     ap.add_argument("--only", default="")
     ap.add_argument("--cache", default="research/cache")
+    ap.add_argument("--scan", action="store_true", help="גם סריקת דפוסים")
     ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
 
@@ -69,7 +69,8 @@ def main():
     print(f"מוריד נתונים {start} - {end}", flush=True)
     m1 = (histdata if a.source == "histdata" else duka).fetch_minutes(start, end, Path(a.cache))
     print(f"{len(m1):,} דקות, {m1.index[0]} - {m1.index[-1]} ({time.time() - t0:.0f}s)", flush=True)
-    rows = build(m1)
+    table = build(m1)
+    rows = table.to_dict("records")
     split = rows[int(len(rows) * 0.7)]["t"]
     total_days = (rows[-1]["t"] - rows[0]["t"]).days * 5 / 7
     print(f"טבלה: {len(rows):,} נרות 5M · פיצול IS/OOS: {split:%Y-%m-%d} ({time.time() - t0:.0f}s)\n", flush=True)
@@ -95,6 +96,9 @@ def main():
             continue
         lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
                      f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} |")
+    if a.scan:
+        from research.scan import scan
+        lines += ["", scan(table, split)]
     report = "\n".join(lines)
     print("\n" + report + "\nRESULTS_JSON " + json.dumps(results, ensure_ascii=False), flush=True)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
