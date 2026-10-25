@@ -17,7 +17,7 @@ import pandas as pd
 from app.analysis import build_frames, build_timeline, enrich, TIMEFRAMES
 from app.config import Settings
 from app.data import MarketData, resample
-from research.duka import fetch_minutes
+from research import duka, histdata
 from research.features import extra_features
 from research.strategies import candidates
 
@@ -60,13 +60,14 @@ def main():
     ap.add_argument("--cost", type=float, default=0.35, help="ספרד+עמלה+החלקה לעסקה, בדולרים לאונקיה")
     ap.add_argument("--only", default="")
     ap.add_argument("--cache", default="research/cache")
+    ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
 
     end = dt.date.today() - dt.timedelta(days=1)
     start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
     t0 = time.time()
     print(f"מוריד נתונים {start} - {end}", flush=True)
-    m1 = fetch_minutes(start, end, Path(a.cache))
+    m1 = (histdata if a.source == "histdata" else duka).fetch_minutes(start, end, Path(a.cache))
     print(f"{len(m1):,} דקות, {m1.index[0]} - {m1.index[-1]} ({time.time() - t0:.0f}s)", flush=True)
     rows = build(m1)
     split = rows[int(len(rows) * 0.7)]["t"]
