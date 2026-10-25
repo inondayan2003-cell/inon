@@ -97,8 +97,9 @@ def main():
         lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
                      f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} |")
     if a.scan:
-        from research.scan import scan
-        lines += ["", scan(table, split)]
+        from research import events
+        res = events.search(table, split, a.cost)
+        lines += ["", events.report(res, total_days * 0.3)]
     report = "\n".join(lines)
     print("\n" + report + "\nRESULTS_JSON " + json.dumps(results, ensure_ascii=False), flush=True)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
