@@ -24,12 +24,27 @@ service = GoldService(settings, store)
 bot = Bot(settings, store, lambda: service.snapshot) if settings.bot_token else None
 
 
+BACKTEST_ID = "v1"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
+
+
+async def send_backtest_once():
+    """אחרי עדכון גרסה: מריץ בדיקה היסטורית פעם אחת ושולח את הדוח לכל המנויים."""
+    if store.get("backtest_sent") == BACKTEST_ID:
+        return
+    await asyncio.sleep(90)  # נותנים לניתוח החי לרוץ קודם
+    report = await bot.backtest()
+    await bot.broadcast(report, with_button=False)
+    if not report.startswith("❌"):
+        store.put("backtest_sent", BACKTEST_ID)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     tasks = [asyncio.create_task(service.run())]
     if bot:
         service.notify = bot.broadcast
         tasks.append(asyncio.create_task(bot.run()))
+        tasks.append(asyncio.create_task(send_backtest_once()))
     else:
         log.warning("BOT_TOKEN לא הוגדר - הבוט לא פעיל, רק ה-API")
     yield

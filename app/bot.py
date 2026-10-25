@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from .backtest import backtest_report
 from .config import Settings
 from .messages import status_message
 from .storage import Store
@@ -15,6 +16,7 @@ HELP = (
     "אני סורק את הזהב כל כמה דקות ב-4 טווחי זמן (4H, 1H, 15M, 5M) ושולח לך התראה "
     "ברגע שיש סיגנל לונג או שורט, כולל כניסה, סטופ ויעדים. אחר כך אני מעדכן כשהעסקה מגיעה ליעד או לסטופ.\n\n"
     "/status - הניתוח העדכני\n"
+    "/backtest - בדיקה היסטורית של השיטה על 6 החודשים האחרונים\n"
     "/alerts_on - הפעלת התראות\n"
     "/alerts_off - השתקת התראות\n"
     "/app - פתיחת האפליקציה"
@@ -26,6 +28,7 @@ class Bot:
         self.cfg = cfg
         self.store = store
         self.get_snapshot = get_snapshot
+        self._backtest_lock = asyncio.Lock()
         self.client = httpx.AsyncClient(base_url=f"https://api.telegram.org/bot{cfg.bot_token}/", timeout=70)
 
     async def call(self, method: str, **params):
@@ -66,10 +69,19 @@ class Bot:
             {"command": "alerts_on", "description": "הפעלת התראות לונג/שורט"},
             {"command": "alerts_off", "description": "השתקת התראות"},
             {"command": "app", "description": "פתיחת האפליקציה"},
+            {"command": "backtest", "description": "בדיקה היסטורית של השיטה"},
         ])
         if self.cfg.webapp_url:
             await self.call("setChatMenuButton", menu_button={
                 "type": "web_app", "text": "זהב 📊", "web_app": {"url": self.cfg.webapp_url}})
+
+    async def backtest(self, months: int = 6) -> str:
+        async with self._backtest_lock:  # לא מריצים שתי בדיקות במקביל (מגבלת בקשות של ספק הנתונים)
+            try:
+                return await asyncio.to_thread(backtest_report, self.cfg, months)
+            except Exception as e:
+                log.exception("backtest")
+                return f"❌ הבדיקה ההיסטורית נכשלה: {e}"
 
     async def run(self):
         await self.setup()
@@ -106,6 +118,9 @@ class Bot:
             snap = self.get_snapshot()
             await self.send(chat_id, status_message(snap) if snap else "⏳ הניתוח הראשון עוד רץ, נסה שוב בעוד דקה.",
                             with_button=True)
+        elif cmd == "/backtest":
+            await self.send(chat_id, "⏳ מריץ את השיטה על 6 החודשים האחרונים של הזהב. זה לוקח כ-3 דקות...")
+            await self.send(chat_id, await self.backtest())
         elif cmd == "/app":
             await self.send(chat_id, "פתח את האפליקציה:", with_button=True)
         else:

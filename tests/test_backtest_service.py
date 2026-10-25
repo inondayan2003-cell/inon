@@ -5,7 +5,7 @@ import pandas as pd
 from app.config import Settings
 from app.service import GoldService
 from app.storage import Store
-from backtest import run
+from app.backtest import format_report, run, summarize
 
 CFG = Settings()
 
@@ -51,3 +51,39 @@ def test_service_tick_sends_and_persists(market, tmp_path):
     print(f"\n{len(sent)} הודעות, {len(store.trades())} עסקאות")
     if sent:
         print(sent[0])
+
+
+def test_summary_and_report(market):
+    trades = run(market, CFG)
+    s = summarize(trades)
+    assert s["count"] == len(trades) == s["long"]["count"] + s["short"]["count"]
+    assert abs(s["total_r"] - sum(t["result_r"] for t in trades)) < 0.05
+    assert s["max_drawdown_r"] >= 0
+    text = format_report(s, market)
+    assert "אחוז הצלחה" in text and "לפי חודש" in text
+    assert format_report(summarize([]), market).endswith("לא היו סיגנלים בתקופה הזאת.")
+
+
+def test_twelvedata_paging(monkeypatch):
+    """מושך דפים אחורה בזמן עד שמגיע לתאריך ההתחלה, בלי כפילויות."""
+    import httpx
+    from app.backtest import fetch_twelvedata_history
+
+    full = pd.date_range("2026-01-01", periods=12000, freq="5min", tz="UTC")
+    calls = []
+
+    def fake_get(url, params, timeout):
+        calls.append(params.get("end_date"))
+        end = pd.Timestamp(params["end_date"], tz="UTC") if "end_date" in params else full[-1] + pd.Timedelta("5min")
+        idx = full[full <= end][-5000:] if "end_date" in params else full[-5000:]
+        values = [{"datetime": t.strftime("%Y-%m-%d %H:%M:%S"), "open": 1, "high": 2, "low": 0.5, "close": 1.5} for t in idx]
+
+        class R:
+            def json(self):
+                return {"status": "ok", "values": values}
+        return R()
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    df = fetch_twelvedata_history("XAU/USD", "5min", full[100], "k", pause=0)
+    assert len(calls) == 3
+    assert df.index.is_unique and df.index[0] <= full[100] and df.index[-1] == full[-1]
