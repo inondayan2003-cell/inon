@@ -123,3 +123,59 @@ def report(results: list[dict], days_oos: float) -> str:
     else:
         out += ["", "**אף אירוע לא עבר את המבחן העיוור.**"]
     return "\n".join(out)
+
+
+# ---------- משפחות דפוסים עם פרמטרים קבועים, ובדיקת יציבות על 4 תקופות ----------
+FAMILIES = {
+    "fade_lon": ["lon_highbreak_fade_short", "lon_lowbreak_fade_long"],
+    "fade_orblon": ["orblon_highbreak_fade_short", "orblon_lowbreak_fade_long"],
+    "fade_asia": ["asia_highbreak_fade_short", "asia_lowbreak_fade_long"],
+    "fade_pd": ["pd_highbreak_fade_short", "pd_lowbreak_fade_long"],
+    "fade_orbny": ["orbny_highbreak_fade_short", "orbny_lowbreak_fade_long"],
+    "sweeps": ["pdl_sweep_reclaim", "asl_sweep_reclaim", "ldl_sweep_reclaim",
+               "pdh_sweep_reclaim", "ash_sweep_reclaim", "ldh_sweep_reclaim"],
+    "follow_lon": ["lon_highbreak_follow_long", "lon_lowbreak_follow_short"],
+    "follow_asia": ["asia_highbreak_follow_long", "asia_lowbreak_follow_short"],
+}
+FAMILIES["fade_lon+sweeps"] = FAMILIES["fade_lon"] + FAMILIES["sweeps"]
+FAMILIES["fade_all"] = (FAMILIES["fade_lon"] + FAMILIES["fade_orblon"] + FAMILIES["fade_asia"]
+                        + FAMILIES["fade_pd"] + FAMILIES["fade_orbny"])
+PARAM_SETS = [(1.5, 1.5, 24), (1.5, 1.0, 24), (1.5, 0.5, 24), (2.0, 0.5, 48), (1.0, 1.0, 24), (1.0, 2.0, 48), (2.0, 0.33, 48)]
+
+
+def families_report(tl: pd.DataFrame, cost: float, folds: int = 4, out: list | None = None) -> str:
+    tl = tl.reset_index(drop=True)
+    evs = define_events(tl)
+    t_all = tl["t"].to_numpy(dtype="datetime64[ns]")
+    edges = np.quantile(t_all.astype("int64"), np.linspace(0, 1, folds + 1)).astype("datetime64[ns]")
+    days = (t_all[-1] - t_all[0]).astype("timedelta64[D]").astype(int) * 5 / 7
+    sims = {name: simulate(tl, *evs[name], cost) for name in {e for f in FAMILIES.values() for e in f}}
+    lines = ["### משפחות דפוסים - פרמטרים קבועים (בלי אופטימיזציה), יציבות על פני 4 תקופות", "",
+             "| משפחה | סטופ/יעד/זמן | עסקאות | ליום | הצלחה | ממוצע R | PF | t | ת1 | ת2 | ת3 | ת4 | חיוביות |",
+             "|" + "---|" * 13]
+    best = []
+    for fam, names in FAMILIES.items():
+        for sl, rr, hold in PARAM_SETS:
+            rs, ts = [], []
+            for nm in names:
+                run, times = sims[nm]
+                rs.append(run(sl, rr, hold))
+                ts.append(times)
+            r, ts = np.concatenate(rs), np.concatenate(ts)
+            if len(r) < 50:
+                continue
+            s = _stats(r)
+            fold_avg = []
+            for k in range(folds):
+                sel = (ts >= edges[k]) & (ts <= edges[k + 1])
+                fold_avg.append(r[sel].mean() if sel.any() else np.nan)
+            pos = sum(x > 0 for x in fold_avg)
+            best.append((pos, s["t"], fam, (sl, rr, hold)))
+            lines.append(f"| {fam} | {sl}/{rr}/{hold} | {s['n']} | {s['n'] / days:.2f} | {s['win']:.0f}% | {s['avg']:+.3f} | "
+                         f"{s['pf']:.2f} | {s['t']:+.1f} | " + " | ".join(f"{x:+.2f}" for x in fold_avg) + f" | {pos}/{folds} |")
+    best.sort(reverse=True)
+    if out is not None:
+        out.extend(best)
+    lines += ["", "**הכי יציבות (מס' תקופות חיוביות, ואז t):** " +
+              "; ".join(f"{f} {p[0]}/{p[1]}/{p[2]} ({pos}/4, t={t:+.1f})" for pos, t, f, p in best[:5])]
+    return "\n".join(lines)

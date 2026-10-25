@@ -99,7 +99,23 @@ def main():
     if a.scan:
         from research import events
         res = events.search(table, split, a.cost)
-        lines += ["", events.report(res, total_days * 0.3)]
+        real_best = []
+        lines += ["", events.report(res, total_days * 0.3), "", events.families_report(table, a.cost, out=real_best)]
+        from research.null import shuffle_within_hour
+        null_t, null_pass = [], []
+        for seed in (1, 2, 3):
+            nt = build(shuffle_within_hour(m1, seed))
+            nb = []
+            events.families_report(nt, a.cost, out=nb)
+            null_t.append(max(t for _, t, _, _ in nb))
+            nres = events.search(nt, split, a.cost)
+            null_pass.append(sum(1 for x in nres if x["oos"].get("n", 0) >= 20 and x["is"]["t"] > 2.5
+                                 and x["oos"]["avg"] > 0 and x["oos"]["t"] > 1.5))
+            print(f"  null seed {seed}: best family t={null_t[-1]:+.1f}, events passed={null_pass[-1]}", flush=True)
+        top = max(t for _, t, _, _ in real_best)
+        lines += ["", f"### קבוצת ביקורת (נתונים מעורבבים, 3 הרצות)",
+                  f"- t הכי גבוה של משפחה בביקורת: {', '.join(f'{x:+.1f}' for x in null_t)} · בנתונים האמיתיים: {top:+.1f}",
+                  f"- אירועים שעברו בביקורת: {null_pass} (צריך להיות 0 כדי לסמוך על המבחן)"]
     report = "\n".join(lines)
     print("\n" + report + "\nRESULTS_JSON " + json.dumps(results, ensure_ascii=False), flush=True)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
