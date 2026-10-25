@@ -22,8 +22,6 @@ def extra_features(m5: pd.DataFrame) -> pd.DataFrame:
     same_day = shifted.hour >= 7  # אחרי חצות ניו יורק באותו יום מסחר
 
     parts = [
-        # לונדון 02:00-05:00 ניו יורק - ידוע מ-05:00
-        _range_after(m5, session, (mins >= 120) & (mins < 300), pd.Series(same_day & (mins >= 300).values, index=m5.index), "lon"),
         # טווח פתיחה ניו יורק 08:00-08:30 - ידוע מ-08:30
         _range_after(m5, session, (mins >= 480) & (mins < 510), pd.Series(same_day & (mins >= 510).values, index=m5.index), "orbny"),
         # טווח פתיחה לונדון 02:00-03:00 - ידוע מ-03:00

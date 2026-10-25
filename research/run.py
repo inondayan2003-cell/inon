@@ -84,7 +84,8 @@ def main():
         is_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) < split]
         oos_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) >= split]
         results[name] = {"all": stats(tr, a.cost, total_days), "is": stats(is_tr, a.cost, total_days * 0.7),
-                         "oos": stats(oos_tr, a.cost, total_days * 0.3)}
+                         "oos": stats(oos_tr, a.cost, total_days * 0.3),
+                         "cost": {c: stats(tr, c, total_days).get("net_r") for c in (0.2, 0.5, 0.7)}}
         print(f"  {name}: {len(tr)} עסקאות ({time.time() - t0:.0f}s)", flush=True)
 
     head = "| שיטה | עסקאות | ליום | הצלחה | R נטו | ממוצע | PF | DD | t | IS R | IS PF | OOS R | OOS PF | OOS t |"
@@ -116,6 +117,8 @@ def main():
         lines += ["", f"### קבוצת ביקורת (נתונים מעורבבים, 3 הרצות)",
                   f"- t הכי גבוה של משפחה בביקורת: {', '.join(f'{x:+.1f}' for x in null_t)} · בנתונים האמיתיים: {top:+.1f}",
                   f"- אירועים שעברו בביקורת: {null_pass} (צריך להיות 0 כדי לסמוך על המבחן)"]
+    lines += ["", "**רגישות לעלות (R נטו בעלות 0.20$ / 0.50$ / 0.70$ לעסקה):** " +
+              "; ".join(f"{n}: " + " / ".join(f"{v}" for v in r["cost"].values()) for n, r in results.items())]
     report = "\n".join(lines)
     print("\n" + report + "\nRESULTS_JSON " + json.dumps(results, ensure_ascii=False), flush=True)
     if os.environ.get("GITHUB_STEP_SUMMARY"):

@@ -4,7 +4,7 @@ from dataclasses import asdict
 import pandas as pd
 
 from app.config import Settings
-from app.strategy import LiquidityStrategy, Trade, TradeBook, TrendStrategy, _num
+from app.strategy import LiquidityStrategy, RangeStrategy, Trade, TradeBook, TrendStrategy, _num
 
 
 class LiqPlus(LiquidityStrategy):
@@ -46,6 +46,7 @@ class ORB(TradeBook):
 def candidates(cfg: Settings) -> dict:
     """שם -> יצרן אסטרטגיה (כל הרצה מקבלת מופע חדש)."""
     return {
+        "range": lambda: RangeStrategy(cfg),
         "trend": lambda: TrendStrategy(cfg),
         "liq": lambda: LiquidityStrategy(cfg),
         "liq_plus": lambda: LiqPlus(cfg),

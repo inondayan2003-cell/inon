@@ -106,7 +106,7 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"trend": "📈 שיטת מגמה", "liquidity": "💧 שיטת נזילות"}
+METHOD_NAMES = {"range": "🎯 שיטת טווחים", "trend": "📈 שיטת מגמה", "liquidity": "💧 שיטת נזילות"}
 
 
 def _block(title: str, s: dict) -> list[str]:
@@ -133,17 +133,16 @@ def format_report(trades: list[dict], md: MarketData) -> str:
     sums = {m: summarize(ts) for m, ts in by.items()}
     for m, title in METHOD_NAMES.items():
         lines += _block(title, sums[m]) + [""]
-    lines += _block("🧮 שתי השיטות יחד", summarize(trades)) + ["", "<b>לפי חודש</b> (מגמה / נזילות):"]
-    months = sorted(set(sums["trend"].get("months", {})) | set(sums["liquidity"].get("months", {})))
+    lines += ["<b>לפי חודש</b> (טווחים / מגמה / נזילות):"]
+    months = sorted(set().union(*(sums[m].get("months", {}) for m in METHOD_NAMES)))
     for mo in months:
-        a = sums["trend"].get("months", {}).get(mo, 0.0)
-        b = sums["liquidity"].get("months", {}).get(mo, 0.0)
-        lines.append(f"{mo}: {a:+.1f}R / {b:+.1f}R {'🟢' if a + b > 0 else '🔴'}")
+        vals = [sums[m].get("months", {}).get(mo, 0.0) for m in METHOD_NAMES]
+        lines.append(f"{mo}: " + " / ".join(f"{v:+.1f}R" for v in vals) + f" {'🟢' if vals[0] > 0 else '🔴'}")
     best = max(METHOD_NAMES, key=lambda m: sums[m].get("total_r", float("-inf")))
     if sums[best].get("total_r", 0) > 0:
         lines += ["", f"🏅 הכי טובה בתקופה: {METHOD_NAMES[best]}"]
     else:
-        lines += ["", "⚠️ שתי השיטות הפסידו בתקופה הזאת - לא לסחור לפיהן עם כסף אמיתי."]
+        lines += ["", "⚠️ כל השיטות הפסידו בתקופה הזאת - לא לסחור לפיהן עם כסף אמיתי."]
     lines += ["", "<i>R = הסכום שאתה מסכן בעסקה. למשל, בסיכון של 100$ לעסקה, ‎+10R = רווח של 1,000$. "
                   "ביצועי עבר לא מבטיחים ביצועים בעתיד. לא כולל עמלות ומרווח.</i>"]
     return "\n".join(lines)

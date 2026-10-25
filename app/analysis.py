@@ -87,6 +87,13 @@ def liquidity_levels(m5: pd.DataFrame) -> pd.DataFrame:
     after_asia = ~asia
     out["asia_high"] = session.map(asia_rng["high"]).where(after_asia).values
     out["asia_low"] = session.map(asia_rng["low"]).where(after_asia).values
+    # טווח לונדון: 02:00-05:00 ניו יורק, ידוע מ-05:00 (באותו יום מסחר, אחרי חצות ניו יורק)
+    mins = pd.Series(ny.hour * 60 + ny.minute, index=m5.index)
+    lon = (mins >= 120) & (mins < 300) & (shifted.hour >= 7)
+    lon_rng = m5[lon.values].groupby(session[lon].values).agg(high=("high", "max"), low=("low", "min"))
+    lon_known = (mins >= 300) & (shifted.hour >= 7)
+    out["lon_high"] = session.map(lon_rng["high"]).where(lon_known).values
+    out["lon_low"] = session.map(lon_rng["low"]).where(lon_known).values
     h = pd.Series(ny.hour, index=m5.index)
     out["kz"] = np.where((h >= 2) & (h < 5), 1, np.where((h >= 7) & (h < 11), 2, 0))
     return out
@@ -245,7 +252,7 @@ def analyze(md: MarketData, now: pd.Timestamp, cfg: Settings) -> Analysis:
         "plan": make_plan(plan_dir, row, cfg) if plan_dir else None,
         "reasons": reasons(enriched, plan_dir, t),
         "levels": {**key_levels(md.h1, md.m5, now),
-                   **{k: round(float(row[c]), 2) for k, c in (("ASH", "asia_high"), ("ASL", "asia_low"))
+                   **{k: round(float(row[c]), 2) for k, c in (("ASH", "asia_high"), ("ASL", "asia_low"), ("LDH", "lon_high"), ("LDL", "lon_low"))
                       if not pd.isna(row[c])}},
         "killzone": KILLZONES.get(int(row["kz"])) if market_open else None,
     }

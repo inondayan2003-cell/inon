@@ -32,7 +32,7 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
-METHODS = {"trend": "📈 מגמה", "liquidity": "💧 נזילות"}
+METHODS = {"trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
 
 
 def _label(tr: dict) -> str:
@@ -64,6 +64,26 @@ def setup_message(s: dict) -> str:
     ])
 
 
+def range_message(ev: dict) -> str:
+    tr = ev["trade"]
+    icon, name = _dir(tr["direction"])
+    risk = abs(tr["entry"] - tr["sl"])
+    return "\n".join([
+        f"🎯{icon} <b>סיגנל {name} - זהב</b> · {_time(tr['opened_at'])}",
+        f"<i>{tr['note']}</i> (רמה {_p(ev['level'])})",
+        "",
+        f"💰 כניסה עכשיו: <b>{_p(tr['entry'])}</b>",
+        f"🛑 סטופ: {_p(tr['sl'])} ({risk:.2f}$)",
+        f"🎯 יעד: {_p(tr['tp2'])} (1.5R)",
+        f"⏳ אם לא הגיע ליעד או לסטופ עד {_time(ev['expires'])} - לסגור במחיר השוק.",
+        "",
+        "<i>השיטה נבדקה על שנתיים: כ-2 עסקאות ביום, 48% הצלחה, יתרון קטן אחרי ספרד. "
+        "ההצלחה באה מכך שהרווחים גדולים מההפסדים - חשוב לשמור על הסטופ והיעד בדיוק.</i>",
+        "",
+        DISCLAIMER,
+    ])
+
+
 def signal_message(trade: dict, snapshot: dict | None) -> str:
     icon, name = _dir(trade["direction"])
     risk = abs(trade["entry"] - trade["sl"])
@@ -85,6 +105,8 @@ def signal_message(trade: dict, snapshot: dict | None) -> str:
 def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     kind = ev["type"]
     if kind == "signal":
+        if ev["trade"].get("method") == "range":
+            return range_message(ev)
         return signal_message(ev["trade"], snapshot)
     if kind == "setup":
         return setup_message(ev["setup"])
@@ -104,8 +126,10 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
         return (f"✅ <b>יעד 1 הושג ({_label(tr)})</b>\n"
                 f"מחיר {_p(tr['tp1'])}. מומלץ לסגור חצי ולהזיז סטופ לכניסה ({_p(tr['entry'])}).")
     if kind == "closed":
+        if tr.get("method") == "range" and tr["status"] == "tp2":
+            return f"🏆 <b>היעד הושג</b> ({_label(tr)})\nיציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>"
         titles = {"tp2": "🏆 יעד 2 הושג - העסקה נסגרה", "sl": "🛑 הסטופ נלקח",
-                  "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ העסקה נסגרה (זמן מקסימלי)",
+                  "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ הזמן נגמר - לסגור במחיר השוק",
                   "reversed": "🔄 העסקה נסגרה - סיגנל הפוך"}
         return (f"<b>{titles[tr['status']]}</b> ({_label(tr)})\n"
                 f"יציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>")
@@ -126,9 +150,9 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים רק משיטת הנזילות 💧"]
+                      "סיגנלים נשלחים משיטת הטווחים 🎯"]
     if s.get("killzone"):
-        lines += ["", f"💧 סשן {s['killzone']} פעיל - שיטת הנזילות מחפשת סוויפים"]
+        lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:
         lines += ["", "😴 השוק סגור כרגע - זה מחיר הסגירה האחרון. השוק נפתח מחדש בלילה שבין ראשון לשני, בסביבות חצות-01:00 שעון ישראל"]
     return "\n".join(lines)

@@ -5,7 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
-const METHOD = { trend: "📈 מגמה", liquidity: "💧 נזילות" };
+const METHOD = { range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;
@@ -88,7 +88,7 @@ function renderAnalysis(a) {
     </div>`;
   }).join("");
 
-  const names = { R2: "התנגדות 2", R1: "התנגדות 1", PP: "פיבוט", S1: "תמיכה 1", S2: "תמיכה 2", PDH: "שיא אתמול", PDL: "שפל אתמול", HOD: "שיא היום", LOD: "שפל היום", ASH: "שיא אסיה", ASL: "שפל אסיה" };
+  const names = { R2: "התנגדות 2", R1: "התנגדות 1", PP: "פיבוט", S1: "תמיכה 1", S2: "תמיכה 2", PDH: "שיא אתמול", PDL: "שפל אתמול", HOD: "שיא היום", LOD: "שפל היום", ASH: "שיא אסיה", ASL: "שפל אסיה", LDH: "שיא לונדון", LDL: "שפל לונדון" };
   const lv = Object.entries(a.levels).map(([k, v]) => ({ k, v })).concat([{ k: "NOW", v: a.price }]).sort((x, y) => y.v - x.v);
   $("levels").innerHTML = lv.map(({ k, v }) => k === "NOW"
     ? `<div class="lv now"><span>◀ מחיר נוכחי</span><b class="num">${fmt(v)}</b></div>`
@@ -107,7 +107,7 @@ function renderTrades({ trades, stats, by_method }) {
   $("byMethod").innerHTML = per;
   $("history").innerHTML = trades.slice(0, 15).map((t) => `
     <div class="tr">
-      <span class="side ${t.direction === 1 ? "l" : "s"}">${(t.method === "liquidity" ? "💧" : "📈")} ${t.direction === 1 ? "לונג" : "שורט"}</span>
+      <span class="side ${t.direction === 1 ? "l" : "s"}">${(METHOD[t.method] || "").split(" ")[0]} ${t.direction === 1 ? "לונג" : "שורט"}</span>
       <span>${ilDate(t.opened_at)} · <span class="num">${fmt(t.entry)}</span> · ${STATUS[t.status] || t.status}</span>
       <b class="num ${t.result_r > 0 ? "up" : t.result_r < 0 ? "down" : ""}">${t.result_r == null ? "" : (t.result_r > 0 ? "+" : "") + t.result_r + "R"}</b>
     </div>`).join("");
