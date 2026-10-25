@@ -19,6 +19,8 @@ class Settings:
     check_interval: int = 120
     db_path: str = "data/bot.db"
     allowed_user_ids: frozenset[int] = field(default_factory=frozenset)
+    # אילו שיטות שולחות התראות. מגמה הפסידה בבדיקה של 6 חודשים (PF 0.88) - רצה רק במעקב
+    alert_methods: frozenset[str] = frozenset({"liquidity"})
 
     # פרמטרים של אסטרטגיית הסיגנלים
     entry_threshold: float = 50.0     # ציון משוקלל מינימלי לכניסה
@@ -51,6 +53,7 @@ def load_settings() -> Settings:
         check_interval=int(e("CHECK_INTERVAL_SECONDS", "300" if has_td else "120")),
         db_path=e("DB_PATH", "data/bot.db"),
         allowed_user_ids=_int_set(e("ALLOWED_USER_IDS", "")),
+        alert_methods=frozenset(e("ALERT_METHODS", "liquidity").replace(" ", "").split(",")),
     )
 
 

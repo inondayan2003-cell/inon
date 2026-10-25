@@ -89,3 +89,14 @@ def test_twelvedata_paging(monkeypatch):
     df = fetch_twelvedata_history("XAU/USD", "5min", full[100], "k", pause=0)
     assert len(calls) == 3
     assert df.index.is_unique and df.index[0] <= full[100] and df.index[-1] == full[-1]
+
+
+def test_only_alert_methods_are_notified(market, tmp_path):
+    """עסקאות מגמה נשמרות בהיסטוריה אבל לא נשלחות כהתראה כשהשיטה במעקב בלבד."""
+    from app.service import event_method
+    trend_ev = {"type": "signal", "trade": {"method": "trend"}}
+    liq_ev = {"type": "setup", "setup": {}}
+    assert event_method(trend_ev) == "trend" and event_method(liq_ev) == "liquidity"
+    assert event_method({"type": "weak"}) == "trend"
+    assert event_method({"type": "closed", "trade": {"method": "liquidity"}}) == "liquidity"
+    assert CFG.alert_methods == frozenset({"liquidity"})

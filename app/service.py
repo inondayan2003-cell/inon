@@ -15,6 +15,12 @@ log = logging.getLogger(__name__)
 FRESH = pd.Timedelta(minutes=15)  # לא שולחים סיגנל כניסה על נר ישן (למשל אחרי הפעלה מחדש)
 
 
+def event_method(ev: dict) -> str:
+    if "trade" in ev:
+        return ev["trade"].get("method", "trend")
+    return "liquidity" if "setup" in ev else "trend"
+
+
 class GoldService:
     def __init__(self, cfg: Settings, store: Store, feed: DataFeed | None = None):
         self.cfg = cfg
@@ -33,7 +39,8 @@ class GoldService:
 
     def positions(self) -> dict:
         strat = Strategy(self.cfg, self.strategy_state())
-        return {"open_trades": strat.open_trades, "pending": strat.pending}
+        return {"open_trades": strat.open_trades, "pending": strat.pending,
+                "alert_methods": sorted(self.cfg.alert_methods)}
 
     async def tick(self, now: pd.Timestamp | None = None) -> list[dict]:
         now = now or pd.Timestamp.now(tz="UTC")
@@ -53,6 +60,8 @@ class GoldService:
         for ev in events:
             if "trade" in ev:
                 self.store.save_trade(ev["trade"])
+            if event_method(ev) not in self.cfg.alert_methods:
+                continue  # שיטה במעקב בלבד: נשמרת בהיסטוריה, בלי התראה
             text = event_message(ev, self.snapshot)
             if text and self.notify:
                 await self.notify(text)

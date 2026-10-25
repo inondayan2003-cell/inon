@@ -60,7 +60,7 @@ function renderAnalysis(a) {
   const pend = a.pending;
   $("tradeCard").hidden = !trades.length && !pend;
   const blocks = trades.map((t) => `
-    <h2>${METHOD[t.method] || ""} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
+    <h2>${METHOD[t.method] || ""}${(a.alert_methods || []).includes(t.method) ? "" : " (מעקב בלבד, בלי התראות)"} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
     <div class="plan">${planCells(t, t.direction)}</div>`);
   if (pend) blocks.push(`
     <h2>💧 הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
@@ -71,7 +71,7 @@ function renderAnalysis(a) {
   const dir = a.direction || a.lean;
   $("planCard").hidden = !a.plan;
   if (a.plan) {
-    $("planTitle").textContent = a.direction ? "תוכנית מסחר" : "תוכנית אפשרית (עוד אין אישור מלא)";
+    $("planTitle").textContent = "📈 שיטת מגמה - לניתוח בלבד (הפסידה בבדיקה ההיסטורית)";
     $("plan").innerHTML = planCells(a.plan, dir);
     $("reasons").innerHTML = a.reasons.map((r) => `<li>${r}</li>`).join("");
   }
