@@ -137,6 +137,9 @@ FAMILIES = {
     "follow_lon": ["lon_highbreak_follow_long", "lon_lowbreak_follow_short"],
     "follow_asia": ["asia_highbreak_follow_long", "asia_lowbreak_follow_short"],
 }
+FAMILIES["follow_pd"] = ["pd_highbreak_follow_long", "pd_lowbreak_follow_short"]
+# השערה שנקבעה מראש: טווח לונדון (תוך-יומי) חוזר פנימה, רמות של אתמול (מבניות) נפרצות וממשיכות
+FAMILIES["fade_lon+follow_pd"] = FAMILIES["fade_lon"] + FAMILIES["follow_pd"]
 FAMILIES["fade_lon+sweeps"] = FAMILIES["fade_lon"] + FAMILIES["sweeps"]
 FAMILIES["fade_all"] = (FAMILIES["fade_lon"] + FAMILIES["fade_orblon"] + FAMILIES["fade_asia"]
                         + FAMILIES["fade_pd"] + FAMILIES["fade_orbny"])
