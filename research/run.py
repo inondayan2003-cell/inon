@@ -1,0 +1,104 @@
+"""מעבדת מחקר: מריצה שיטות מועמדות על היסטוריה ארוכה של XAU/USD ומדווחת ביצועים אחרי עלויות.
+
+python -m research.run --months 24 --cost 0.35 [--only liq,orb_ny]
+החלוקה: 70% הראשונים = in-sample (פיתוח), 30% האחרונים = out-of-sample (מבחן עיוור).
+"""
+import argparse
+import datetime as dt
+import json
+import math
+import os
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from app.analysis import build_frames, build_timeline, enrich, TIMEFRAMES
+from app.config import Settings
+from app.data import MarketData, resample
+from research.duka import fetch_minutes
+from research.features import extra_features
+from research.strategies import candidates
+
+
+def build(m1: pd.DataFrame) -> list[dict]:
+    m5 = resample(m1, "5min")
+    md = MarketData(m5=m5, h1=resample(m1, "1h"), symbol="XAU/USD", source="dukascopy")
+    enriched = {tf: enrich(df, TIMEFRAMES[tf]) for tf, df in build_frames(md).items()}
+    tl = build_timeline(enriched)
+    tl = tl.merge(extra_features(m5), on="t", how="left")
+    return tl.to_dict("records")
+
+
+def simulate(rows: list[dict], make) -> list[dict]:
+    strat, trades = make(), []
+    for row in rows:
+        for ev in strat.on_bar(row):
+            if ev["type"] == "closed":
+                trades.append(ev["trade"])
+    return trades
+
+
+def stats(trades: list[dict], cost: float, days: float) -> dict:
+    if not trades:
+        return {"n": 0}
+    net = np.array([t["result_r"] - cost / abs(t["entry"] - t["sl"]) for t in trades])
+    eq = net.cumsum()
+    win, loss = net[net > 0].sum(), -net[net < 0].sum()
+    sd = net.std(ddof=1) if len(net) > 1 else 0
+    return {"n": len(net), "per_day": round(len(net) / days, 2), "win": round(100 * (net > 0).mean(), 1),
+            "net_r": round(net.sum(), 1), "avg_r": round(net.mean(), 3),
+            "pf": round(win / loss, 2) if loss else None,
+            "dd": round(float((np.maximum.accumulate(np.maximum(eq, 0)) - eq).max()), 1),
+            "t": round(net.mean() / sd * math.sqrt(len(net)), 2) if sd else None}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--months", type=int, default=24)
+    ap.add_argument("--cost", type=float, default=0.35, help="ספרד+עמלה+החלקה לעסקה, בדולרים לאונקיה")
+    ap.add_argument("--only", default="")
+    ap.add_argument("--cache", default="research/cache")
+    a = ap.parse_args()
+
+    end = dt.date.today() - dt.timedelta(days=1)
+    start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
+    t0 = time.time()
+    print(f"מוריד נתונים {start} - {end}", flush=True)
+    m1 = fetch_minutes(start, end, Path(a.cache))
+    print(f"{len(m1):,} דקות, {m1.index[0]} - {m1.index[-1]} ({time.time() - t0:.0f}s)", flush=True)
+    rows = build(m1)
+    split = rows[int(len(rows) * 0.7)]["t"]
+    total_days = (rows[-1]["t"] - rows[0]["t"]).days * 5 / 7
+    print(f"טבלה: {len(rows):,} נרות 5M · פיצול IS/OOS: {split:%Y-%m-%d} ({time.time() - t0:.0f}s)\n", flush=True)
+
+    cfg = Settings()
+    results = {}
+    for name, make in candidates(cfg).items():
+        if a.only and name not in a.only.split(","):
+            continue
+        tr = simulate(rows, make)
+        is_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) < split]
+        oos_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) >= split]
+        results[name] = {"all": stats(tr, a.cost, total_days), "is": stats(is_tr, a.cost, total_days * 0.7),
+                         "oos": stats(oos_tr, a.cost, total_days * 0.3)}
+        print(f"  {name}: {len(tr)} עסקאות ({time.time() - t0:.0f}s)", flush=True)
+
+    head = "| שיטה | עסקאות | ליום | הצלחה | R נטו | ממוצע | PF | DD | t | IS R | IS PF | OOS R | OOS PF | OOS t |"
+    lines = [f"### תוצאות {start} - {end} · עלות {a.cost}$ לעסקה", "", head, "|" + "---|" * 14]
+    for name, r in results.items():
+        s, i, o = r["all"], r["is"], r["oos"]
+        if not s["n"]:
+            lines.append(f"| {name} | 0 |" + " |" * 12)
+            continue
+        lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
+                     f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} |")
+    report = "\n".join(lines)
+    print("\n" + report + "\nRESULTS_JSON " + json.dumps(results, ensure_ascii=False), flush=True)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(report)
+
+
+if __name__ == "__main__":
+    main()

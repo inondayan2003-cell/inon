@@ -137,6 +137,8 @@ def _num(v) -> float | None:
 
 
 class LiquidityStrategy(TradeBook):
+    # (שם, עמודה בטבלה, כיוון העסקה אחרי סוויפ)
+    LEVELS = (("PDL", "pdl", 1), ("ASL", "asia_low", 1), ("PDH", "pdh", -1), ("ASH", "asia_high", -1))
     SWEEP_BARS = 12      # כמה נרות אחרי הסוויפ מחכים לשבירת מבנה (שעה)
     SETUP_BARS = 12      # כמה זמן הזמנת הלימיט בתוקף (שעה)
     STRUCTURE_BARS = 6   # נרות לפני הסוויפ שמגדירים את המבנה לשבירה
@@ -197,7 +199,7 @@ class LiquidityStrategy(TradeBook):
         hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
         session = row.get("session")
         if row.get("kz", 0) and session:
-            for name, col, d in (("PDL", "pdl", 1), ("ASL", "asia_low", 1), ("PDH", "pdh", -1), ("ASH", "asia_high", -1)):
+            for name, col, d in self.LEVELS:
                 level = _num(row.get(col))
                 key = f"{session}:{name}"
                 if level is None or key in self.used:
@@ -261,7 +263,7 @@ class LiquidityStrategy(TradeBook):
             tp2 = far[0] if d == 1 else far[-1]
         return {"id": self.new_id(), "direction": d, "entry": entry, "sl": sl, "tp1": round(tp1, 2),
                 "tp2": round(tp2, 2), "score": round(htf, 1), "level": round(c["level"], 2), "name": c["name"],
-                "note": LEVEL_NAMES[c["name"]], "created": row["t"].isoformat(),
+                "note": LEVEL_NAMES.get(c["name"], c["name"]), "created": row["t"].isoformat(),
                 "expires": (row["t"] + pd.Timedelta(minutes=5 * self.SETUP_BARS)).isoformat(),
                 "expires_n": self.n + self.SETUP_BARS}
 

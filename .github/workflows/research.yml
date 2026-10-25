@@ -1,0 +1,27 @@
+# מעבדת מחקר: בדיקת שיטות מסחר על שנתיים של נתוני XAU/USD מ-Dukascopy
+name: research
+on:
+  workflow_dispatch:
+    inputs:
+      months: {description: "חודשים אחורה", default: "24"}
+      only: {description: "שיטות (מופרד בפסיקים, ריק = הכל)", default: ""}
+      cost: {description: "עלות לעסקה בדולרים", default: "0.35"}
+  push:
+    paths: ["research/**", "app/strategy.py", "app/analysis.py", ".github/workflows/research.yml"]
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13", cache: pip}
+      - run: pip install -r requirements.txt pyarrow
+      - uses: actions/cache@v4
+        with:
+          path: research/cache
+          key: duka-v1-${{ github.run_id }}
+          restore-keys: duka-v1-
+      - name: run
+        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}"
