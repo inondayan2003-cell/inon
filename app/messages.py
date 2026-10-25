@@ -14,6 +14,12 @@ def _time(iso: str) -> str:
     return datetime.fromisoformat(iso).astimezone(IL).strftime("%H:%M")
 
 
+def _when(iso: str) -> str:
+    d = datetime.fromisoformat(iso).astimezone(IL)
+    today = datetime.now(IL).date()
+    return d.strftime("%H:%M") if d.date() == today else d.strftime("%d/%m %H:%M")
+
+
 def _dir(d: int) -> tuple[str, str]:
     return ("🟢", "לונג") if d == 1 else ("🔴", "שורט")
 
@@ -69,7 +75,7 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
 def status_message(s: dict) -> str:
     icon = "🟢" if s["lean"] == 1 else "🔴" if s["lean"] == -1 else "⚪"
     lines = [
-        f"<b>זהב {_p(s['price'])}</b> ({s['symbol']})",
+        f"<b>זהב {_p(s['price'])}</b> ({s['symbol']}) · מחיר נכון ל-{_when(s.get('price_time') or s['updated_at'])}",
         f"{icon} <b>{s['verdict']}</b> · ציון {s['composite']:+.0f} · ביטחון {s['confidence']}",
         "",
     ]
@@ -79,5 +85,5 @@ def status_message(s: dict) -> str:
         p = s["plan"]
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if not s["market_open"]:
-        lines += ["", "😴 השוק סגור כרגע"]
+        lines += ["", "😴 השוק סגור כרגע - זה מחיר הסגירה האחרון. השוק נפתח מחדש בלילה שבין ראשון לשני, בסביבות חצות-01:00 שעון ישראל"]
     return "\n".join(lines)

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
-from .data import MarketData, resample
+from .data import MarketData, gold_closed, resample
 from .indicators import adx, atr, ema, macd, rsi, supertrend
 
 TIMEFRAMES = {"5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h"}
@@ -183,7 +183,7 @@ def analyze(md: MarketData, now: pd.Timestamp, cfg: Settings) -> Analysis:
     direction, lean, label = classify(row, cfg)
     price = float(md.m5["close"].iloc[-1])
     last_bar_time = md.m5.index[-1]
-    market_open = (now - last_bar_time) <= pd.Timedelta(minutes=20)
+    market_open = (now - last_bar_time) <= pd.Timedelta(minutes=20) and not gold_closed(pd.DatetimeIndex([now]))[0]
 
     tfs = []
     for tf in ("4h", "1h", "15m", "5m"):
@@ -205,6 +205,7 @@ def analyze(md: MarketData, now: pd.Timestamp, cfg: Settings) -> Analysis:
         "price": round(price, 2),
         "day_change": round(price - float(day_open["open"].iloc[0]), 2) if not day_open.empty else None,
         "updated_at": now.isoformat(), "bar_time": t.isoformat(),
+        "price_time": (last_bar_time + pd.Timedelta(minutes=5)).isoformat(),
         "market_open": bool(market_open),
         "composite": round(float(row["composite"]), 1),
         "direction": direction, "lean": lean, "verdict": label,

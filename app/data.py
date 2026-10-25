@@ -3,6 +3,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from zoneinfo import ZoneInfo
+
 import httpx
 import pandas as pd
 
@@ -10,6 +12,19 @@ from .config import Settings
 
 log = logging.getLogger(__name__)
 OHLC = ["open", "high", "low", "close"]
+NY = ZoneInfo("America/New_York")
+
+
+def gold_closed(ts: pd.DatetimeIndex) -> "pd.Series | bool":
+    """שוק הזהב סגור משישי 17:00 עד ראשון 18:00 שעון ניו יורק (כולל מעבר שעון)."""
+    ny = ts.tz_convert(NY)
+    wd, h = ny.weekday, ny.hour
+    return (wd == 5) | ((wd == 4) & (h >= 17)) | ((wd == 6) & (h < 18))
+
+
+def drop_closed(df: pd.DataFrame) -> pd.DataFrame:
+    """חלק מהספקים מפרסמים ציטוטים בסופ"ש - הם לא משקפים מחיר שאפשר לסחור בו."""
+    return df[~gold_closed(df.index)]
 
 
 @dataclass
@@ -74,9 +89,9 @@ class DataFeed:
         return fetch_yfinance(self.cfg.yf_symbol, tf, period)
 
     def get(self) -> MarketData:
-        m5 = self._fetch("5m")
+        m5 = drop_closed(self._fetch("5m"))
         if self._h1 is None or time.time() - self._h1_at > self.H1_REFRESH:
-            self._h1 = self._fetch("1h")
+            self._h1 = drop_closed(self._fetch("1h"))
             self._h1_at = time.time()
         # משלימים את השעות האחרונות מנתוני ה-5 דקות כדי שה-1H/4H יהיו עדכניים
         recent = resample(m5, "1h").iloc[1:]  # השעה הראשונה עלולה להיות חלקית
