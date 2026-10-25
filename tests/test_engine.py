@@ -4,7 +4,7 @@ import pandas as pd
 from app.analysis import analyze, enrich
 from app.config import Settings
 from app.indicators import rsi
-from app.strategy import Strategy
+from app.strategy import Strategy, TrendStrategy
 
 CFG = Settings()
 
@@ -62,7 +62,7 @@ def _row(t, close, composite, high=None, low=None, **kw):
 
 
 def test_strategy_long_lifecycle():
-    s = Strategy(CFG)
+    s = TrendStrategy(CFG)
     ev = s.on_bar(_row("2026-10-21 10:00", 2400, 70))
     assert [e["type"] for e in ev] == ["signal"]
     tr = s.trade
@@ -77,10 +77,10 @@ def test_strategy_long_lifecycle():
 
 
 def test_strategy_stop_and_state_roundtrip():
-    s = Strategy(CFG)
+    s = TrendStrategy(CFG)
     s.on_bar(_row("2026-10-21 10:00", 2400, -70, ema21_15m=2402))
     assert s.trade.direction == -1
-    s = Strategy(CFG, s.to_state())  # שמירה וטעינה כמו בשרת
+    s = TrendStrategy(CFG, s.to_state(), {"next": 2})  # שמירה וטעינה כמו בשרת
     ev = s.on_bar(_row("2026-10-21 10:05", 2405, -70, high=s.trade.sl + 1, ema21_15m=2402))
     assert ev[0]["trade"]["status"] == "sl" and ev[0]["trade"]["result_r"] == -1.0
     # בתוך ה-cooldown אין סיגנל חדש באותו כיוון
@@ -88,7 +88,7 @@ def test_strategy_stop_and_state_roundtrip():
 
 
 def test_filters_block_entry():
-    s = Strategy(CFG)
+    s = TrendStrategy(CFG)
     assert s.on_bar(_row("2026-10-21 10:00", 2400, 70, adx_15m=10)) == []          # אין מגמה
     assert s.on_bar(_row("2026-10-21 10:05", 2400, 70, ema21_15m=2380)) == []      # מתוח מדי
     assert s.on_bar(_row("2026-10-21 10:10", 2400, 70, score_4h=-10)) == []        # 4H נגד
@@ -96,7 +96,7 @@ def test_filters_block_entry():
 
 
 def test_weak_and_reverse():
-    s = Strategy(CFG)
+    s = TrendStrategy(CFG)
     s.on_bar(_row("2026-10-21 10:00", 2400, 70))
     ev = s.on_bar(_row("2026-10-21 10:05", 2400, 10))
     assert [e["type"] for e in ev] == ["weak"]

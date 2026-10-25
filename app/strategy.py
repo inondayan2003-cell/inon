@@ -1,7 +1,13 @@
-"""אסטרטגיית הסיגנלים וניהול העסקה - משותף לבוט החי ול-backtest.
+"""אסטרטגיות הסיגנלים וניהול העסקה - משותף לבוט החי ול-backtest.
 
-ניהול עסקה: חצי מהפוזיציה נסגר ב-TP1 (1R) והסטופ זז לכניסה, החצי השני ב-TP2 (2R).
+שתי שיטות רצות במקביל, כל אחת עם עסקה משלה:
+- מגמה (trend): יישור טווחים לפי אינדיקטורים, כניסה במחיר השוק.
+- נזילות (liquidity): סוויפ של שיא/שפל אתמול או של סשן אסיה בשעות לונדון/ניו יורק,
+  שבירת מבנה ב-5M, והזמנת לימיט באמצע ה-FVG שנוצר.
+
+ניהול עסקה: חצי מהפוזיציה נסגר ב-TP1 (1R) והסטופ זז לכניסה, החצי השני ב-TP2.
 """
+import math
 from dataclasses import asdict, dataclass
 
 import pandas as pd
@@ -26,6 +32,8 @@ class Trade:
     result_r: float | None = None
     exit_price: float | None = None
     closed_at: str | None = None
+    method: str = "trend"         # trend / liquidity
+    note: str = ""                # למשל איזו נזילות נלקחה
 
     @property
     def risk(self) -> float:
@@ -36,53 +44,17 @@ class Trade:
         return 0.5 + 0.5 * move if self.tp1_hit else move
 
 
-class Strategy:
-    def __init__(self, cfg: Settings, state: dict | None = None):
-        state = state or {}
+class TradeBook:
+    """עסקה פתוחה אחת וניהול שלה (יעדים, סטופ, זמן)."""
+
+    def __init__(self, cfg: Settings, trade: dict | None, ids: dict):
         self.cfg = cfg
-        self.active_dir: int = state.get("active_dir", 0)
-        self.last_signal: dict[str, str] = state.get("last_signal", {})
-        self.next_id: int = state.get("next_id", 1)
-        self.last_t: str | None = state.get("last_t")
-        self.trade: Trade | None = Trade(**state["trade"]) if state.get("trade") else None
+        self.ids = ids  # מונה מזהים משותף לכל השיטות
+        self.trade: Trade | None = Trade(**trade) if trade else None
 
-    def to_state(self) -> dict:
-        return {"active_dir": self.active_dir, "last_signal": self.last_signal, "next_id": self.next_id,
-                "last_t": self.last_t, "trade": asdict(self.trade) if self.trade else None}
-
-    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
-        """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
-        t: pd.Timestamp = row["t"]
-        self.last_t = t.isoformat()
-        events: list[dict] = []
-        if self.trade:
-            events += self._update_trade(row)
-
-        if self.active_dir and row["composite"] * self.active_dir < self.cfg.exit_threshold:
-            events.append({"type": "weak", "direction": self.active_dir, "price": float(row["close"]),
-                           "score": float(row["composite"]), "t": t.isoformat()})
-            self.active_dir = 0
-
-        d = entry_direction(row, self.cfg)
-        if not (d and allow_entry and d != self.active_dir):
-            return events
-        if self.trade and self.trade.direction == d:
-            return events
-        last = self.last_signal.get(str(d))
-        if last and t - pd.Timestamp(last) < pd.Timedelta(minutes=self.cfg.cooldown_minutes):
-            return events
-
-        if self.trade:  # סיגנל הפוך: סוגרים את העסקה הקיימת במחיר השוק
-            events.append(self._close(float(row["close"]), "reversed", t))
-        plan = make_plan(d, row, self.cfg)
-        self.trade = Trade(id=self.next_id, direction=d, opened_at=t.isoformat(), entry=plan["entry"],
-                           sl=plan["sl"], tp1=plan["tp1"], tp2=plan["tp2"],
-                           score=round(float(row["composite"]), 1), stop=plan["sl"])
-        self.next_id += 1
-        self.active_dir = d
-        self.last_signal[str(d)] = t.isoformat()
-        events.append({"type": "signal", "trade": asdict(self.trade), "t": t.isoformat()})
-        return events
+    def new_id(self) -> int:
+        self.ids["next"] += 1
+        return self.ids["next"] - 1
 
     def _update_trade(self, row) -> list[dict]:
         tr, t = self.trade, row["t"]
@@ -111,3 +83,214 @@ class Strategy:
         tr.status, tr.exit_price, tr.closed_at = status, round(price, 2), t.isoformat()
         self.trade = None
         return {"type": "closed", "trade": asdict(tr), "t": t.isoformat()}
+
+
+class TrendStrategy(TradeBook):
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        state = state or {}
+        super().__init__(cfg, state.get("trade"), ids if ids is not None else {"next": state.get("next_id", 1)})
+        self.active_dir: int = state.get("active_dir", 0)
+        self.last_signal: dict[str, str] = state.get("last_signal", {})
+
+    def to_state(self) -> dict:
+        return {"active_dir": self.active_dir, "last_signal": self.last_signal,
+                "trade": asdict(self.trade) if self.trade else None}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        t: pd.Timestamp = row["t"]
+        events: list[dict] = []
+        if self.trade:
+            events += self._update_trade(row)
+
+        if self.active_dir and row["composite"] * self.active_dir < self.cfg.exit_threshold:
+            events.append({"type": "weak", "direction": self.active_dir, "price": float(row["close"]),
+                           "score": float(row["composite"]), "t": t.isoformat()})
+            self.active_dir = 0
+
+        d = entry_direction(row, self.cfg)
+        if not (d and allow_entry and d != self.active_dir):
+            return events
+        if self.trade and self.trade.direction == d:
+            return events
+        last = self.last_signal.get(str(d))
+        if last and t - pd.Timestamp(last) < pd.Timedelta(minutes=self.cfg.cooldown_minutes):
+            return events
+
+        if self.trade:  # סיגנל הפוך: סוגרים את העסקה הקיימת במחיר השוק
+            events.append(self._close(float(row["close"]), "reversed", t))
+        plan = make_plan(d, row, self.cfg)
+        self.trade = Trade(id=self.new_id(), direction=d, opened_at=t.isoformat(), entry=plan["entry"],
+                           sl=plan["sl"], tp1=plan["tp1"], tp2=plan["tp2"],
+                           score=round(float(row["composite"]), 1), stop=plan["sl"])
+        self.active_dir = d
+        self.last_signal[str(d)] = t.isoformat()
+        events.append({"type": "signal", "trade": asdict(self.trade), "t": t.isoformat()})
+        return events
+
+
+LEVEL_NAMES = {"PDL": "השפל של אתמול", "PDH": "השיא של אתמול",
+               "ASL": "השפל של סשן אסיה", "ASH": "השיא של סשן אסיה"}
+
+
+def _num(v) -> float | None:
+    return None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
+
+
+class LiquidityStrategy(TradeBook):
+    SWEEP_BARS = 12      # כמה נרות אחרי הסוויפ מחכים לשבירת מבנה (שעה)
+    SETUP_BARS = 12      # כמה זמן הזמנת הלימיט בתוקף (שעה)
+    STRUCTURE_BARS = 6   # נרות לפני הסוויפ שמגדירים את המבנה לשבירה
+    BUF = 40
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        state = state or {}
+        super().__init__(cfg, state.get("trade"), ids if ids is not None else {"next": 1})
+        self.n: int = state.get("n", 0)
+        self.buf: list[dict] = state.get("buf", [])
+        self.cands: list[dict] = state.get("cands", [])
+        self.used: list[str] = state.get("used", [])
+        self.setup: dict | None = state.get("setup")
+
+    def to_state(self) -> dict:
+        return {"n": self.n, "buf": self.buf, "cands": self.cands, "used": self.used, "setup": self.setup,
+                "trade": asdict(self.trade) if self.trade else None}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        self.n += 1
+        self.buf.append({"n": self.n, "h": float(row["high"]), "l": float(row["low"]), "c": float(row["close"])})
+        self.buf = self.buf[-self.BUF:]
+        events: list[dict] = []
+        if self.trade:
+            events += self._update_trade(row)
+        if self.setup:
+            events += self._manage_setup(row)
+        if not self.trade and not self.setup:
+            events += self._scan(row, allow_entry)
+        return events
+
+    # ---------- הזמנת לימיט ממתינה ----------
+    def _manage_setup(self, row) -> list[dict]:
+        s, t, d = self.setup, row["t"], self.setup["direction"]
+        hi, lo = float(row["high"]), float(row["low"])
+        fav, adv = (hi, lo) if d == 1 else (lo, hi)
+        if (adv - s["entry"]) * d <= 0:  # המחיר חזר לאזור הכניסה - הלימיט התמלא
+            self.trade = Trade(id=s["id"], direction=d, opened_at=t.isoformat(), entry=s["entry"], sl=s["sl"],
+                               tp1=s["tp1"], tp2=s["tp2"], score=s["score"], stop=s["sl"],
+                               method="liquidity", note=s["note"])
+            self.setup = None
+            events = [{"type": "filled", "trade": asdict(self.trade), "t": t.isoformat()}]
+            if (adv - s["sl"]) * d <= 0:  # באותו נר גם הסטופ נלקח (הנחה שמרנית)
+                events.append(self._close(s["sl"], "sl", t))
+            return events
+        reason = None
+        if (fav - s["tp1"]) * d >= 0:
+            reason = "המחיר הגיע ליעד בלי לחזור לאזור הכניסה"
+        elif self.n > s["expires_n"]:
+            reason = "לא התמלאה בזמן"
+        if reason:
+            self.setup = None
+            return [{"type": "cancelled", "setup": s, "reason": reason, "t": t.isoformat()}]
+        return []
+
+    # ---------- חיפוש סוויפ + שבירת מבנה + FVG ----------
+    def _scan(self, row, allow_entry: bool) -> list[dict]:
+        hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
+        session = row.get("session")
+        if row.get("kz", 0) and session:
+            for name, col, d in (("PDL", "pdl", 1), ("ASL", "asia_low", 1), ("PDH", "pdh", -1), ("ASH", "asia_high", -1)):
+                level = _num(row.get(col))
+                key = f"{session}:{name}"
+                if level is None or key in self.used:
+                    continue
+                if (d == 1 and lo < level) or (d == -1 and hi > level):
+                    ext = lo if d == 1 else hi
+                    self.cands.append({"direction": d, "name": name, "level": level, "ext": ext,
+                                       "ext_n": self.n, "born": self.n})
+                    self.used = (self.used + [key])[-20:]
+
+        for c in self.cands:  # הסוויפ ממשיך להעמיק - מעדכנים את הקצה
+            if (c["direction"] == 1 and lo < c["ext"]) or (c["direction"] == -1 and hi > c["ext"]):
+                c["ext"], c["ext_n"] = (lo if c["direction"] == 1 else hi), self.n
+        self.cands = [c for c in self.cands if self.n - c["born"] <= self.SWEEP_BARS]
+
+        for c in list(self.cands):
+            d = c["direction"]
+            pre = [b for b in self.buf if c["ext_n"] - self.STRUCTURE_BARS <= b["n"] < c["ext_n"]]
+            if len(pre) < 3:
+                continue
+            ref = max(b["h"] for b in pre) if d == 1 else min(b["l"] for b in pre)
+            if not ((close - c["level"]) * d > 0 and (close - ref) * d > 0):
+                continue
+            # שבירת מבנה - הסוויפ "נוצל" (וגם סוויפים אחרים באותו כיוון, כדי לא לאותת פעמיים על אותו מהלך)
+            self.cands = [x for x in self.cands if x["direction"] != d]
+            setup = self._make_setup(c, row) if allow_entry else None
+            if setup:
+                self.setup = setup
+                return [{"type": "setup", "setup": setup, "t": row["t"].isoformat()}]
+        return []
+
+    def _make_setup(self, c: dict, row) -> dict | None:
+        d, a = c["direction"], _num(row.get("atr_15m"))
+        if not a:
+            return None
+        leg = [b for b in self.buf if b["n"] >= c["ext_n"] - 2]
+        fvg = None
+        for i in range(2, len(leg)):
+            x, z = leg[i - 2], leg[i]
+            if z["n"] <= c["ext_n"]:
+                continue
+            if d == 1 and z["l"] > x["h"]:
+                fvg = (x["h"], z["l"])
+            elif d == -1 and z["h"] < x["l"]:
+                fvg = (z["h"], x["l"])
+        if not fvg:
+            return None
+        entry = round((fvg[0] + fvg[1]) / 2, 2)
+        sl = round(c["ext"] - d * 0.1 * a, 2)
+        risk = (entry - sl) * d
+        if not (0.25 * a <= risk <= 2.5 * a) or (float(row["close"]) - entry) * d <= 0:
+            return None
+        htf = (float(row["score_1h"]) + float(row["score_4h"])) / 2
+        if htf * d < -20:  # לא נכנסים נגד מגמה חזקה ב-1H/4H
+            return None
+        tp1, tp2 = entry + d * risk, entry + 2 * d * risk
+        # היעד השני: הנזילות שבצד השני, אם היא בטווח של 2R-4R
+        opp = [_num(row.get(k)) for k in (("pdh", "asia_high") if d == 1 else ("pdl", "asia_low"))]
+        far = sorted(x for x in opp if x is not None and 2 * risk <= (x - entry) * d <= 4 * risk)
+        if far:
+            tp2 = far[0] if d == 1 else far[-1]
+        return {"id": self.new_id(), "direction": d, "entry": entry, "sl": sl, "tp1": round(tp1, 2),
+                "tp2": round(tp2, 2), "score": round(htf, 1), "level": round(c["level"], 2), "name": c["name"],
+                "note": LEVEL_NAMES[c["name"]], "created": row["t"].isoformat(),
+                "expires": (row["t"] + pd.Timedelta(minutes=5 * self.SETUP_BARS)).isoformat(),
+                "expires_n": self.n + self.SETUP_BARS}
+
+
+class Strategy:
+    """מריץ את שתי השיטות על כל נר ושומר את המצב של שתיהן."""
+
+    def __init__(self, cfg: Settings, state: dict | None = None):
+        state = state or {}
+        if state and "trend" not in state:  # מצב שנשמר בגרסה הקודמת (שיטת מגמה בלבד)
+            state = {"trend": state, "next_id": state.get("next_id", 1), "last_t": state.get("last_t")}
+        self.ids = {"next": state.get("next_id", 1)}
+        self.last_t: str | None = state.get("last_t")
+        self.trend = TrendStrategy(cfg, state.get("trend"), self.ids)
+        self.liquidity = LiquidityStrategy(cfg, state.get("liquidity"), self.ids)
+
+    def to_state(self) -> dict:
+        return {"next_id": self.ids["next"], "last_t": self.last_t,
+                "trend": self.trend.to_state(), "liquidity": self.liquidity.to_state()}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
+        self.last_t = row["t"].isoformat()
+        return self.trend.on_bar(row, allow_entry) + self.liquidity.on_bar(row, allow_entry)
+
+    @property
+    def open_trades(self) -> list[dict]:
+        return [asdict(s.trade) for s in (self.trend, self.liquidity) if s.trade]
+
+    @property
+    def pending(self) -> dict | None:
+        return self.liquidity.setup

@@ -32,11 +32,43 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
+METHODS = {"trend": "📈 מגמה", "liquidity": "💧 נזילות"}
+
+
+def _label(tr: dict) -> str:
+    _, name = _dir(tr["direction"])
+    return f"{METHODS.get(tr.get('method', 'trend'))} · {name} #{tr['id']}"
+
+
+def _rr(tr: dict) -> str:
+    return f"{abs(tr['tp2'] - tr['entry']) / abs(tr['entry'] - tr['sl']):.1f}R"
+
+
+def setup_message(s: dict) -> str:
+    icon, name = _dir(s["direction"])
+    order = "Buy Limit" if s["direction"] == 1 else "Sell Limit"
+    side = "מתחת ל" if s["direction"] == 1 else "מעל ל"
+    back = "מעליו" if s["direction"] == 1 else "מתחתיו"
+    return "\n".join([
+        f"💧{icon} <b>סיגנל נזילות {name} - זהב</b> · {_time(s['created'])}",
+        "",
+        f"המחיר לקח את הנזילות {side}{s['note']} ({_p(s['level'])}), חזר {back} ושבר מבנה ב-5M.",
+        "",
+        f"📌 הזמנת <b>{order}</b>: <b>{_p(s['entry'])}</b> (אמצע ה-FVG)",
+        f"🛑 סטופ: {_p(s['sl'])} ({abs(s['entry'] - s['sl']):.2f}$, מעבר לקצה הסוויפ)",
+        f"🎯 יעד 1: {_p(s['tp1'])} (1R · סגור חצי, הזז סטופ לכניסה)",
+        f"🎯 יעד 2: {_p(s['tp2'])} ({_rr(s)})",
+        f"⏳ ההזמנה בתוקף עד {_time(s['expires'])}. אם לא התמלאה עד אז - לבטל.",
+        "",
+        DISCLAIMER,
+    ])
+
+
 def signal_message(trade: dict, snapshot: dict | None) -> str:
     icon, name = _dir(trade["direction"])
     risk = abs(trade["entry"] - trade["sl"])
     lines = [
-        f"{icon} <b>סיגנל {name} - זהב</b> · {_time(trade['opened_at'])}",
+        f"📈{icon} <b>סיגנל מגמה {name} - זהב</b> · {_time(trade['opened_at'])}",
         "",
         f"💰 כניסה: <b>{_p(trade['entry'])}</b>",
         f"🛑 סטופ: {_p(trade['sl'])} ({risk:.2f}$)",
@@ -54,20 +86,28 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     kind = ev["type"]
     if kind == "signal":
         return signal_message(ev["trade"], snapshot)
+    if kind == "setup":
+        return setup_message(ev["setup"])
+    if kind == "cancelled":
+        s = ev["setup"]
+        _, name = _dir(s["direction"])
+        return f"❌ <b>הזמנת הנזילות ({name} #{s['id']}) בוטלה</b>\n{ev['reason']}. אם שמת לימיט אצל הברוקר - בטל אותו."
     if kind == "weak":
         icon, name = _dir(ev["direction"])
-        return (f"⚠️ <b>הסיגנל ל{name} נחלש</b> · {_time(ev['t'])}\n"
+        return (f"⚠️ <b>סיגנל המגמה ל{name} נחלש</b> · {_time(ev['t'])}\n"
                 f"הציון ירד ל-{ev['score']:+.0f}. כדאי להדק סטופ או לממש.")
     tr = ev["trade"]
-    _, name = _dir(tr["direction"])
+    if kind == "filled":
+        return (f"✅ <b>הלימיט התמלא ({_label(tr)})</b> ב-{_p(tr['entry'])}\n"
+                f"סטופ {_p(tr['sl'])} · יעדים {_p(tr['tp1'])} / {_p(tr['tp2'])}")
     if kind == "tp1":
-        return (f"✅ <b>יעד 1 הושג ({name} #{tr['id']})</b>\n"
+        return (f"✅ <b>יעד 1 הושג ({_label(tr)})</b>\n"
                 f"מחיר {_p(tr['tp1'])}. מומלץ לסגור חצי ולהזיז סטופ לכניסה ({_p(tr['entry'])}).")
     if kind == "closed":
         titles = {"tp2": "🏆 יעד 2 הושג - העסקה נסגרה", "sl": "🛑 הסטופ נלקח",
                   "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ העסקה נסגרה (זמן מקסימלי)",
                   "reversed": "🔄 העסקה נסגרה - סיגנל הפוך"}
-        return (f"<b>{titles[tr['status']]}</b> ({name} #{tr['id']})\n"
+        return (f"<b>{titles[tr['status']]}</b> ({_label(tr)})\n"
                 f"יציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>")
     return None
 
@@ -84,6 +124,8 @@ def status_message(s: dict) -> str:
     if s.get("plan") and s["direction"]:
         p = s["plan"]
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
+    if s.get("killzone"):
+        lines += ["", f"💧 סשן {s['killzone']} פעיל - שיטת הנזילות מחפשת סוויפים"]
     if not s["market_open"]:
         lines += ["", "😴 השוק סגור כרגע - זה מחיר הסגירה האחרון. השוק נפתח מחדש בלילה שבין ראשון לשני, בסביבות חצות-01:00 שעון ישראל"]
     return "\n".join(lines)

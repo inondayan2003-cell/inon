@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
-from .data import MarketData, gold_closed, resample
+from .data import NY, MarketData, gold_closed, resample
 from .indicators import adx, atr, ema, macd, rsi, supertrend
 
 TIMEFRAMES = {"5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h"}
@@ -63,10 +63,40 @@ def enrich(df: pd.DataFrame, period: str) -> pd.DataFrame:
     return out
 
 
+KILLZONES = {1: "לונדון", 2: "ניו יורק"}
+
+
+def liquidity_levels(m5: pd.DataFrame) -> pd.DataFrame:
+    """רמות נזילות לכל נר 5 דקות, רק ממידע שכבר ידוע באותו רגע.
+
+    יום מסחר בזהב מתחיל ב-17:00 שעון ניו יורק. סשן אסיה = מתחילת היום עד 02:00 ניו יורק
+    (פתיחת לונדון). Killzones: לונדון 02:00-05:00, ניו יורק 07:00-11:00 (שעון ניו יורק).
+    """
+    ny = m5.index.tz_convert(NY)
+    shifted = (ny + pd.Timedelta(hours=7)).tz_localize(None)
+    session = pd.Series(shifted.normalize(), index=m5.index)
+    asia = pd.Series(shifted.hour < 9, index=m5.index)
+
+    daily = m5.groupby(session.values).agg(high=("high", "max"), low=("low", "min"))
+    prev = daily.shift(1)
+    asia_rng = m5[asia.values].groupby(session[asia].values).agg(high=("high", "max"), low=("low", "min"))
+    out = pd.DataFrame(index=m5.index)
+    out["session"] = session.dt.strftime("%Y-%m-%d")
+    out["pdh"] = session.map(prev["high"]).values
+    out["pdl"] = session.map(prev["low"]).values
+    after_asia = ~asia
+    out["asia_high"] = session.map(asia_rng["high"]).where(after_asia).values
+    out["asia_low"] = session.map(asia_rng["low"]).where(after_asia).values
+    h = pd.Series(ny.hour, index=m5.index)
+    out["kz"] = np.where((h >= 2) & (h < 5), 1, np.where((h >= 7) & (h < 11), 2, 0))
+    return out
+
+
 def build_timeline(enriched: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """שורה לכל נר 5 דקות (לפי זמן סגירה) עם הציון העדכני של כל טווח."""
-    base = enriched["5m"][["open", "high", "low", "close", "close_time", "score"]]
-    base = base.rename(columns={"score": "score_5m"}).reset_index(drop=True)
+    """שורה לכל נר 5 דקות (לפי זמן סגירה) עם הציון העדכני של כל טווח ורמות הנזילות."""
+    m5 = enriched["5m"]
+    base = m5[["open", "high", "low", "close", "close_time", "score", "atr"]].join(liquidity_levels(m5))
+    base = base.rename(columns={"score": "score_5m", "atr": "atr_5m"}).reset_index(drop=True)
     for tf in ("15m", "1h", "4h"):
         cols = ["close_time", "score"]
         if tf == "15m":
@@ -214,7 +244,10 @@ def analyze(md: MarketData, now: pd.Timestamp, cfg: Settings) -> Analysis:
         "timeframes": tfs,
         "plan": make_plan(plan_dir, row, cfg) if plan_dir else None,
         "reasons": reasons(enriched, plan_dir, t),
-        "levels": key_levels(md.h1, md.m5, now),
+        "levels": {**key_levels(md.h1, md.m5, now),
+                   **{k: round(float(row[c]), 2) for k, c in (("ASH", "asia_high"), ("ASL", "asia_low"))
+                      if not pd.isna(row[c])}},
+        "killzone": KILLZONES.get(int(row["kz"])) if market_open else None,
     }
     return Analysis(snapshot=snapshot, timeline=timeline, enriched=enriched)
 

@@ -15,7 +15,9 @@ def test_backtest_runs(market):
     assert trades, "האסטרטגיה צריכה לייצר עסקאות על נתונים עם מגמות"
     for t in trades:
         assert t["status"] in {"tp2", "sl", "be", "expired", "reversed"}
-        assert -1.01 <= t["result_r"] <= 1.51 or t["status"] in {"expired", "reversed"}
+        assert -1.01 <= t["result_r"] <= 2.51 or t["status"] in {"expired", "reversed"}
+    methods = {t["method"] for t in trades}
+    print("\nmethods:", {m: sum(t["method"] == m for t in trades) for m in methods})
 
 
 class FakeFeed:
@@ -59,9 +61,9 @@ def test_summary_and_report(market):
     assert s["count"] == len(trades) == s["long"]["count"] + s["short"]["count"]
     assert abs(s["total_r"] - sum(t["result_r"] for t in trades)) < 0.05
     assert s["max_drawdown_r"] >= 0
-    text = format_report(s, market)
-    assert "אחוז הצלחה" in text and "לפי חודש" in text
-    assert format_report(summarize([]), market).endswith("לא היו סיגנלים בתקופה הזאת.")
+    text = format_report(trades, market)
+    assert "שיטת מגמה" in text and "שיטת נזילות" in text and "לפי חודש" in text
+    assert format_report([], market).endswith("לא היו סיגנלים בתקופה הזאת.")
 
 
 def test_twelvedata_paging(monkeypatch):

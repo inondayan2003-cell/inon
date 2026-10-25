@@ -24,7 +24,7 @@ service = GoldService(settings, store)
 bot = Bot(settings, store, lambda: service.snapshot) if settings.bot_token else None
 
 
-BACKTEST_ID = "v1"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
+BACKTEST_ID = "v2"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
 
 
 async def send_backtest_once():
@@ -64,8 +64,7 @@ def health():
 def get_analysis():
     if not service.snapshot:
         raise HTTPException(503, service.last_error or "הניתוח הראשון עוד רץ")
-    trade = service.strategy_state().get("trade")
-    return {**service.snapshot, "active_trade": trade, "error": service.last_error}
+    return {**service.snapshot, **service.positions(), "error": service.last_error}
 
 
 @app.get("/api/candles")
@@ -86,8 +85,9 @@ def get_candles(tf: str = "15m", limit: int = 200):
 
 @app.get("/api/trades")
 def get_trades():
-    trades = store.trades(100)
-    return {"trades": trades[:30], "stats": trade_stats(trades)}
+    trades = store.trades(200)
+    by_method = {m: trade_stats([t for t in trades if t.get("method", "trend") == m]) for m in ("trend", "liquidity")}
+    return {"trades": trades[:30], "stats": trade_stats(trades), "by_method": by_method}
 
 
 def _user(init_data: str) -> dict:

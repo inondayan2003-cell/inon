@@ -5,6 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
+const METHOD = { trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;
@@ -51,15 +52,21 @@ function renderAnalysis(a) {
   fill.style.width = `${w}%`;
   const badges = [`ביטחון ${a.confidence}`];
   if (!a.market_open) badges.push("😴 השוק סגור");
+  if (a.killzone) badges.push(`💧 סשן ${a.killzone}`);
   $("badges").innerHTML = badges.map((b) => `<span class="badge">${b}</span>`).join("") +
     (a.entry_ready && a.market_open ? `<span class="badge go">✓ תנאי כניסה מתקיימים</span>` : "");
 
-  const t = a.active_trade;
-  $("tradeCard").hidden = !t;
-  if (t) {
-    $("tradeTitle").textContent = `עסקה פעילה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}`;
-    $("tradePlan").innerHTML = planCells(t, t.direction);
-  }
+  const trades = a.open_trades || [];
+  const pend = a.pending;
+  $("tradeCard").hidden = !trades.length && !pend;
+  const blocks = trades.map((t) => `
+    <h2>${METHOD[t.method] || ""} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
+    <div class="plan">${planCells(t, t.direction)}</div>`);
+  if (pend) blocks.push(`
+    <h2>💧 הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
+    <p class="muted" style="margin-bottom:8px">סוויפ של ${pend.note} (${fmt(pend.level)})</p>
+    <div class="plan">${planCells(pend, pend.direction)}</div>`);
+  $("tradePlan").innerHTML = blocks.join('<div style="height:12px"></div>');
 
   const dir = a.direction || a.lean;
   $("planCard").hidden = !a.plan;
@@ -81,7 +88,7 @@ function renderAnalysis(a) {
     </div>`;
   }).join("");
 
-  const names = { R2: "התנגדות 2", R1: "התנגדות 1", PP: "פיבוט", S1: "תמיכה 1", S2: "תמיכה 2", PDH: "שיא אתמול", PDL: "שפל אתמול", HOD: "שיא היום", LOD: "שפל היום" };
+  const names = { R2: "התנגדות 2", R1: "התנגדות 1", PP: "פיבוט", S1: "תמיכה 1", S2: "תמיכה 2", PDH: "שיא אתמול", PDL: "שפל אתמול", HOD: "שיא היום", LOD: "שפל היום", ASH: "שיא אסיה", ASL: "שפל אסיה" };
   const lv = Object.entries(a.levels).map(([k, v]) => ({ k, v })).concat([{ k: "NOW", v: a.price }]).sort((x, y) => y.v - x.v);
   $("levels").innerHTML = lv.map(({ k, v }) => k === "NOW"
     ? `<div class="lv now"><span>◀ מחיר נוכחי</span><b class="num">${fmt(v)}</b></div>`
@@ -91,13 +98,16 @@ function renderAnalysis(a) {
   drawPriceLines();
 }
 
-function renderTrades({ trades, stats }) {
+function renderTrades({ trades, stats, by_method }) {
   $("stats").innerHTML = stats.count
     ? `<div><b>${stats.count}</b><span>עסקאות</span></div><div><b>${stats.win_rate}%</b><span>הצלחה</span></div><div><b class="${stats.total_r >= 0 ? "up" : "down"}">${stats.total_r > 0 ? "+" : ""}${stats.total_r}R</b><span>סה"כ</span></div>`
     : `<p class="muted" style="grid-column:1/-1">עוד אין עסקאות סגורות. כל סיגנל נרשם כאן עם התוצאה שלו.</p>`;
+  const per = Object.entries(by_method || {}).filter(([, s]) => s.count)
+    .map(([m, s]) => `${METHOD[m]}: ${s.count} עסקאות · ${s.win_rate}% · <span class="num">${s.total_r > 0 ? "+" : ""}${s.total_r}R</span>`).join("<br>");
+  $("byMethod").innerHTML = per;
   $("history").innerHTML = trades.slice(0, 15).map((t) => `
     <div class="tr">
-      <span class="side ${t.direction === 1 ? "l" : "s"}">${t.direction === 1 ? "לונג" : "שורט"}</span>
+      <span class="side ${t.direction === 1 ? "l" : "s"}">${(t.method === "liquidity" ? "💧" : "📈")} ${t.direction === 1 ? "לונג" : "שורט"}</span>
       <span>${ilDate(t.opened_at)} · <span class="num">${fmt(t.entry)}</span> · ${STATUS[t.status] || t.status}</span>
       <b class="num ${t.result_r > 0 ? "up" : t.result_r < 0 ? "down" : ""}">${t.result_r == null ? "" : (t.result_r > 0 ? "+" : "") + t.result_r + "R"}</b>
     </div>`).join("");
@@ -124,7 +134,7 @@ function drawPriceLines() {
   if (!candles || !last) return;
   priceLines.forEach((l) => candles.removePriceLine(l));
   priceLines = [];
-  const p = last.active_trade || (last.direction ? last.plan : null);
+  const p = (last.open_trades || [])[0] || last.pending || (last.direction ? last.plan : null);
   if (!p) return;
   const add = (price, color, title) => priceLines.push(candles.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
   add(p.entry, css("--accent"), "כניסה");

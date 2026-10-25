@@ -106,32 +106,44 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-def format_report(s: dict, md: MarketData) -> str:
-    start, end = md.m5.index[0], md.m5.index[-1]
-    head = f"📊 <b>בדיקה היסטורית - {md.symbol}</b>\n{start:%d/%m/%Y} עד {end:%d/%m/%Y}\n"
+METHOD_NAMES = {"trend": "📈 שיטת מגמה", "liquidity": "💧 שיטת נזילות"}
+
+
+def _block(title: str, s: dict) -> list[str]:
     if not s["count"]:
-        return head + "\nלא היו סיגנלים בתקופה הזאת."
-    verdict = ("✅ השיטה הייתה רווחית בתקופה הזאת" if s["total_r"] > 0
-               else "❌ השיטה הפסידה בתקופה הזאת - לא לסחור לפיה עם כסף אמיתי")
+        return [f"<b>{title}</b>", "לא היו עסקאות בתקופה הזאת."]
     pf = f"{s['profit_factor']:.2f}" if s["profit_factor"] is not None else "—"
-    names = {"tp2": "🏆 יעד 2", "be": "⚖️ יעד 1 ואז כניסה", "sl": "🛑 סטופ", "expired": "⏰ פג זמן", "reversed": "🔄 התהפך"}
-    lines = [
-        head,
-        f"<b>{verdict}</b>",
-        "",
-        f"עסקאות: <b>{s['count']}</b>",
-        f"אחוז הצלחה: <b>{s['win_rate']}%</b>",
+    mark = "✅" if s["total_r"] > 0 else "❌"
+    return [
+        f"<b>{title}</b> {mark}",
+        f"עסקאות: <b>{s['count']}</b> · הצלחה: <b>{s['win_rate']}%</b>",
         f"רווח כולל: <b>{s['total_r']:+.1f}R</b> (ממוצע {s['avg_r']:+.2f}R לעסקה)",
-        f"Profit Factor: <b>{pf}</b> (מעל 1.3 = טוב)",
-        f"ירידה מקסימלית: {s['max_drawdown_r']:.1f}R · רצף הפסדים ארוך: {s['max_losing_streak']}",
-        "",
-        f"🟢 לונג: {s['long']['count']} עסקאות · {s['long']['win_rate']}% · {s['long']['total_r']:+.1f}R",
-        f"🔴 שורט: {s['short']['count']} עסקאות · {s['short']['win_rate']}% · {s['short']['total_r']:+.1f}R",
-        "",
-        "<b>לפי חודש:</b>",
+        f"Profit Factor: <b>{pf}</b> · ירידה מקס': {s['max_drawdown_r']:.1f}R · רצף הפסדים: {s['max_losing_streak']}",
+        f"🟢 לונג: {s['long']['count']} · {s['long']['win_rate']}% · {s['long']['total_r']:+.1f}R"
+        f"   🔴 שורט: {s['short']['count']} · {s['short']['win_rate']}% · {s['short']['total_r']:+.1f}R",
     ]
-    lines += [f"{m}: {r:+.1f}R {'🟢' if r > 0 else '🔴'}" for m, r in s["months"].items()]
-    lines += ["", "<b>איך נסגרו:</b>"] + [f"{names.get(k, k)}: {v}" for k, v in s["statuses"].items()]
+
+
+def format_report(trades: list[dict], md: MarketData) -> str:
+    start, end = md.m5.index[0], md.m5.index[-1]
+    lines = [f"📊 <b>בדיקה היסטורית - {md.symbol}</b>", f"{start:%d/%m/%Y} עד {end:%d/%m/%Y}", ""]
+    if not trades:
+        return "\n".join(lines + ["לא היו סיגנלים בתקופה הזאת."])
+    by = {m: [t for t in trades if t.get("method", "trend") == m] for m in METHOD_NAMES}
+    sums = {m: summarize(ts) for m, ts in by.items()}
+    for m, title in METHOD_NAMES.items():
+        lines += _block(title, sums[m]) + [""]
+    lines += _block("🧮 שתי השיטות יחד", summarize(trades)) + ["", "<b>לפי חודש</b> (מגמה / נזילות):"]
+    months = sorted(set(sums["trend"].get("months", {})) | set(sums["liquidity"].get("months", {})))
+    for mo in months:
+        a = sums["trend"].get("months", {}).get(mo, 0.0)
+        b = sums["liquidity"].get("months", {}).get(mo, 0.0)
+        lines.append(f"{mo}: {a:+.1f}R / {b:+.1f}R {'🟢' if a + b > 0 else '🔴'}")
+    best = max(METHOD_NAMES, key=lambda m: sums[m].get("total_r", float("-inf")))
+    if sums[best].get("total_r", 0) > 0:
+        lines += ["", f"🏅 הכי טובה בתקופה: {METHOD_NAMES[best]}"]
+    else:
+        lines += ["", "⚠️ שתי השיטות הפסידו בתקופה הזאת - לא לסחור לפיהן עם כסף אמיתי."]
     lines += ["", "<i>R = הסכום שאתה מסכן בעסקה. למשל, בסיכון של 100$ לעסקה, ‎+10R = רווח של 1,000$. "
                   "ביצועי עבר לא מבטיחים ביצועים בעתיד. לא כולל עמלות ומרווח.</i>"]
     return "\n".join(lines)
@@ -139,4 +151,4 @@ def format_report(s: dict, md: MarketData) -> str:
 
 def backtest_report(cfg: Settings, months: int = 6) -> str:
     md = fetch_history(cfg, months)
-    return format_report(summarize(run(md, cfg)), md)
+    return format_report(run(md, cfg), md)

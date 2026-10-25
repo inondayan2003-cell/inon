@@ -31,6 +31,10 @@ class GoldService:
     def strategy_state(self) -> dict:
         return self.store.get("strategy", {})
 
+    def positions(self) -> dict:
+        strat = Strategy(self.cfg, self.strategy_state())
+        return {"open_trades": strat.open_trades, "pending": strat.pending}
+
     async def tick(self, now: pd.Timestamp | None = None) -> list[dict]:
         now = now or pd.Timestamp.now(tz="UTC")
         md = await asyncio.to_thread(self.feed.get)
@@ -39,7 +43,8 @@ class GoldService:
 
         strat = Strategy(self.cfg, self.strategy_state())
         tl = analysis.timeline
-        rows = tl.tail(1) if strat.last_t is None else tl[tl["t"] > pd.Timestamp(strat.last_t)].tail(300)
+        # בהפעלה ראשונה מזינים 4 שעות אחורה (בלי כניסות) כדי ששיטת הנזילות תכיר את המבנה האחרון
+        rows = tl.tail(48) if strat.last_t is None else tl[tl["t"] > pd.Timestamp(strat.last_t)].tail(300)
         events = []
         for _, row in rows.iterrows():
             events += strat.on_bar(row, allow_entry=now - row["t"] <= FRESH)
