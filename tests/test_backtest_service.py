@@ -99,5 +99,5 @@ def test_only_alert_methods_are_notified(market, tmp_path):
     assert event_method(trend_ev) == "trend" and event_method(liq_ev) == "liquidity"
     assert event_method({"type": "weak"}) == "trend"
     assert event_method({"type": "closed", "trade": {"method": "liquidity"}}) == "liquidity"
-    assert CFG.alert_methods == frozenset({"smc", "liquidity"})
+    assert CFG.alert_methods == frozenset({"smc", "liquidity", "range"})
     assert event_method({"type": "setup", "setup": {"method": "smc"}}) == "smc"

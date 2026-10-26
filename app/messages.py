@@ -184,7 +184,7 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים מ-SMC 🏦 ומנזילות 💧"]
+                      "סיגנלים נשלחים מ-SMC 🏦, נזילות 💧 וטווחים 🎯"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:
