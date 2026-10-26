@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--old", default="", help="סבב 4: שנה התחלתית למבחן על היסטוריה ישנה (למשל 2018)")
     ap.add_argument("--loop3", action="store_true", help="סבב 3: הטיית שעה בשעון ניו יורק")
     ap.add_argument("--loop2", action="store_true", help="סבב 2: hour/rsi2/mom/donch")
     ap.add_argument("--loop", action="store_true", help="לולאת חיפוש FVG-retest עם כספת וביקורת יומית")
@@ -78,6 +79,14 @@ def main():
     end = dt.date.today() - dt.timedelta(days=1)
     start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
     t0 = time.time()
+    if a.old:
+        from research import oldcheck
+        old_end = start - dt.timedelta(days=1)
+        old = histdata.fetch_minutes(dt.date(int(a.old), 1, 1), old_end, Path(a.cache))
+        old = old[old.index < pd.Timestamp(old_end, tz="UTC")]
+        print(f"היסטוריה ישנה: {len(old):,} דקות ({time.time() - t0:.0f}s)", flush=True)
+        print(oldcheck.report(old, a.cost), flush=True)
+        return
     print(f"מוריד נתונים {start} - {end}", flush=True)
     m1 = (histdata if a.source == "histdata" else duka).fetch_minutes(start, end, Path(a.cache))
     print(f"{len(m1):,} דקות, {m1.index[0]} - {m1.index[-1]} ({time.time() - t0:.0f}s)", flush=True)
