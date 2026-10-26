@@ -35,6 +35,9 @@ def extra_features(m5: pd.DataFrame) -> pd.DataFrame:
     out["pwh"] = week.map(wk["high"]).values
     out["pwl"] = week.map(wk["low"]).values
 
+    # נזילות סווינג: השיא/שפל של 6 השעות האחרונות, לא כולל חצי השעה האחרונה (רמה "מבוססת")
+    out["swing_high"] = m5["high"].rolling(72).max().shift(6).values
+    out["swing_low"] = m5["low"].rolling(72).min().shift(6).values
     out["ny_min"] = mins.values
     out["t"] = m5.index + pd.Timedelta(minutes=5)
     return out.reset_index(drop=True)

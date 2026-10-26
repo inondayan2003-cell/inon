@@ -83,21 +83,36 @@ def main():
         tr = simulate(rows, make)
         is_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) < split]
         oos_tr = [t for t in tr if pd.Timestamp(t["opened_at"]) >= split]
-        results[name] = {"all": stats(tr, a.cost, total_days), "is": stats(is_tr, a.cost, total_days * 0.7),
+        edges = [rows[int(len(rows) * k / 4)]["t"] for k in range(4)] + [rows[-1]["t"] + pd.Timedelta("5min")]
+        folds = []
+        for k in range(4):
+            part = [t for t in tr if edges[k] <= pd.Timestamp(t["opened_at"]) < edges[k + 1]]
+            folds.append(stats(part, a.cost, 1).get("net_r", 0.0))
+        results[name] = {"folds": folds, "all": stats(tr, a.cost, total_days), "is": stats(is_tr, a.cost, total_days * 0.7),
                          "oos": stats(oos_tr, a.cost, total_days * 0.3),
                          "cost": {c: stats(tr, c, total_days).get("net_r") for c in (0.2, 0.5, 0.7)}}
         print(f"  {name}: {len(tr)} עסקאות ({time.time() - t0:.0f}s)", flush=True)
 
-    head = "| שיטה | עסקאות | ליום | הצלחה | R נטו | ממוצע | PF | DD | t | IS R | IS PF | OOS R | OOS PF | OOS t |"
-    lines = [f"### תוצאות {start} - {end} · עלות {a.cost}$ לעסקה", "", head, "|" + "---|" * 14]
+    head = "| שיטה | עסקאות | ליום | הצלחה | R נטו | ממוצע | PF | DD | t | IS R | IS PF | OOS R | OOS PF | OOS t | 4 תקופות (R) |"
+    lines = [f"### תוצאות {start} - {end} · עלות {a.cost}$ לעסקה", "", head, "|" + "---|" * 15]
     for name, r in results.items():
         s, i, o = r["all"], r["is"], r["oos"]
         if not s["n"]:
             lines.append(f"| {name} | 0 |" + " |" * 12)
             continue
         lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
-                     f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} |")
+                     f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} | "
+                     + " / ".join(f"{x:+.1f}" for x in r["folds"]) + " |")
     if a.scan:
+        from research.null import shuffle_within_hour
+        null_rows = build(shuffle_within_hour(m1, 1)).to_dict("records")
+        lines += ["", "### ביקורת לשיטות הנזילות (אותן שיטות על נתונים מעורבבים)", "",
+                  "| שיטה | עסקאות | R נטו | t |", "|---|---|---|---|"]
+        for name, make in candidates(cfg).items():
+            if not name.startswith("liq") or (a.only and name not in a.only.split(",")):
+                continue
+            s0 = stats(simulate(null_rows, make), a.cost, total_days)
+            lines.append(f"| {name} | {s0.get('n', 0)} | {s0.get('net_r')} | {s0.get('t')} |")
         from research import events
         res = events.search(table, split, a.cost)
         real_best = []

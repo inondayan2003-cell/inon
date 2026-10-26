@@ -129,7 +129,10 @@ class TrendStrategy(TradeBook):
 
 
 LEVEL_NAMES = {"PDL": "השפל של אתמול", "PDH": "השיא של אתמול",
-               "ASL": "השפל של סשן אסיה", "ASH": "השיא של סשן אסיה"}
+               "ASL": "השפל של סשן אסיה", "ASH": "השיא של סשן אסיה",
+               "LDL": "השפל של סשן לונדון", "LDH": "השיא של סשן לונדון",
+               "PWL": "השפל של השבוע שעבר", "PWH": "השיא של השבוע שעבר",
+               "SWL": "שפל סווינג (6 השעות האחרונות)", "SWH": "שיא סווינג (6 השעות האחרונות)"}
 
 
 def _num(v) -> float | None:
@@ -143,6 +146,10 @@ class LiquidityStrategy(TradeBook):
     SETUP_BARS = 12      # כמה זמן הזמנת הלימיט בתוקף (שעה)
     STRUCTURE_BARS = 6   # נרות לפני הסוויפ שמגדירים את המבנה לשבירה
     BUF = 40
+    # "כפתורי שחרור" (ברירת מחדל = השיטה המקורית)
+    KZ_ONLY = True       # סוויפים רק בשעות לונדון/ניו יורק
+    ENTRY = "fvg"        # fvg = לימיט באמצע ה-FVG; market = כניסה מיידית בשבירת המבנה
+    HTF_MIN: float | None = -20  # לא נגד מגמה חזקה ב-1H/4H (None = בלי מסנן)
 
     def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
         state = state or {}
@@ -198,17 +205,18 @@ class LiquidityStrategy(TradeBook):
     def _scan(self, row, allow_entry: bool) -> list[dict]:
         hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
         session = row.get("session")
-        if row.get("kz", 0) and session:
+        if (row.get("kz", 0) or not self.KZ_ONLY) and session:
             for name, col, d in self.LEVELS:
                 level = _num(row.get(col))
-                key = f"{session}:{name}"
+                # רמות סווינג משתנות כל הזמן - כל רמה חדשה נספרת בנפרד
+                key = f"{session}:{name}" + (f":{round(level, 1)}" if name.startswith("SW") and level else "")
                 if level is None or key in self.used:
                     continue
                 if (d == 1 and lo < level) or (d == -1 and hi > level):
                     ext = lo if d == 1 else hi
                     self.cands.append({"direction": d, "name": name, "level": level, "ext": ext,
                                        "ext_n": self.n, "born": self.n})
-                    self.used = (self.used + [key])[-20:]
+                    self.used = (self.used + [key])[-60:]
 
         for c in self.cands:  # הסוויפ ממשיך להעמיק - מעדכנים את הקצה
             if (c["direction"] == 1 and lo < c["ext"]) or (c["direction"] == -1 and hi > c["ext"]):
@@ -225,6 +233,14 @@ class LiquidityStrategy(TradeBook):
                 continue
             # שבירת מבנה - הסוויפ "נוצל" (וגם סוויפים אחרים באותו כיוון, כדי לא לאותת פעמיים על אותו מהלך)
             self.cands = [x for x in self.cands if x["direction"] != d]
+            if allow_entry and self.ENTRY == "market":
+                plan = self._plan(c, row, float(row["close"]))
+                if plan:
+                    self.trade = Trade(id=plan["id"], direction=d, opened_at=row["t"].isoformat(), entry=plan["entry"],
+                                       sl=plan["sl"], tp1=plan["tp1"], tp2=plan["tp2"], score=plan["score"],
+                                       stop=plan["sl"], method="liquidity", note=plan["note"])
+                    return [{"type": "signal", "trade": asdict(self.trade), "t": row["t"].isoformat()}]
+                continue
             setup = self._make_setup(c, row) if allow_entry else None
             if setup:
                 self.setup = setup
@@ -247,13 +263,21 @@ class LiquidityStrategy(TradeBook):
                 fvg = (z["h"], x["l"])
         if not fvg:
             return None
-        entry = round((fvg[0] + fvg[1]) / 2, 2)
+        return self._plan(c, row, (fvg[0] + fvg[1]) / 2, check_price=True)
+
+    def _plan(self, c: dict, row, entry: float, check_price: bool = False) -> dict | None:
+        d, a = c["direction"], _num(row.get("atr_15m"))
+        if not a:
+            return None
+        entry = round(entry, 2)
         sl = round(c["ext"] - d * 0.1 * a, 2)
         risk = (entry - sl) * d
-        if not (0.25 * a <= risk <= 2.5 * a) or (float(row["close"]) - entry) * d <= 0:
+        if not (0.25 * a <= risk <= 2.5 * a):
+            return None
+        if check_price and (float(row["close"]) - entry) * d <= 0:
             return None
         htf = (float(row["score_1h"]) + float(row["score_4h"])) / 2
-        if htf * d < -20:  # לא נכנסים נגד מגמה חזקה ב-1H/4H
+        if self.HTF_MIN is not None and htf * d < self.HTF_MIN:  # לא נכנסים נגד מגמה חזקה ב-1H/4H
             return None
         tp1, tp2 = entry + d * risk, entry + 2 * d * risk
         # היעד השני: הנזילות שבצד השני, אם היא בטווח של 2R-4R
