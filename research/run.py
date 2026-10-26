@@ -66,6 +66,7 @@ def main():
     ap.add_argument("--minday", type=float, default=1.0)
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
+    ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
     ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
 
@@ -109,6 +110,9 @@ def main():
         lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
                      f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} | "
                      + " / ".join(f"{x:+.1f}" for x in r["folds"]) + " |")
+    if a.check:
+        from research import search
+        lines += ["", search.check_rule(table, a.cost, a.holdout)]
     if a.search:
         from research import search
         from research.null import shuffle_within_hour

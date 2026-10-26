@@ -164,3 +164,44 @@ def run(tl_real: pd.DataFrame, tl_null: list[pd.DataFrame], cost: float, holdout
     lines += ["", f"**שיטות שעברו הכל: {len(winners)}**"]
     print("WINNERS_JSON " + str([{"rule": w[0], "dev": w[1], "hold": w[2]} for w in winners]), flush=True)
     return "\n".join(lines)
+
+
+# ---------- בדיקה של חוק ספציפי עם יציאות שונות (למשל יחס 1:2 / 1:3) ----------
+RULE4 = {"conds": [("wick_up", 0.7, False), ("vol_regime", 0.2, False), ("ret12", 0.7, False)],
+         "dir": -1, "session": "לונדון"}
+CHECK_EXITS = [(2.0, 0.5, 48), (1.0, 2.0, 24), (1.0, 2.0, 48), (1.0, 3.0, 48), (0.75, 2.0, 24),
+               (0.75, 3.0, 48), (1.5, 2.0, 48), (0.5, 3.0, 48)]
+
+
+def check_rule(tl: pd.DataFrame, cost: float, holdout_months: int, spec: dict = RULE4) -> str:
+    dev_end = tl["t"].max() - pd.DateOffset(months=holdout_months)
+    S = Searcher.__new__(Searcher)
+    tl = tl.reset_index(drop=True)
+    S.t = tl["t"]
+    S.dev = (S.t < dev_end).to_numpy()
+    F = features(tl)
+    S.names = list(F.columns)
+    S.X = F.to_numpy(dtype=np.float32)
+    S.thr = np.nanquantile(S.X[S.dev], QS, axis=0)
+    S.ny_min = tl["ny_min"].to_numpy()
+    dev_t = S.t[S.dev].astype("int64").to_numpy()
+    S.fold_edges = np.quantile(dev_t, np.linspace(0, 1, 5))
+    S.t_int = S.t.astype("int64").to_numpy()
+    S.dev_days = tl.loc[S.dev, "session"].nunique()
+    S.hold_days = tl.loc[~S.dev, "session"].nunique()
+    S.excess, S._base = False, {}
+    conds = [(S.names.index(f), QS.index(q), above) for f, q, above in spec["conds"]]
+    thr_txt = ", ".join(f"{f} {'>' if a else '<'} {S.thr[QS.index(q), S.names.index(f)]:.3f}" for f, q, a in spec["conds"])
+    lines = [f"### 🔬 בדיקת חוק 4 עם יחסי סיכון/סיכוי שונים", f"תנאים: {thr_txt} · "
+             f"{'שורט' if spec['dir'] == -1 else 'לונג'} · {spec['session']}", "",
+             "| סטופ (ATR) | יעד (R) | זמן | חיפוש: עסקאות/יום · הצלחה · ממוצע R · t · 4 תקופות | כספת: עסקאות · הצלחה · ממוצע R · סה\"כ · t |",
+             "|---|---|---|---|---|"]
+    for sl, rr, hold in CHECK_EXITS:
+        S.R = [outcomes(tl, cost, sl, rr, hold)]
+        rule = {"conds": conds, "dir": spec["dir"], "session": spec["session"], "exit": 0}
+        d, h = S.evaluate(rule), S.evaluate(rule, "hold")
+        ds = (f"{d['per_day']:.1f} · {d['win']:.0f}% · {d['avg']:+.3f} · {d['t']:+.1f} · "
+              + "/".join(f"{x:+.0f}" for x in d["folds"])) if d else "מעט מדי"
+        hs = f"{h['n']} · {h['win']:.0f}% · {h['avg']:+.3f} · {h['sum']:+.1f}R · {h['t']:+.1f}" if h else "מעט מדי"
+        lines.append(f"| {sl} | {rr} | {hold * 5} דק' | {ds} | {hs} |")
+    return "\n".join(lines)
