@@ -133,11 +133,11 @@ def format_report(trades: list[dict], md: MarketData) -> str:
     sums = {m: summarize(ts) for m, ts in by.items()}
     for m, title in METHOD_NAMES.items():
         lines += _block(title, sums[m]) + [""]
-    lines += ["<b>לפי חודש</b> (SMC / טווחים / מגמה / נזילות):"]
+    lines += ["<b>לפי חודש</b> (SMC / טווחים / מגמה / נזילות, הצבע לפי הסכום):"]
     months = sorted(set().union(*(sums[m].get("months", {}) for m in METHOD_NAMES)))
     for mo in months:
         vals = [sums[m].get("months", {}).get(mo, 0.0) for m in METHOD_NAMES]
-        lines.append(f"{mo}: " + " / ".join(f"{v:+.1f}R" for v in vals) + f" {'🟢' if vals[0] > 0 else '🔴'}")
+        lines.append(f"{mo}: " + " / ".join(f"{v:+.1f}R" for v in vals) + f" {'🟢' if sum(vals) > 0 else '🔴'}")
     best = max(METHOD_NAMES, key=lambda m: sums[m].get("total_r", float("-inf")))
     if sums[best].get("total_r", 0) > 0:
         lines += ["", f"🏅 הכי טובה בתקופה: {METHOD_NAMES[best]}"]
