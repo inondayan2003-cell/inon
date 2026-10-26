@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--fvg", action="store_true", help="GoldSmartMoneyStrategy (קוד FVG של המשתמש)")
     ap.add_argument("--pullback", action="store_true", help="GoldPullbackStrategy (קוד backtrader של המשתמש)")
     ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
@@ -115,6 +116,10 @@ def main():
         from research import pullback
         from research.null import shuffle_within_hour
         lines += ["", pullback.report(m1, a.cost, shuffle_within_hour)]
+    if a.fvg:
+        from research import fvg_user
+        from research.null import shuffle_within_hour
+        lines += ["", fvg_user.report(m1, a.cost, shuffle_within_hour)]
     if a.check:
         from research import search
         lines += ["", search.check_rule(table, a.cost, a.holdout)]
