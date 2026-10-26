@@ -21,7 +21,7 @@ def reopen_points(m1: pd.DataFrame, gap_min: int = 30) -> np.ndarray:
 
 
 def run(m1: pd.DataFrame, cost: float, hours: float = 3, k: float | None = 1.0, rr: float | None = 2.0,
-        direction: int = 1, skip_weekend: bool = False) -> pd.DataFrame:
+        direction: int = 1, skip_weekend: bool = False, min_risk: float = 0.0, offset_h: float = 0.0) -> pd.DataFrame:
     o, h, l, c = (m1[x].to_numpy() for x in ("open", "high", "low", "close"))
     t = m1.index
     h1 = m1.resample("1h").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
@@ -29,7 +29,11 @@ def run(m1: pd.DataFrame, cost: float, hours: float = 3, k: float | None = 1.0, 
     atr_at = a1.reindex(t, method="ffill").shift(1).to_numpy()  # ATR ידוע לפני הכניסה
     ns = _secs(t)
     out = []
-    for i in reopen_points(m1):
+    pts = reopen_points(m1)
+    if offset_h:  # בסיס להשוואה: אותה עסקה, אבל X שעות אחרי הפתיחה
+        pts = np.searchsorted(ns, ns[pts] + offset_h * 3600)
+        pts = pts[pts < len(ns) - 10]
+    for i in pts:
         if skip_weekend and (ns[i] - ns[i - 1]) / 3600 > 24:
             continue
         a = atr_at[i]
@@ -41,6 +45,8 @@ def run(m1: pd.DataFrame, cost: float, hours: float = 3, k: float | None = 1.0, 
             continue
         d = direction
         risk = k * a if k else a  # בלי סטופ: R נמדד ביחידות ATR
+        if risk < min_risk:
+            continue
         sl = e - d * risk if k else None
         tp = e + d * rr * risk if (k and rr) else None
         hh, ll = h[i:end], l[i:end]
@@ -82,6 +88,12 @@ VARIANTS = [
     ("סטופ 1.5 ATR · יעד 1:2 · עד 4ש'", dict(hours=4, k=1.5, rr=2.0)),
     ("סטופ 0.5 ATR · יעד 1:3 · עד 3ש'", dict(hours=3, k=0.5, rr=3.0)),
     ("ביקורת: שורט באותו זמן 1:2", dict(hours=3, k=1.0, rr=2.0, direction=-1)),
+    ("1:3 4ש' רק כשסטופ ≥ 5$", dict(hours=4, k=1.0, rr=3.0, min_risk=5.0)),
+    ("1:3 4ש' רק כשסטופ ≥ 8$", dict(hours=4, k=1.0, rr=3.0, min_risk=8.0)),
+    ("1:2 3ש' סטופ 0.7 רק כשסטופ ≥ 5$", dict(hours=3, k=0.7, rr=2.0, min_risk=5.0)),
+    ("בסיס: אותו לונג 6ש' אחרי הפתיחה", dict(hours=4, k=1.0, rr=3.0, offset_h=6)),
+    ("בסיס: אותו לונג 12ש' אחרי הפתיחה", dict(hours=4, k=1.0, rr=3.0, offset_h=12)),
+    ("בסיס: אותו לונג 18ש' אחרי הפתיחה", dict(hours=4, k=1.0, rr=3.0, offset_h=18)),
 ]
 
 
