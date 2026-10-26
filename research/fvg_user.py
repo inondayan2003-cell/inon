@@ -5,6 +5,7 @@
 - בנר i נכנסים בסגירה. סטופ: השפל (שורט: השיא) של נר i-2. יעד: RR כפול מרחק הסטופ.
 - הערה: בקוד המשתנה fvg_zone מחושב ולא בשימוש, כך שאין "חזרה לבדוק את ה-FVG" -
   הכניסה מיידית אחרי הפער. לכן נבדקת גם גרסה B עם לימיט באמצע ה-FVG (כמו שהתיאור בקוד מתכוון).
+- בגרסת הלימיט היעד נבדק רק מהנר שאחרי המילוי (השיא של נר המילוי אולי היה לפני המילוי).
 - לקוד אין יציאה בזמן ואין הגבלת עסקאות. כאן: סטופ נבדק לפני יעד, ויציאה בסגירה אחרי MAX_HOLD נרות.
 """
 import numpy as np
@@ -14,6 +15,7 @@ from research.pullback import _stats
 
 MAX_HOLD = 200
 LIMIT_BARS = 12
+MIN_RISK = 0.1  # סטופ קטן מ-10 סנט = לא עסקה אמיתית
 
 
 def _exit(h, l, c, j0, d, entry, sl, tp, cost):
@@ -62,13 +64,18 @@ def run(df: pd.DataFrame, cost: float, rr: float, mode: str) -> pd.DataFrame:
             if fill is None or (mid - sl) * d <= 0:
                 continue
             entry = mid
+            if abs(entry - sl) < MIN_RISK:
+                continue
             tp = entry + d * rr * abs(entry - sl)
-            r, k = _exit(h, l, c, fill, d, entry, sl, tp, cost)  # כולל נר המילוי (שמרני)
+            if (l[fill] <= sl) if d == 1 else (h[fill] >= sl):  # סטופ בנר המילוי = הפסד. יעד רק מהנר הבא
+                r, k = (-abs(entry - sl) - cost) / abs(entry - sl), fill
+            else:
+                r, k = _exit(h, l, c, fill + 1, d, entry, sl, tp, cost)
             trades.append({"t": t[fill], "dir": d, "r": r})
             busy_until = k
             continue
         entry = c[i]
-        if (entry - sl) * d <= 0:
+        if (entry - sl) * d < MIN_RISK:
             continue
         if mode == "one" and busy_until >= i:
             continue
