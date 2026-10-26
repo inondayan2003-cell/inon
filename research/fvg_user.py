@@ -107,4 +107,18 @@ def report(m1: pd.DataFrame, cost: float, shuffle) -> str:
                              f"{s['sum']:+.1f} | {s['avg']:+.3f} | {s['pf']:.2f} | {s['dd']:.1f} | {s['t']:+.1f} | "
                              + " / ".join(f"{x:+.0f}" for x in s["folds"])
                              + f" | {z.get('sum', 0):+.1f} · {z.get('t', 0):+.1f} |")
+    lines += ["", "**בדיקת עומק ל-1H יחס 1:3 (המועמד הכי טוב):**", "",
+              "| גרסה | לונג R (n) | שורט R (n) | 4 חודשים אחרונים R (n) | עלות 0.2$ / 0.5$ / 0.7$ | סגירה בזמן (%) |",
+              "|---|---|---|---|---|---|"]
+    df = resample(m1, "1h")
+    last = df.index[-1] - pd.Timedelta(days=122)
+    for mode, label in modes:
+        tr = run(df, cost, 3.0, mode)
+        lg, sh, rc = tr[tr.dir == 1], tr[tr.dir == -1], tr[tr.t >= last]
+        cs = " / ".join(f"{run(df, c, 3.0, mode)['r'].sum():+.0f}" for c in (0.2, 0.5, 0.7))
+        timed = 100 * ((tr.r > -1.0) & (tr.r < 2.5)).mean()
+        lines.append(f"| {label} | {lg.r.sum():+.1f} ({len(lg)}) | {sh.r.sum():+.1f} ({len(sh)}) | "
+                     f"{rc.r.sum():+.1f} ({len(rc)}) | {cs} | {timed:.0f}% |")
+    bh = (df.close.iloc[-1] - df.close.iloc[0]) / df.close.iloc[0] * 100
+    lines.append(f"\nלהשוואה: הזהב עצמו זז {bh:+.0f}% בתקופה.")
     return "\n".join(lines)
