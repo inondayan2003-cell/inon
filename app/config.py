@@ -22,7 +22,8 @@ class Settings:
     # אילו שיטות שולחות התראות. בבדיקה של שנתיים (10/2024-10/2026) רק "טווחים" עקפה את קבוצת
     # הביקורת (t=2.4 מול 1.9), אבל ב-7 החודשים האחרונים יצאה באפס - לכן ההתראות מסומנות "דמו בלבד".
     # מגמה ונזילות הפסידו/יצאו באפס ורצות במעקב בלבד
-    alert_methods: frozenset[str] = frozenset({"range"})
+    # לבקשת המשתמש: ההתראות מאסטרטגיית SMC/ICT; שאר השיטות רצות במעקב בלבד
+    alert_methods: frozenset[str] = frozenset({"smc"})
 
     # פרמטרים של אסטרטגיית הסיגנלים
     entry_threshold: float = 50.0     # ציון משוקלל מינימלי לכניסה
@@ -55,7 +56,7 @@ def load_settings() -> Settings:
         check_interval=int(e("CHECK_INTERVAL_SECONDS", "300" if has_td else "120")),
         db_path=e("DB_PATH", "data/bot.db"),
         allowed_user_ids=_int_set(e("ALLOWED_USER_IDS", "")),
-        alert_methods=frozenset(e("ALERT_METHODS", "range").replace(" ", "").split(",")),
+        alert_methods=frozenset(e("ALERT_METHODS", "smc").replace(" ", "").split(",")),
     )
 
 

@@ -18,7 +18,9 @@ FRESH = pd.Timedelta(minutes=15)  # לא שולחים סיגנל כניסה על
 def event_method(ev: dict) -> str:
     if "trade" in ev:
         return ev["trade"].get("method", "trend")
-    return "liquidity" if "setup" in ev else "trend"  # setup/cancelled = נזילות, weak = מגמה
+    if "setup" in ev:
+        return ev["setup"].get("method", "liquidity")
+    return "trend"  # weak = מגמה
 
 
 class GoldService:

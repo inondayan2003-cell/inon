@@ -32,7 +32,7 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
-METHODS = {"trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
+METHODS = {"smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
 
 
 def _label(tr: dict) -> str:
@@ -47,19 +47,29 @@ def _rr(tr: dict) -> str:
 def setup_message(s: dict) -> str:
     icon, name = _dir(s["direction"])
     order = "Buy Limit" if s["direction"] == 1 else "Sell Limit"
-    side = "מתחת ל" if s["direction"] == 1 else "מעל ל"
-    back = "מעליו" if s["direction"] == 1 else "מתחתיו"
+    risk = abs(s["entry"] - s["sl"])
+    r = lambda x: f"{abs(x - s['entry']) / risk:.1f}R"
+    if s.get("method") == "smc":
+        title = f"🏦{icon} <b>סיגנל SMC {name} - זהב</b> · {_time(s['created'])}"
+        if s["note"].startswith("מודל B"):
+            why = s["note"]
+        else:
+            side = "מתחת ל" if s["direction"] == 1 else "מעל ל"
+            why = f"מודל A: Sweep {side}{s['note']} ({_p(s['level'])}), Displacement ושבירת מבנה ב-5M, FVG בכיוון ההפוך."
+    else:
+        title = f"💧{icon} <b>סיגנל נזילות {name} - זהב</b> · {_time(s['created'])}"
+        side = "מתחת ל" if s["direction"] == 1 else "מעל ל"
+        back = "מעליו" if s["direction"] == 1 else "מתחתיו"
+        why = f"המחיר לקח את הנזילות {side}{s['note']} ({_p(s['level'])}), חזר {back} ושבר מבנה ב-5M."
     return "\n".join([
-        f"💧{icon} <b>סיגנל נזילות {name} - זהב</b> · {_time(s['created'])}",
-        "",
-        f"המחיר לקח את הנזילות {side}{s['note']} ({_p(s['level'])}), חזר {back} ושבר מבנה ב-5M.",
-        "",
+        title, "", why, "",
         f"📌 הזמנת <b>{order}</b>: <b>{_p(s['entry'])}</b> (אמצע ה-FVG)",
-        f"🛑 סטופ: {_p(s['sl'])} ({abs(s['entry'] - s['sl']):.2f}$, מעבר לקצה הסוויפ)",
-        f"🎯 יעד 1: {_p(s['tp1'])} (1R · סגור חצי, הזז סטופ לכניסה)",
-        f"🎯 יעד 2: {_p(s['tp2'])} ({_rr(s)})",
+        f"🛑 סטופ: {_p(s['sl'])} ({risk:.2f}$, מעבר לקצה הסוויפ)",
+        f"🎯 יעד 1: {_p(s['tp1'])} ({r(s['tp1'])} · סגור חצי, הזז סטופ לכניסה)",
+        f"🎯 יעד סופי: {_p(s['tp2'])} ({r(s['tp2'])} · הנזילות הנגדית)",
         f"⏳ ההזמנה בתוקף עד {_time(s['expires'])}. אם לא התמלאה עד אז - לבטל.",
         "",
+        "📏 סיכון מומלץ: 0.5%-1% מהחשבון לעסקה.",
         DISCLAIMER,
     ])
 
@@ -114,7 +124,7 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     if kind == "cancelled":
         s = ev["setup"]
         _, name = _dir(s["direction"])
-        return f"❌ <b>הזמנת הנזילות ({name} #{s['id']}) בוטלה</b>\n{ev['reason']}. אם שמת לימיט אצל הברוקר - בטל אותו."
+        return f"❌ <b>הזמנת ה-{'SMC' if s.get('method') == 'smc' else 'נזילות'} ({name} #{s['id']}) בוטלה</b>\n{ev['reason']}. אם שמת לימיט אצל הברוקר - בטל אותו."
     if kind == "weak":
         icon, name = _dir(ev["direction"])
         return (f"⚠️ <b>סיגנל המגמה ל{name} נחלש</b> · {_time(ev['t'])}\n"
@@ -151,7 +161,7 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים משיטת הטווחים 🎯"]
+                      "סיגנלים נשלחים מאסטרטגיית ה-SMC 🏦"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:

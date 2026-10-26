@@ -5,7 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
-const METHOD = { range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
+const METHOD = { smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;
@@ -63,8 +63,8 @@ function renderAnalysis(a) {
     <h2>${METHOD[t.method] || ""}${(a.alert_methods || []).includes(t.method) ? "" : " (מעקב בלבד, בלי התראות)"} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
     <div class="plan">${planCells(t, t.direction)}</div>`);
   if (pend) blocks.push(`
-    <h2>💧 הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
-    <p class="muted" style="margin-bottom:8px">סוויפ של ${pend.note} (${fmt(pend.level)})</p>
+    <h2>${METHOD[pend.method] || "💧"} · הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
+    <p class="muted" style="margin-bottom:8px">${pend.note} (${fmt(pend.level)})</p>
     <div class="plan">${planCells(pend, pend.direction)}</div>`);
   $("tradePlan").innerHTML = blocks.join('<div style="height:12px"></div>');
 

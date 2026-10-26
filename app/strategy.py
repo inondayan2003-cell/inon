@@ -41,7 +41,10 @@ class Trade:
 
     def r_at(self, price: float) -> float:
         move = (price - self.entry) * self.direction / self.risk
-        return 0.5 + 0.5 * move if self.tp1_hit else move
+        if not self.tp1_hit:
+            return move
+        tp1_r = (self.tp1 - self.entry) * self.direction / self.risk  # חצי נסגר ביעד 1
+        return 0.5 * tp1_r + 0.5 * move
 
 
 class TradeBook:
@@ -150,6 +153,11 @@ class LiquidityStrategy(TradeBook):
     KZ_ONLY = True       # סוויפים רק בשעות לונדון/ניו יורק
     ENTRY = "fvg"        # fvg = לימיט באמצע ה-FVG; market = כניסה מיידית בשבירת המבנה
     HTF_MIN: float | None = -20  # לא נגד מגמה חזקה ב-1H/4H (None = בלי מסנן)
+    DISP_ATR: float | None = None  # Displacement: גוף נר שבירת המבנה לפחות X פעמים ATR של 5M
+    TP1_R = 1.0                  # יעד חלקי (חצי מהפוזיציה)
+    TP2_MIN_R, TP2_MAX_R, TP2_DEFAULT_R = 2.0, 4.0, 2.0  # יעד סופי: נזילות נגדית בטווח, אחרת ברירת מחדל
+    OPP = {1: ("pdh", "asia_high"), -1: ("pdl", "asia_low")}  # הנזילות הנגדית כיעד
+    METHOD = "liquidity"
 
     def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
         state = state or {}
@@ -185,7 +193,7 @@ class LiquidityStrategy(TradeBook):
         if (adv - s["entry"]) * d <= 0:  # המחיר חזר לאזור הכניסה - הלימיט התמלא
             self.trade = Trade(id=s["id"], direction=d, opened_at=t.isoformat(), entry=s["entry"], sl=s["sl"],
                                tp1=s["tp1"], tp2=s["tp2"], score=s["score"], stop=s["sl"],
-                               method="liquidity", note=s["note"])
+                               method=s.get("method", "liquidity"), note=s["note"])
             self.setup = None
             events = [{"type": "filled", "trade": asdict(self.trade), "t": t.isoformat()}]
             if (adv - s["sl"]) * d <= 0:  # באותו נר גם הסטופ נלקח (הנחה שמרנית)
@@ -231,6 +239,9 @@ class LiquidityStrategy(TradeBook):
             ref = max(b["h"] for b in pre) if d == 1 else min(b["l"] for b in pre)
             if not ((close - c["level"]) * d > 0 and (close - ref) * d > 0):
                 continue
+            a5 = _num(row.get("atr_5m"))
+            if self.DISP_ATR and a5 and (close - float(row["open"])) * d < self.DISP_ATR * a5:
+                continue  # שבירת מבנה בלי Displacement (נר חלש) - לא נחשבת
             # שבירת מבנה - הסוויפ "נוצל" (וגם סוויפים אחרים באותו כיוון, כדי לא לאותת פעמיים על אותו מהלך)
             self.cands = [x for x in self.cands if x["direction"] != d]
             if allow_entry and self.ENTRY == "market":
@@ -279,17 +290,106 @@ class LiquidityStrategy(TradeBook):
         htf = (float(row["score_1h"]) + float(row["score_4h"])) / 2
         if self.HTF_MIN is not None and htf * d < self.HTF_MIN:  # לא נכנסים נגד מגמה חזקה ב-1H/4H
             return None
-        tp1, tp2 = entry + d * risk, entry + 2 * d * risk
-        # היעד השני: הנזילות שבצד השני, אם היא בטווח של 2R-4R
-        opp = [_num(row.get(k)) for k in (("pdh", "asia_high") if d == 1 else ("pdl", "asia_low"))]
-        far = sorted(x for x in opp if x is not None and 2 * risk <= (x - entry) * d <= 4 * risk)
+        tp1, tp2 = entry + d * self.TP1_R * risk, entry + d * self.TP2_DEFAULT_R * risk
+        # היעד הסופי: הנזילות הנגדית הקרובה, אם היא בטווח TP2_MIN_R-TP2_MAX_R
+        opp = [_num(row.get(k)) for k in self.OPP[d]]
+        far = sorted(x for x in opp if x is not None
+                     and self.TP2_MIN_R * risk <= (x - entry) * d <= self.TP2_MAX_R * risk)
         if far:
             tp2 = far[0] if d == 1 else far[-1]
-        return {"id": self.new_id(), "direction": d, "entry": entry, "sl": sl, "tp1": round(tp1, 2),
+        return {"id": self.new_id(), "method": self.METHOD, "direction": d, "entry": entry, "sl": sl, "tp1": round(tp1, 2),
                 "tp2": round(tp2, 2), "score": round(htf, 1), "level": round(c["level"], 2), "name": c["name"],
                 "note": LEVEL_NAMES.get(c["name"], c["name"]), "created": row["t"].isoformat(),
                 "expires": (row["t"] + pd.Timedelta(minutes=5 * self.SETUP_BARS)).isoformat(),
                 "expires_n": self.n + self.SETUP_BARS}
+
+
+class SMCStrategy(LiquidityStrategy):
+    """אסטרטגיית SMC/ICT לזהב - שני מודלים, עסקה אחת בכל פעם, עד 2 סטאפים ביום.
+
+    מודל A (Sweep + FVG): בשעות לונדון/ניו יורק, סוויפ של השיא/שפל של אתמול, אסיה או לונדון,
+      חזרה מעבר לרמה ושבירת מבנה ב-5M עם Displacement (גוף נר >= 1 ATR של 5M),
+      FVG בכיוון ההפוך לסוויפ -> לימיט באמצע ה-FVG.
+    מודל B (Session Liquidity): הנזילות של אסיה/לונדון נלקחה לפני ניו יורק; בסשן ניו יורק
+      מחפשים Displacement + BOS נגד כיוון הסוויפ -> לימיט באמצע ה-FVG, סטופ מעבר לקצה המהלך.
+    סטופ מעבר לקצה הסוויפ + 0.1 ATR. יעד 1 = 1.5R (חצי + סטופ לכניסה), יעד סופי = הנזילות הנגדית
+    אם היא 3R-8R, אחרת 3R. לא נגד מגמה חזקה ב-1H/4H. לא פותחים סטאפ חדש בשישי אחרי 10:00 ניו יורק.
+    """
+    LEVELS = (("PDL", "pdl", 1), ("ASL", "asia_low", 1), ("LDL", "lon_low", 1),
+              ("PDH", "pdh", -1), ("ASH", "asia_high", -1), ("LDH", "lon_high", -1))
+    DISP_ATR = 1.0
+    TP1_R = 1.5
+    TP2_MIN_R, TP2_MAX_R, TP2_DEFAULT_R = 3.0, 8.0, 3.0
+    OPP = {1: ("pdh", "asia_high", "lon_high"), -1: ("pdl", "asia_low", "lon_low")}
+    METHOD = "smc"
+    DAILY_MAX = 2
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        super().__init__(cfg, state, ids)
+        state = state or {}
+        self.day: dict = state.get("day", {})  # session, count, swept (מודל B)
+
+    def to_state(self) -> dict:
+        return {**super().to_state(), "day": self.day}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        session = row.get("session")
+        if session and self.day.get("session") != session:
+            self.day = {"session": session, "count": 0, "swept": {}, "b_done": False}
+        self._track_session_sweeps(row)
+        t_ny = row["t"].tz_convert("America/New_York")
+        late_friday = t_ny.dayofweek == 4 and t_ny.hour >= 10
+        can_open = allow_entry and not late_friday and self.day.get("count", 0) < self.DAILY_MAX
+        had_setup = self.setup
+        events = super().on_bar(row, can_open)
+        if not self.trade and not self.setup and can_open:
+            events += self._model_b(row)
+        if self.setup and self.setup is not had_setup:
+            self.day["count"] = self.day.get("count", 0) + 1
+        return events
+
+    def _track_session_sweeps(self, row):
+        """לפני ניו יורק: האם נלקחה נזילות של אסיה/לונדון (לאיזה צד)."""
+        if row.get("kz") == 2 or not self.day:
+            return
+        hi, lo = float(row["high"]), float(row["low"])
+        for name, col, side in (("ASH", "asia_high", 1), ("LDH", "lon_high", 1),
+                                ("ASL", "asia_low", -1), ("LDL", "lon_low", -1)):
+            lvl = _num(row.get(col))
+            if lvl is not None and ((side == 1 and hi > lvl) or (side == -1 and lo < lvl)):
+                self.day["swept"][name] = side
+
+    def _model_b(self, row) -> list[dict]:
+        if row.get("kz") != 2 or self.day.get("b_done") or not self.day.get("swept"):
+            return []
+        sides = set(self.day["swept"].values())
+        if len(sides) != 1:  # נלקחו שני הצדדים - אין הטיה ברורה
+            return []
+        d = -sides.pop()     # נלקח למעלה -> מחפשים שורט, ולהפך
+        a5, a = _num(row.get("atr_5m")), _num(row.get("atr_15m"))
+        close, opn = float(row["close"]), float(row["open"])
+        prev = [b for b in self.buf[:-1]][-6:]
+        if not (a5 and a) or len(prev) < 6 or (close - opn) * d < self.DISP_ATR * a5:
+            return []
+        ref = min(b["l"] for b in prev) if d == -1 else max(b["h"] for b in prev)
+        if (close - ref) * d <= 0:   # אין BOS
+            return []
+        last3 = self.buf[-3:]
+        x, z = last3[0], last3[2]
+        fvg = (x["h"], z["l"]) if d == 1 and z["l"] > x["h"] else (z["h"], x["l"]) if d == -1 and z["h"] < x["l"] else None
+        if not fvg:
+            return []
+        recent = self.buf[-12:]
+        ext = min(b["l"] for b in recent) if d == 1 else max(b["h"] for b in recent)
+        names = [k for k, v in self.day["swept"].items()]
+        c = {"direction": d, "name": names[0], "level": ref, "ext": ext}
+        plan = self._plan(c, row, (fvg[0] + fvg[1]) / 2, check_price=True)
+        self.day["b_done"] = True
+        if not plan:
+            return []
+        plan["note"] = f"מודל B: נזילות {'/'.join(LEVEL_NAMES[n] for n in names)} נלקחה לפני ניו יורק, BOS בניו יורק"
+        self.setup = plan
+        return [{"type": "setup", "setup": plan, "t": row["t"].isoformat()}]
 
 
 class RangeStrategy:
@@ -379,22 +479,23 @@ class Strategy:
         self.trend = TrendStrategy(cfg, state.get("trend"), self.ids)
         self.liquidity = LiquidityStrategy(cfg, state.get("liquidity"), self.ids)
         self.range = RangeStrategy(cfg, state.get("range"), self.ids)
+        self.smc = SMCStrategy(cfg, state.get("smc"), self.ids)
 
     def to_state(self) -> dict:
         return {"next_id": self.ids["next"], "last_t": self.last_t, "trend": self.trend.to_state(),
-                "liquidity": self.liquidity.to_state(), "range": self.range.to_state()}
+                "liquidity": self.liquidity.to_state(), "range": self.range.to_state(), "smc": self.smc.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
         return (self.trend.on_bar(row, allow_entry) + self.liquidity.on_bar(row, allow_entry)
-                + self.range.on_bar(row, allow_entry))
+                + self.range.on_bar(row, allow_entry) + self.smc.on_bar(row, allow_entry))
 
     @property
     def open_trades(self) -> list[dict]:
-        trades = [asdict(s.trade) for s in (self.trend, self.liquidity) if s.trade]
+        trades = [asdict(s.trade) for s in (self.smc, self.trend, self.liquidity) if s.trade]
         return trades + [{k: v for k, v in x.items() if k != "opened_n"} for x in self.range.trades]
 
     @property
     def pending(self) -> dict | None:
-        return self.liquidity.setup
+        return self.smc.setup or self.liquidity.setup
