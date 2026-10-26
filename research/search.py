@@ -55,6 +55,8 @@ class Searcher:
         self.fold_edges = np.quantile(dev_t, np.linspace(0, 1, 5))
         self.t_int = self.t.astype("int64").to_numpy()
         self.dev_days = tl.loc[self.dev, "session"].nunique()
+        self.excess = False
+        self._base = {}
         self.hold_days = tl.loc[~self.dev, "session"].nunique()
 
     def _mask(self, rule) -> np.ndarray:
@@ -68,11 +70,25 @@ class Searcher:
         trig = m & ~np.r_[False, m[:-1]]  # רק כשהתנאי "נדלק" - לא כל נר שבו הוא נכון
         return trig
 
+    def baseline(self, rule, part: str) -> float:
+        """התוצאה הממוצעת של כניסה באותו כיוון, באותו סשן ובאותה יציאה - בזמן אקראי."""
+        key = (rule["exit"], rule["dir"], rule["session"], part)
+        if key not in self._base:
+            a, b = SESSIONS[rule["session"]]
+            mins = self.ny_min
+            sess = ((mins >= a + 1440) | (mins < b)) if a < 0 else ((mins >= a) & (mins < b))
+            r_all = self.R[rule["exit"]][rule["dir"]]
+            sel = sess & (self.dev if part == "dev" else ~self.dev) & ~np.isnan(r_all)
+            self._base[key] = float(np.mean(r_all[sel]))
+        return self._base[key]
+
     def evaluate(self, rule, part: str = "dev"):
         trig = self._mask(rule)
         r_all = self.R[rule["exit"]][rule["dir"]]
         sel = trig & (self.dev if part == "dev" else ~self.dev) & ~np.isnan(r_all)
         r = r_all[sel]
+        if self.excess and part == "dev" and len(r):
+            r = r - self.baseline(rule, part)  # מעבר לכיוון הכללי של השוק בתקופה
         if len(r) < 30:
             return None
         days = self.dev_days if part == "dev" else self.hold_days
@@ -114,19 +130,24 @@ class Searcher:
 
 
 def run(tl_real: pd.DataFrame, tl_null: list[pd.DataFrame], cost: float, holdout_months: int,
-        n: int, k_max: int, min_per_day: float) -> str:
+        n: int, k_max: int, min_per_day: float, excess: bool = False) -> str:
     dev_end = tl_real["t"].max() - pd.DateOffset(months=holdout_months)
-    lines = [f"### 🔎 חיפוש אוטומטי: {n:,} חוקים · עד {k_max} תנאים · לפחות {min_per_day} עסקאות ביום",
+    lines = [f"### 🔎 חיפוש אוטומטי: {n:,} חוקים · עד {k_max} תנאים · לפחות {min_per_day} עסקאות ביום"
+             + (" · ציון מעבר לכיוון השוק" if excess else ""),
              f"כספת (לא נבדקה בחיפוש): {dev_end:%d/%m/%Y} - {tl_real['t'].max():%d/%m/%Y}", ""]
     null_best = []
     for i, tn in enumerate(tl_null):
-        b = Searcher(tn, cost, dev_end).search(n, seed=100 + i, min_per_day=min_per_day, k_max=k_max)
+        sn = Searcher(tn, cost, dev_end)
+        sn.excess = excess
+        b = sn.search(n, seed=100 + i, min_per_day=min_per_day, k_max=k_max)
         null_best.append(b[0][0] if b else 0.0)
         print(f"  null {i}: best t={null_best[-1]:+.2f}", flush=True)
-    bar = max(null_best) if null_best else 0.0
+    bar = (max(null_best) if null_best else 0.0) + 0.5  # מרווח ביטחון מעל המזל הכי גדול
     S = Searcher(tl_real, cost, dev_end)
+    S.excess = excess
     top = S.search(n, seed=1, min_per_day=min_per_day, k_max=k_max)
-    lines += [f"**ביקורת (מחירים מעורבבים):** ה-t הכי טוב שיצא במזל: " + ", ".join(f"{x:+.2f}" for x in null_best),
+    lines += [f"**ביקורת (מחירים מעורבבים):** ה-t הכי טוב שיצא במזל: " + ", ".join(f"{x:+.2f}" for x in null_best)
+              + f" · הרף: {bar:+.2f}",
               f"**בנתונים האמיתיים:** ה-t הכי טוב: {top[0][0]:+.2f}" if top else "**בנתונים האמיתיים:** אין חוק שעבר את תנאי הסף",
               "", "| # | חוק | חיפוש: עסקאות/יום · הצלחה · ממוצע R · t · 4 תקופות | מעל הביקורת? | כספת: עסקאות · הצלחה · ממוצע R · סה\"כ · t | עבר? |",
               "|---|---|---|---|---|---|"]

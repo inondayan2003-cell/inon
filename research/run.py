@@ -65,6 +65,7 @@ def main():
     ap.add_argument("--kmax", type=int, default=3)
     ap.add_argument("--minday", type=float, default=1.0)
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
+    ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
 
@@ -111,8 +112,8 @@ def main():
     if a.search:
         from research import search
         from research.null import shuffle_within_hour
-        nulls = [build(shuffle_within_hour(m1, s)) for s in (1, 2)]
-        lines += ["", search.run(table, nulls, a.cost, a.holdout, a.search, a.kmax, a.minday)]
+        nulls = [build(shuffle_within_hour(m1, s)) for s in (1, 2, 3, 4)]
+        lines += ["", search.run(table, nulls, a.cost, a.holdout, a.search, a.kmax, a.minday, a.excess)]
     if a.ml:
         from research import ml
         from research.null import shuffle_within_hour
