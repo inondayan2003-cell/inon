@@ -5,7 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
-const METHOD = { smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
+const METHOD = { london_short: "🇬🇧 שורט לונדון", smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;
@@ -71,7 +71,7 @@ function renderAnalysis(a) {
   const dir = a.direction || a.lean;
   $("planCard").hidden = !a.plan;
   if (a.plan) {
-    $("planTitle").textContent = "📈 שיטת מגמה - לניתוח בלבד (הפסידה בבדיקה ההיסטורית)";
+    $("planTitle").textContent = "📈 תמונת מגמה - לניתוח בלבד (לא סיגנל)";
     $("plan").innerHTML = planCells(a.plan, dir);
     $("reasons").innerHTML = a.reasons.map((r) => `<li>${r}</li>`).join("");
   }

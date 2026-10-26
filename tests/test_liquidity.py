@@ -95,17 +95,20 @@ def test_setup_cancelled_when_not_filled():
     assert "בוטלה" in event_message(ev[-1])
 
 
-def test_combined_state_roundtrip_and_legacy_state():
-    st = Strategy(CFG)
+def test_liquidity_state_roundtrip():
+    ls = LiquidityStrategy(CFG)
     for i, b in enumerate(SWEEP_UP):
-        st.on_bar(bar(i, *b))
-    assert st.pending is not None
-    st2 = Strategy(CFG, st.to_state())
-    assert st2.pending == st.pending and st2.ids["next"] == st.ids["next"]
-    legacy = {"active_dir": 1, "last_signal": {}, "next_id": 7, "last_t": "2026-10-20T10:00:00+00:00",
-              "trade": None}
-    st3 = Strategy(CFG, legacy)
-    assert st3.trend.active_dir == 1 and st3.ids["next"] == 7 and st3.last_t == legacy["last_t"]
+        ls.on_bar(bar(i, *b))
+    assert ls.setup is not None
+    ls2 = LiquidityStrategy(CFG, ls.to_state(), {"next": 5})
+    assert ls2.setup == ls.setup and ls2.n == ls.n
+
+
+def test_new_bot_ignores_old_strategy_state():
+    from app.strategy import Strategy
+    old = {"next_id": 9, "last_t": "2026-10-20T10:00:00+00:00", "trend": {"active_dir": 1}, "liquidity": {}}
+    st = Strategy(CFG, old)
+    assert st.ids["next"] == 9 and st.open_trades == [] and st.pending is None
 
 
 def test_short_setup_is_mirror_of_long():

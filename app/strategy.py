@@ -479,35 +479,100 @@ class RangeStrategy:
         return events
 
 
+class LondonShortStrategy:
+    """שורט לונדון (נמצא בחיפוש האוטומטי, סבב 2, חוק 4; נבדק עם יחס 1:2).
+
+    כניסה (שורט, בסגירת נר 5M), כשבשעות 02:00-07:00 ניו יורק מתקיימים לראשונה יחד:
+      - פתיל עליון קטן: wick_up < 0.306 (ביחידות ATR של 5M)
+      - תנודתיות נמוכה: vol_regime < 0.763 (ATR 15M ביחס לממוצע 5 הימים)
+      - בלי עלייה חזקה בשעה האחרונה: ret12 < 0.655 (ביחידות ATR של 15M)
+    סטופ 1.5 ATR(15M), יעד 2R (3 ATR), יציאה בזמן אחרי 4 שעות. כמה עסקאות יכולות לרוץ במקביל.
+    בדיקה: 10/2024-6/2026 בערך אפס; 6/2026-10/2026 (כספת) 141 עסקאות, 50% הצלחה, +49R.
+    """
+    WICK_UP, VOL_REGIME, RET12 = 0.306, 0.763, 0.655
+    SESSION = (120, 420)          # דקות מחצות ניו יורק, לפי פתיחת הנר
+    SL_ATR, RR, HOLD_BARS = 1.5, 2.0, 48
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        state = state or {}
+        self.cfg = cfg
+        self.ids = ids if ids is not None else {"next": 1}
+        self.n: int = state.get("n", 0)
+        self.prev: bool = state.get("prev", False)
+        self.trades: list[dict] = state.get("trades", [])
+
+    def to_state(self) -> dict:
+        return {"n": self.n, "prev": self.prev, "trades": self.trades}
+
+    def condition(self, row) -> bool:
+        m = row.get("ny_open_min")
+        vals = [_num(row.get(k)) for k in ("wick_up", "vol_regime", "ret12")]
+        if m is None or any(v is None for v in vals):
+            return False
+        wick, vol, ret = vals
+        return (self.SESSION[0] <= m < self.SESSION[1] and wick < self.WICK_UP
+                and vol < self.VOL_REGIME and ret < self.RET12)
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        self.n += 1
+        t = row["t"]
+        hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
+        events, still = [], []
+        for x in self.trades:
+            tr = Trade(**{k: v for k, v in x.items() if k != "opened_n"})
+            exit_px = status = None
+            if hi >= tr.sl:                      # סטופ קודם (הנחה שמרנית)
+                exit_px, status = tr.sl, "sl"
+            elif lo <= tr.tp2:
+                exit_px, status = tr.tp2, "tp2"
+            elif self.n - x["opened_n"] >= self.HOLD_BARS:
+                exit_px, status = close, "expired"
+            if status:
+                tr.result_r = round((tr.entry - exit_px) / tr.risk, 2)
+                tr.status, tr.exit_price, tr.closed_at = status, round(exit_px, 2), t.isoformat()
+                events.append({"type": "closed", "trade": asdict(tr), "t": t.isoformat()})
+            else:
+                still.append(x)
+        self.trades = still
+
+        cond = self.condition(row)
+        fire = cond and not self.prev   # רק כשהתנאי "נדלק"
+        self.prev = cond
+        a = _num(row.get("atr_15m"))
+        if fire and allow_entry and a:
+            sl = round(close + self.SL_ATR * a, 2)
+            tp = round(close - self.SL_ATR * self.RR * a, 2)
+            tr = Trade(id=self.ids["next"], direction=-1, opened_at=t.isoformat(), entry=round(close, 2), sl=sl,
+                       tp1=tp, tp2=tp, score=0.0, stop=sl, method="london_short",
+                       note="שורט לונדון: פתיל עליון קטן, תנודתיות נמוכה, בלי עלייה חזקה בשעה האחרונה")
+            self.ids["next"] += 1
+            self.trades.append({**asdict(tr), "opened_n": self.n})
+            events.append({"type": "signal", "trade": asdict(tr), "t": t.isoformat(),
+                           "expires": (t + pd.Timedelta(minutes=5 * self.HOLD_BARS)).isoformat()})
+        return events
+
+
 class Strategy:
-    """מריץ את כל השיטות על כל נר ושומר את המצב של כולן."""
+    """השיטה שרצה בבוט (לבקשת המשתמש: רק שורט לונדון; השיטות הקודמות נשארו למחקר)."""
 
     def __init__(self, cfg: Settings, state: dict | None = None):
         state = state or {}
-        if state and "trend" not in state:  # מצב שנשמר בגרסה הקודמת (שיטת מגמה בלבד)
-            state = {"trend": state, "next_id": state.get("next_id", 1), "last_t": state.get("last_t")}
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
-        self.trend = TrendStrategy(cfg, state.get("trend"), self.ids)
-        self.liquidity = LiquidityLooseStrategy(cfg, state.get("liquidity"), self.ids)
-        self.range = RangeStrategy(cfg, state.get("range"), self.ids)
-        self.smc = SMCStrategy(cfg, state.get("smc"), self.ids)
+        self.london = LondonShortStrategy(cfg, state.get("london"), self.ids)
 
     def to_state(self) -> dict:
-        return {"next_id": self.ids["next"], "last_t": self.last_t, "trend": self.trend.to_state(),
-                "liquidity": self.liquidity.to_state(), "range": self.range.to_state(), "smc": self.smc.to_state()}
+        return {"next_id": self.ids["next"], "last_t": self.last_t, "london": self.london.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
-        return (self.trend.on_bar(row, allow_entry) + self.liquidity.on_bar(row, allow_entry)
-                + self.range.on_bar(row, allow_entry) + self.smc.on_bar(row, allow_entry))
+        return self.london.on_bar(row, allow_entry)
 
     @property
     def open_trades(self) -> list[dict]:
-        trades = [asdict(s.trade) for s in (self.smc, self.trend, self.liquidity) if s.trade]
-        return trades + [{k: v for k, v in x.items() if k != "opened_n"} for x in self.range.trades]
+        return [{k: v for k, v in x.items() if k != "opened_n"} for x in self.london.trades]
 
     @property
     def pending(self) -> dict | None:
-        return self.smc.setup or self.liquidity.setup
+        return None

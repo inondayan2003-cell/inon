@@ -4,7 +4,7 @@ from dataclasses import asdict
 import pandas as pd
 
 from app.config import Settings
-from app.strategy import LiquidityLooseStrategy, LiquidityStrategy, RangeStrategy, SMCStrategy, Trade, TradeBook, TrendStrategy, _num
+from app.strategy import LondonShortStrategy, LiquidityLooseStrategy, LiquidityStrategy, RangeStrategy, SMCStrategy, Trade, TradeBook, TrendStrategy, _num
 
 
 def liq_variant(name: str, **knobs):
@@ -65,6 +65,7 @@ class ORB(TradeBook):
 def candidates(cfg: Settings) -> dict:
     """שם -> יצרן אסטרטגיה (כל הרצה מקבלת מופע חדש)."""
     return {
+        "london_short": lambda: LondonShortStrategy(cfg),
         "smc": lambda: SMCStrategy(cfg),
         "range": lambda: RangeStrategy(cfg),
         "trend": lambda: TrendStrategy(cfg),

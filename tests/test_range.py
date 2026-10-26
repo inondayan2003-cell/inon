@@ -43,10 +43,8 @@ def test_follow_pdl_stop_and_time_exit():
 
 
 def test_parallel_trades_and_state_roundtrip():
-    st = Strategy(CFG)
-    st.on_bar(bar(0, 2031.0, composite=0.0, score_1h=0, score_4h=0, score_5m=0, score_15m=0, adx_15m=0,
-                  ema21_15m=2031.0, swing_low_15m=2030, swing_high_15m=2032, atr_5m=2.0, kz=0))
-    opened = [t for t in st.open_trades if t["method"] == "range"]
-    assert len(opened) == 2  # גם פייד לשיא לונדון (שורט) וגם המשך לשיא אתמול (לונג)
-    st2 = Strategy(CFG, st.to_state())
-    assert len(st2.range.trades) == 2 and st2.ids["next"] == st.ids["next"]
+    rs = RangeStrategy(CFG)
+    rs.on_bar(bar(0, 2031.0))
+    assert len(rs.trades) == 2  # גם פייד לשיא לונדון (שורט) וגם המשך לשיא אתמול (לונג)
+    rs2 = RangeStrategy(CFG, rs.to_state(), {"next": 3})
+    assert len(rs2.trades) == 2 and rs2.done == rs.done

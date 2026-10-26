@@ -40,6 +40,9 @@ class Store:
     def save_trade(self, trade: dict):
         self._exec("INSERT OR REPLACE INTO trades (id, data) VALUES (?,?)", (trade["id"], json.dumps(trade)))
 
+    def clear_trades(self):
+        self._exec("DELETE FROM trades")
+
     def trades(self, limit: int = 50) -> list[dict]:
         rows = self._exec("SELECT data FROM trades ORDER BY id DESC LIMIT ?", (limit,))
         return [json.loads(r[0]) for r in rows]

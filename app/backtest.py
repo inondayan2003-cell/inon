@@ -106,7 +106,7 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"smc": "🏦 אסטרטגיית SMC", "range": "🎯 שיטת טווחים", "trend": "📈 שיטת מגמה", "liquidity": "💧 נזילות (משוחררת)"}
+METHOD_NAMES = {"london_short": "🇬🇧 שורט לונדון (יחס 1:2)"}
 
 
 def _block(title: str, s: dict) -> list[str]:
@@ -133,7 +133,7 @@ def format_report(trades: list[dict], md: MarketData) -> str:
     sums = {m: summarize(ts) for m, ts in by.items()}
     for m, title in METHOD_NAMES.items():
         lines += _block(title, sums[m]) + [""]
-    lines += ["<b>לפי חודש</b> (SMC / טווחים / מגמה / נזילות, הצבע לפי הסכום):"]
+    lines += ["<b>לפי חודש:</b>"]
     months = sorted(set().union(*(sums[m].get("months", {}) for m in METHOD_NAMES)))
     for mo in months:
         vals = [sums[m].get("months", {}).get(mo, 0.0) for m in METHOD_NAMES]
