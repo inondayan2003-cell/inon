@@ -116,6 +116,8 @@ def build_timeline(enriched: dict[str, pd.DataFrame]) -> pd.DataFrame:
         cols = ["close_time", "score"]
         if tf == "15m":
             cols += ["atr", "ema21", "adx", "swing_low", "swing_high"]
+        elif tf == "1h":
+            cols += ["atr"]
         part = enriched[tf][cols].rename(columns={c: f"{c}_{tf}" for c in cols if c != "close_time"})
         base = pd.merge_asof(base.sort_values("close_time"), part.sort_values("close_time"),
                              on="close_time", direction="backward")

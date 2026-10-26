@@ -5,7 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
-const METHOD = { london_short: "🇬🇧 שורט לונדון", smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
+const METHOD = { reopen_long: "🌏 לונג בפתיחה", london_short: "🇬🇧 שורט לונדון", smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;

@@ -32,7 +32,7 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
-METHODS = {"london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
+METHODS = {"reopen_long": "🌏 לונג בפתיחה", "london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
 
 
 def _label(tr: dict) -> str:
@@ -96,6 +96,24 @@ def range_message(ev: dict) -> str:
     ])
 
 
+def reopen_message(ev: dict) -> str:
+    tr = ev["trade"]
+    risk = abs(tr["entry"] - tr["sl"])
+    return "\n".join([
+        f"🌏🟢 <b>סיגנל לונג - זהב</b> · {_time(tr['opened_at'])}",
+        "<i>הפתיחה היומית (אסיה). בשנים 2018-2026 הזהב נטה לעלות בשעות הראשונות אחרי הפתיחה.</i>",
+        "",
+        f"💰 כניסה עכשיו (לונג): <b>{_p(tr['entry'])}</b>",
+        f"🛑 סטופ: {_p(tr['sl'])} ({risk:.2f}$)",
+        f"🎯 יעד: {_p(tr['tp2'])} ({3 * risk:.2f}$ · יחס 1:3)",
+        f"⏳ אם לא הגיע ליעד או לסטופ עד {_time(ev['expires'])} - לסגור במחיר השוק (רוב העסקאות נסגרות כך).",
+        "",
+        "📊 בבדיקה (עלות 0.35$): שנתיים אחרונות 517 עסקאות, 50% ברווח, +99R; 2018-2024 +64R.",
+        "🧪 עסקה אחת ביום. מומלץ להתחיל בדמו ובסיכון קטן (0.5% לעסקה).",
+        DISCLAIMER,
+    ])
+
+
 def london_message(ev: dict) -> str:
     tr = ev["trade"]
     risk = abs(tr["entry"] - tr["sl"])
@@ -155,6 +173,8 @@ def signal_message(trade: dict, snapshot: dict | None) -> str:
 def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     kind = ev["type"]
     if kind == "signal":
+        if ev["trade"].get("method") == "reopen_long":
+            return reopen_message(ev)
         if ev["trade"].get("method") == "london_short":
             return london_message(ev)
         if ev["trade"].get("method") == "range":
@@ -180,7 +200,7 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
         return (f"✅ <b>יעד 1 הושג ({_label(tr)})</b>\n"
                 f"מחיר {_p(tr['tp1'])}. מומלץ לסגור חצי ולהזיז סטופ לכניסה ({_p(tr['entry'])}).")
     if kind == "closed":
-        if tr.get("method") in ("range", "london_short") and tr["status"] == "tp2":
+        if tr.get("method") in ("range", "london_short", "reopen_long") and tr["status"] == "tp2":
             return f"🏆 <b>היעד הושג</b> ({_label(tr)})\nיציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>"
         titles = {"tp2": "🏆 יעד 2 הושג - העסקה נסגרה", "sl": "🛑 הסטופ נלקח",
                   "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ הזמן נגמר - לסגור במחיר השוק",
@@ -204,7 +224,7 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים רק משיטת שורט לונדון 🇬🇧"]
+                      "סיגנלים נשלחים רק משיטת הלונג בפתיחה היומית 🌏"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:

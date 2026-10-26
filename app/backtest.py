@@ -106,7 +106,7 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"london_short": "🇬🇧 שורט לונדון (יחס 1:2)"}
+METHOD_NAMES = {"reopen_long": "🌏 לונג בפתיחה היומית (יחס 1:3)"}
 
 
 def _block(title: str, s: dict) -> list[str]:

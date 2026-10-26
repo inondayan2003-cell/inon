@@ -552,26 +552,102 @@ class LondonShortStrategy:
         return events
 
 
+class ReopenLongStrategy:
+    """לונג בפתיחה היומית של הזהב (research/reopen.py, סבבים 4-5).
+
+    הזהב נוטה לעלות ב-3 השעות הראשונות אחרי ההפסקה היומית (18:00 ניו יורק, ~01:00 שעון ישראל).
+    התנועה הממוצעת בשעות האלה חיובית בכל אחת מהשנים 2018-2026; אותה עסקה בשעות אחרות לא מרוויחה.
+    כניסה: לונג בסגירת נר ה-5M הראשון אחרי ההפסקה (פער של 30+ דקות בנתונים, או הנר הראשון מ-18:00 ניו יורק).
+    סטופ 1 ATR(1H), יעד 3R, יציאה בזמן 4 שעות אחרי הפתיחה. עסקה אחת ביום.
+    בדיקה (עלות 0.35$): 10/2024-10/2026 517 עסקאות, +99R, t=3.5, כל שנה ברווח; 2018-2024 +64R, 5/7 שנים.
+    """
+    SL_ATR, RR, HOLD = 1.0, 3.0, pd.Timedelta(hours=4)
+    GAP = pd.Timedelta(minutes=30)
+    OPEN_MIN = 18 * 60
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        state = state or {}
+        self.cfg = cfg
+        self.ids = ids if ids is not None else {"next": 1}
+        self.prev_t: str | None = state.get("prev_t")
+        self.last_day: str | None = state.get("last_day")
+        self.trades: list[dict] = state.get("trades", [])
+
+    def to_state(self) -> dict:
+        return {"prev_t": self.prev_t, "last_day": self.last_day, "trades": self.trades}
+
+    def _reopen(self, row) -> str | None:
+        """מחזיר את יום המסחר אם הנר הזה הוא הראשון אחרי הפתיחה היומית, אחרת None."""
+        t = row["t"]
+        bar_open = (t - pd.Timedelta(minutes=5)).tz_convert("America/New_York")
+        day = (bar_open + pd.Timedelta(hours=6)).date().isoformat()   # יום מסחר מתחיל ב-18:00 ניו יורק
+        gap = self.prev_t is not None and t - pd.Timestamp(self.prev_t) >= self.GAP + pd.Timedelta(minutes=5)
+        m = bar_open.hour * 60 + bar_open.minute
+        at_open = self.OPEN_MIN <= m < self.OPEN_MIN + 30
+        return day if (gap or at_open) and day != self.last_day else None
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        t = row["t"]
+        hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
+        events, still = [], []
+        for x in self.trades:
+            tr = Trade(**x)
+            exit_px = status = None
+            if lo <= tr.sl:                      # סטופ קודם (הנחה שמרנית)
+                exit_px, status = tr.sl, "sl"
+            elif hi >= tr.tp2:
+                exit_px, status = tr.tp2, "tp2"
+            elif t >= pd.Timestamp(tr.opened_at) + self.HOLD:
+                exit_px, status = close, "expired"
+            if status:
+                tr.result_r = round((exit_px - tr.entry) / tr.risk, 2)
+                tr.status, tr.exit_price, tr.closed_at = status, round(exit_px, 2), t.isoformat()
+                events.append({"type": "closed", "trade": asdict(tr), "t": t.isoformat()})
+            else:
+                still.append(x)
+        self.trades = still
+
+        day = self._reopen(row)
+        self.prev_t = t.isoformat()
+        a = _num(row.get("atr_1h"))
+        if day and allow_entry and a and not self.trades:
+            self.last_day = day
+            sl = round(close - self.SL_ATR * a, 2)
+            tp = round(close + self.SL_ATR * self.RR * a, 2)
+            opened = t - pd.Timedelta(minutes=5)          # שעת הפתיחה (תחילת הנר)
+            tr = Trade(id=self.ids["next"], direction=1, opened_at=opened.isoformat(), entry=round(close, 2), sl=sl,
+                       tp1=tp, tp2=tp, score=0.0, stop=sl, method="reopen_long",
+                       note="לונג בפתיחה היומית של הזהב")
+            self.ids["next"] += 1
+            self.trades.append(asdict(tr))
+            events.append({"type": "signal", "trade": asdict(tr), "t": t.isoformat(),
+                           "expires": (opened + self.HOLD).isoformat()})
+        elif day:
+            self.last_day = day
+        return events
+
+
 class Strategy:
-    """השיטה שרצה בבוט (לבקשת המשתמש: רק שורט לונדון; השיטות הקודמות נשארו למחקר)."""
+    """השיטה שרצה בבוט: לונג בפתיחה היומית. השיטות הקודמות (כולל שורט לונדון, שנכשל ב-2018-2024)
+    נשארו בקוד למחקר בלבד."""
 
     def __init__(self, cfg: Settings, state: dict | None = None):
         state = state or {}
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
-        self.london = LondonShortStrategy(cfg, state.get("london"), self.ids)
+        self.reopen = ReopenLongStrategy(cfg, state.get("reopen"), self.ids)
 
     def to_state(self) -> dict:
-        return {"next_id": self.ids["next"], "last_t": self.last_t, "london": self.london.to_state()}
+        return {"next_id": self.ids["next"], "last_t": self.last_t, "reopen": self.reopen.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
-        return self.london.on_bar(row, allow_entry)
+        return self.reopen.on_bar(row, allow_entry)
 
     @property
     def open_trades(self) -> list[dict]:
-        return [{k: v for k, v in x.items() if k != "opened_n"} for x in self.london.trades]
+        return list(self.reopen.trades)
 
     @property
     def pending(self) -> dict | None:
