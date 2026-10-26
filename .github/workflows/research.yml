@@ -6,7 +6,7 @@ on:
       months: {description: "חודשים אחורה", default: "24"}
       only: {description: "שיטות (מופרד בפסיקים, ריק = הכל)", default: ""}
       cost: {description: "עלות לעסקה בדולרים", default: "0.35"}
-      flags: {description: "מצבים נוספים (--ml / --scan)", default: "--ml"}
+      flags: {description: "מצבים נוספים (--ml / --scan)", default: "--search 20000"}
   push:
     paths: ["research/**", "app/strategy.py", "app/analysis.py", ".github/workflows/research.yml"]
 
@@ -32,4 +32,4 @@ jobs:
             echo "$u -> $(curl -s -o /tmp/o -w '%{http_code} %{size_download}B %{time_total}s' --max-time 20 -A 'Mozilla/5.0' "$u")"
           done
       - name: run
-        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" ${{ inputs.flags || '--ml' }}
+        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" ${{ inputs.flags || '--search 20000 --kmax 3 --minday 1' }}
