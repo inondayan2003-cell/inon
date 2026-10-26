@@ -122,7 +122,15 @@ def build_timeline(enriched: dict[str, pd.DataFrame]) -> pd.DataFrame:
     scores = base[[f"score_{tf}" for tf in WEIGHTS]]
     base["composite"] = sum(scores[f"score_{tf}"] * w for tf, w in WEIGHTS.items())
     base.loc[scores.isna().any(axis=1), "composite"] = np.nan
-    return base.rename(columns={"close_time": "t"}).dropna(subset=["composite", "atr_15m"])
+    tl = base.rename(columns={"close_time": "t"}).dropna(subset=["composite", "atr_15m"])
+    # מאפיינים לשיטת "שורט לונדון" (אותה הגדרה כמו ב-research/ml.features)
+    a = tl["atr_15m"]
+    tl["wick_up"] = (tl["high"] - np.maximum(tl["open"], tl["close"])) / tl["atr_5m"]
+    tl["ret12"] = (tl["close"] - tl["close"].shift(12)) / a
+    tl["vol_regime"] = a / a.rolling(288 * 5, min_periods=288).mean()
+    ny_open = (tl["t"] - pd.Timedelta(minutes=5)).dt.tz_convert(NY)
+    tl["ny_open_min"] = ny_open.dt.hour * 60 + ny_open.dt.minute
+    return tl
 
 
 def classify(row, cfg: Settings) -> tuple[int, int, str]:
