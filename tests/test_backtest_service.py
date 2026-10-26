@@ -62,7 +62,7 @@ def test_summary_and_report(market):
     assert abs(s["total_r"] - sum(t["result_r"] for t in trades)) < 0.05
     assert s["max_drawdown_r"] >= 0
     text = format_report(trades, market)
-    assert "שיטת מגמה" in text and "שיטת נזילות" in text and "לפי חודש" in text
+    assert "שיטת מגמה" in text and "נזילות" in text and "לפי חודש" in text
     assert format_report([], market).endswith("לא היו סיגנלים בתקופה הזאת.")
 
 
@@ -99,5 +99,5 @@ def test_only_alert_methods_are_notified(market, tmp_path):
     assert event_method(trend_ev) == "trend" and event_method(liq_ev) == "liquidity"
     assert event_method({"type": "weak"}) == "trend"
     assert event_method({"type": "closed", "trade": {"method": "liquidity"}}) == "liquidity"
-    assert CFG.alert_methods == frozenset({"smc"})
+    assert CFG.alert_methods == frozenset({"smc", "liquidity"})
     assert event_method({"type": "setup", "setup": {"method": "smc"}}) == "smc"

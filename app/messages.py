@@ -96,6 +96,26 @@ def range_message(ev: dict) -> str:
     ])
 
 
+def liquidity_signal_message(tr: dict) -> str:
+    icon, name = _dir(tr["direction"])
+    risk = abs(tr["entry"] - tr["sl"])
+    r = lambda x: f"{abs(x - tr['entry']) / risk:.1f}R"
+    side = "מתחת ל" if tr["direction"] == 1 else "מעל ל"
+    return "\n".join([
+        f"💧{icon} <b>סיגנל נזילות {name} - זהב</b> · {_time(tr['opened_at'])}",
+        f"Sweep {side}{tr['note']} ושבירת מבנה ב-5M.",
+        "",
+        f"💰 כניסה עכשיו: <b>{_p(tr['entry'])}</b>",
+        f"🛑 סטופ: {_p(tr['sl'])} ({risk:.2f}$, מעבר לקצה הסוויפ)",
+        f"🎯 יעד 1: {_p(tr['tp1'])} ({r(tr['tp1'])} · סגור חצי, הזז סטופ לכניסה)",
+        f"🎯 יעד 2: {_p(tr['tp2'])} ({r(tr['tp2'])})",
+        "",
+        "🧪 <b>מצב ניסיון - לסחור בחשבון דמו בלבד.</b> בבדיקה של שנתיים: ~1.5 עסקאות ביום, "
+        "52% הצלחה, בערך אפס רווח אחרי ספרד.",
+        DISCLAIMER,
+    ])
+
+
 def signal_message(trade: dict, snapshot: dict | None) -> str:
     icon, name = _dir(trade["direction"])
     risk = abs(trade["entry"] - trade["sl"])
@@ -119,6 +139,8 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     if kind == "signal":
         if ev["trade"].get("method") == "range":
             return range_message(ev)
+        if ev["trade"].get("method") == "liquidity":
+            return liquidity_signal_message(ev["trade"])
         return signal_message(ev["trade"], snapshot)
     if kind == "setup":
         return setup_message(ev["setup"])
@@ -162,7 +184,7 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים מאסטרטגיית ה-SMC 🏦"]
+                      "סיגנלים נשלחים מ-SMC 🏦 ומנזילות 💧"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:

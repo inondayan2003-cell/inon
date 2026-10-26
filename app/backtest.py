@@ -106,7 +106,7 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"smc": "🏦 אסטרטגיית SMC", "range": "🎯 שיטת טווחים", "trend": "📈 שיטת מגמה", "liquidity": "💧 שיטת נזילות"}
+METHOD_NAMES = {"smc": "🏦 אסטרטגיית SMC", "range": "🎯 שיטת טווחים", "trend": "📈 שיטת מגמה", "liquidity": "💧 נזילות (משוחררת)"}
 
 
 def _block(title: str, s: dict) -> list[str]:

@@ -4,7 +4,7 @@ from dataclasses import asdict
 import pandas as pd
 
 from app.config import Settings
-from app.strategy import LiquidityStrategy, RangeStrategy, SMCStrategy, Trade, TradeBook, TrendStrategy, _num
+from app.strategy import LiquidityLooseStrategy, LiquidityStrategy, RangeStrategy, SMCStrategy, Trade, TradeBook, TrendStrategy, _num
 
 
 def liq_variant(name: str, **knobs):
@@ -78,6 +78,7 @@ def candidates(cfg: Settings) -> dict:
         "liq_nohtf": lambda: LiqNoHTF(cfg),
         "liq_2h": lambda: LiqLong(cfg),
         "liq_loose": lambda: LiqLoose(cfg),
+        "liq_live": lambda: LiquidityLooseStrategy(cfg),  # הגרסה שרצה בבוט - צריכה להיות זהה ל-liq_loose
         "liq_loose_kz": lambda: LiqLooseKZ(cfg),
         "liq_loose_fvg": lambda: LiqLooseFVG(cfg),
         "orb_ny": lambda: ORB(cfg, "orbny", 510, 660),      # 08:30-11:00 ניו יורק

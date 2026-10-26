@@ -94,6 +94,14 @@ def liquidity_levels(m5: pd.DataFrame) -> pd.DataFrame:
     lon_known = (mins >= 300) & (shifted.hour >= 7)
     out["lon_high"] = session.map(lon_rng["high"]).where(lon_known).values
     out["lon_low"] = session.map(lon_rng["low"]).where(lon_known).values
+    # שיא/שפל של השבוע הקודם (שבוע לפי תאריך יום המסחר)
+    week = session.dt.to_period("W-FRI")
+    wk = m5.groupby(week.values).agg(high=("high", "max"), low=("low", "min")).shift(1)
+    out["pwh"] = week.map(wk["high"]).values
+    out["pwl"] = week.map(wk["low"]).values
+    # נזילות סווינג: השיא/שפל של 6 השעות האחרונות, לא כולל חצי השעה האחרונה (רמה "מבוססת")
+    out["swing_high"] = m5["high"].rolling(72).max().shift(6).values
+    out["swing_low"] = m5["low"].rolling(72).min().shift(6).values
     h = pd.Series(ny.hour, index=m5.index)
     out["kz"] = np.where((h >= 2) & (h < 5), 1, np.where((h >= 7) & (h < 11), 2, 0))
     return out

@@ -304,6 +304,18 @@ class LiquidityStrategy(TradeBook):
                 "expires_n": self.n + self.SETUP_BARS}
 
 
+class LiquidityLooseStrategy(LiquidityStrategy):
+    """נזילות משוחררת (לבקשת המשתמש - יותר עסקאות): כל היום, כניסה מיידית בשבירת המבנה,
+    רמות נוספות (לונדון, שבוע שעבר, סווינג של 6 שעות), ושעתיים לשבירת המבנה.
+    בבדיקה של שנתיים (10/2024-10/2026): 747 עסקאות (~1.5 ביום), +6.3R - בערך אפס לעסקה."""
+    KZ_ONLY = False
+    ENTRY = "market"
+    SWEEP_BARS = 24
+    LEVELS = LiquidityStrategy.LEVELS + (("LDL", "lon_low", 1), ("LDH", "lon_high", -1),
+                                         ("PWL", "pwl", 1), ("PWH", "pwh", -1),
+                                         ("SWL", "swing_low", 1), ("SWH", "swing_high", -1))
+
+
 class SMCStrategy(LiquidityStrategy):
     """אסטרטגיית SMC/ICT לזהב - שני מודלים, עסקה אחת בכל פעם, עד 2 סטאפים ביום.
 
@@ -477,7 +489,7 @@ class Strategy:
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
         self.trend = TrendStrategy(cfg, state.get("trend"), self.ids)
-        self.liquidity = LiquidityStrategy(cfg, state.get("liquidity"), self.ids)
+        self.liquidity = LiquidityLooseStrategy(cfg, state.get("liquidity"), self.ids)
         self.range = RangeStrategy(cfg, state.get("range"), self.ids)
         self.smc = SMCStrategy(cfg, state.get("smc"), self.ids)
 

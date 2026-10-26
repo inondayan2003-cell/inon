@@ -119,3 +119,16 @@ def test_short_setup_is_mirror_of_long():
     assert s["direction"] == -1 and s["name"] == "PDH"
     assert s["tp2"] < s["tp1"] < s["entry"] < 2043 < s["sl"]
     assert "Sell Limit" in event_message({"type": "setup", "setup": s})
+
+
+def test_loose_liquidity_enters_at_market_outside_killzone():
+    from app.strategy import LiquidityLooseStrategy
+    ls = LiquidityLooseStrategy(CFG)
+    evs = []
+    for i, b in enumerate(SWEEP_UP):
+        evs += ls.on_bar(bar(i, *b, kz=0, atr_15m=5.0))  # מחוץ לשעות לונדון/ניו יורק
+    sig = [e for e in evs if e["type"] == "signal"]
+    assert sig and sig[0]["trade"]["method"] == "liquidity" and sig[0]["trade"]["direction"] == 1
+    assert sig[0]["trade"]["entry"] == SWEEP_UP[-1][3]  # כניסה במחיר הסגירה של נר השבירה
+    msg = event_message(sig[0])
+    assert "כניסה עכשיו" in msg and "דמו" in msg
