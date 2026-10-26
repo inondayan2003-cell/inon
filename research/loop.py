@@ -151,7 +151,7 @@ def report(m1: pd.DataFrame, cost: float, holdout_months: int = 4, nulls: int = 
         sv = _s(v)
         vn = np.mean([_s(x[x.t >= vault])["sum"] for x in r["_res"][1:]])
         lines.append(f"| {k} | {r['tf']} | {r['entry_frac']} | {r['stop']} | 1:{r['rr']:.0f} | {r['win']} | {r['filt']} | "
-                     f"{r['min_gap']} | {r['n']} / {r['per_day']:.1f} | {r["wr"]:.0f}% | {r['sum']:+.0f} | {r['t']:+.1f} | "
+                     f"{r['min_gap']} | {r['n']} / {r['per_day']:.1f} | {r['wr']:.0f}% | {r['sum']:+.0f} | {r['t']:+.1f} | "
                      f"{r['null']:+.0f} | {r['z']:+.2f} | {r['long']:+.0f}/{r['short']:+.0f} | "
                      f"**{sv['n']} · {sv['sum']:+.1f} · {sv['t']:+.1f}** ({sv['n'] / max(days_v, 1):.1f}/יום) | {vn:+.1f} |")
     zs = np.array([r["z"] for r in rows])
