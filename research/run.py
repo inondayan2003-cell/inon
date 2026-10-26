@@ -60,6 +60,7 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--cache", default="research/cache")
     ap.add_argument("--scan", action="store_true", help="גם סריקת דפוסים")
+    ap.add_argument("--ml", action="store_true", help="גם מודל למידת מכונה בהליכה קדימה")
     ap.add_argument("--source", default="histdata", choices=["histdata", "duka"])
     a = ap.parse_args()
 
@@ -103,6 +104,13 @@ def main():
         lines.append(f"| {name} | {s['n']} | {s['per_day']} | {s['win']}% | {s['net_r']} | {s['avg_r']} | {s['pf']} | "
                      f"{s['dd']} | {s['t']} | {i.get('net_r')} | {i.get('pf')} | {o.get('net_r')} | {o.get('pf')} | {o.get('t')} | "
                      + " / ".join(f"{x:+.1f}" for x in r["folds"]) + " |")
+    if a.ml:
+        from research import ml
+        from research.null import shuffle_within_hour
+        txt, _ = ml.report(table, a.cost, "🤖 מודל למידת מכונה - הליכה קדימה (אימון רק על העבר, בדיקה על החודש הבא)")
+        print("  ml real done", flush=True)
+        txt0, _ = ml.report(build(shuffle_within_hour(m1, 1)), a.cost, "🎲 אותו מודל על מחירים מעורבבים (ביקורת)")
+        lines += ["", txt, "", txt0]
     if a.scan:
         from research.null import shuffle_within_hour
         null_rows = build(shuffle_within_hour(m1, 1)).to_dict("records")

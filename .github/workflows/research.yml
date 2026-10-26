@@ -6,6 +6,7 @@ on:
       months: {description: "חודשים אחורה", default: "24"}
       only: {description: "שיטות (מופרד בפסיקים, ריק = הכל)", default: ""}
       cost: {description: "עלות לעסקה בדולרים", default: "0.35"}
+      flags: {description: "מצבים נוספים (--ml / --scan)", default: "--ml"}
   push:
     paths: ["research/**", "app/strategy.py", "app/analysis.py", ".github/workflows/research.yml"]
 
@@ -17,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.13", cache: pip}
-      - run: pip install -r requirements.txt pyarrow
+      - run: pip install -r requirements.txt pyarrow scikit-learn
       - uses: actions/cache@v4
         with:
           path: research/cache
@@ -31,4 +32,4 @@ jobs:
             echo "$u -> $(curl -s -o /tmp/o -w '%{http_code} %{size_download}B %{time_total}s' --max-time 20 -A 'Mozilla/5.0' "$u")"
           done
       - name: run
-        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" --scan
+        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" ${{ inputs.flags || '--ml' }}
