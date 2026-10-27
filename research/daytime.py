@@ -91,7 +91,7 @@ def configs():
         for d in (1, -1):
             for hold, rr in EXITS:
                 yield "fixed", dict(t=t, d=d, hold=hold, rr=rr)
-    for t in (120, 180, 420, 480, 510, 570, 600, 690):
+    for t in (120, 180, 420, 480, 510, 570, 600, 690, 780, 840, 900, 930):
         for z, mode in itertools.product((0.5, 1.0, 2.0), (1, -1)):
             for hold, rr in EXITS:
                 yield "night", dict(t=t, z=z, mode=mode, hold=hold, rr=rr)
@@ -99,6 +99,10 @@ def configs():
         for mode in (1, -1):
             for hold, rr in EXITS:
                 yield "prev", dict(t=t, mode=mode, hold=hold, rr=rr)
+    for t in (600, 660, 720, 840):          # מומנטום תוך-יומי: התנועה מפתיחת קומקס (08:20) עד t
+        for z, mode in itertools.product((0.5, 1.0, 2.0), (1, -1)):
+            for hold, rr in EXITS:
+                yield "comex", dict(t=t, z=z, mode=mode, hold=hold, rr=rr)
 
 
 def signal(dt: Data, fam: str, p: dict):
@@ -108,6 +112,13 @@ def signal(dt: Data, fam: str, p: dict):
     if fam == "night":
         mv = (dt.o[E] - dt.sess_open[dt.session[E]]) / dt.atr[E]
         keep = np.abs(mv) > p["z"]
+        return E[keep], (np.sign(mv[keep]) * p["mode"]).astype(int)
+    if fam == "comex":
+        S = dt.entries(500)
+        start = np.full(dt.session.max() + 1, np.nan)
+        start[dt.session[S]] = dt.o[S]
+        mv = (dt.o[E] - start[dt.session[E]]) / dt.atr[E]
+        keep = np.abs(np.nan_to_num(mv)) > p["z"]
         return E[keep], (np.sign(mv[keep]) * p["mode"]).astype(int)
     if fam == "prev":
         s = dt.session[E]
@@ -127,6 +138,8 @@ def label(fam, p):
         return f"{'לונג' if p['d'] == 1 else 'שורט'} ב-{hhmm} NY ({il} ישראל) · {ex}"
     if fam == "night":
         return f"{'המשך' if p['mode'] == 1 else 'היפוך'} תנועת הלילה >{p['z']} ATR ב-{hhmm} NY ({il}) · {ex}"
+    if fam == "comex":
+        return f"{'המשך' if p['mode'] == 1 else 'היפוך'} התנועה מ-08:20 >{p['z']} ATR ב-{hhmm} NY ({il}) · {ex}"
     return f"{'המשך' if p['mode'] == 1 else 'היפוך'} יום אתמול ב-{hhmm} NY ({il}) · {ex}"
 
 
