@@ -64,6 +64,8 @@ def run(dt: Data, rng_avg, p, cost):
         sl = zone[1] - d * 10 * k
         if p["exit"] == "theirs":
             tps = [near + d * x * k for x in (5, 10, 15)]
+        elif p["exit"] == "tp1":   # סוגרים הכל ביעד הראשון (+5$)
+            tps = [near + d * 5 * k]
         else:
             tps = [near + d * p["exit"] * abs(near - sl)]
         sig = {"direction": d, "zone_hi": max(zone), "zone_lo": min(zone), "sl": sl, "tps": tps}
@@ -95,7 +97,7 @@ def report2(m1: pd.DataFrame, cost: float) -> str:
              "|" + "---|" * (12 + len(years))]
     rows = []
     for (kz, hrs), a4, bounce, width, ex in itertools.product(KZ.items(), (0.05, 0.1, 0.2, 0.3), (True, False), (5, 10),
-                                                             ("theirs", 2.0, 3.0)):
+                                                             ("tp1", "theirs", 2.0, 3.0)):
         p = dict(a24=0, a4=a4, bounce=bounce, hours=hrs, both=True, exit=ex, width=width, tz="America/New_York")
         tr = run(dt, rng_avg, p, cost)
         if len(tr) < 30:
@@ -106,11 +108,17 @@ def report2(m1: pd.DataFrame, cost: float) -> str:
     rows.sort(key=lambda x: _st(x[3][0])[1], reverse=True)
     f = lambda x: f"{x.sum():+.0f} · {_st(x)[1]:+.1f}" if len(x) > 2 else "-"
     for kz, p, tr, parts in rows:
-        ex = "שלהם 5/10/15" if p["exit"] == "theirs" else f"1:{p['exit']:.0f}"
+        ex = {"theirs": "שלהם 5/10/15", "tp1": "רק TP1 (+5$)"}.get(p["exit"]) or f"1:{p['exit']:.0f}"
         lines.append(f"| {kz} | {p['a4']} | {'כן' if p['bounce'] else 'לא'} | {p['width']}$ | {ex} | {len(tr) / weeks:.1f} | "
                      f"{100 * tr.tp1.mean():.0f}% | {100 * tr.sl.mean():.0f}% | {tr.r.mean():+.3f} | {f(parts[0])} | {f(parts[1])} | "
                      f"{f(parts[2])} | " + " | ".join(f"{tr[tr.t.dt.year == y].r.sum():+.0f}" for y in years) + " |")
     passed = [x for x in rows if _st(x[3][0])[1] >= 3 and x[3][1].sum() > 0 and x[3][2].sum() > 0]
+    t1only = [x for x in rows if x[1]["exit"] == "tp1"]
+    if t1only:
+        wr = np.mean([x[2].tp1.mean() for x in t1only])
+        tot = sum(x[2].r.sum() for x in t1only)
+        lines += ["", f"**רק TP1, כל {len(t1only)} הגרסאות:** הצלחה ממוצעת {100 * wr:.0f}% · סך כל הגרסאות {tot:+.0f}R · "
+                      f"גרסאות רווחיות על 9 שנים: {sum(x[2].r.sum() > 0 for x in t1only)}/{len(t1only)}"]
     lines += ["", f"עברו (t≥3 בגילוי ורווחי בשני המבחנים): **{len(passed)}** מתוך {len(rows)}"]
     return "\n".join(lines)
 
