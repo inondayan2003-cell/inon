@@ -21,7 +21,8 @@ def reopen_points(m1: pd.DataFrame, gap_min: int = 30) -> np.ndarray:
 
 
 def run(m1: pd.DataFrame, cost: float, hours: float = 3, k: float | None = 1.0, rr: float | None = 2.0,
-        direction: int = 1, skip_weekend: bool = False, min_risk: float = 0.0, offset_h: float = 0.0) -> pd.DataFrame:
+        direction: int = 1, skip_weekend: bool = False, min_risk: float = 0.0, offset_h: float = 0.0,
+        delay_min: float = 0.0) -> pd.DataFrame:
     o, h, l, c = (m1[x].to_numpy() for x in ("open", "high", "low", "close"))
     t = m1.index
     h1 = m1.resample("1h").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
@@ -30,8 +31,8 @@ def run(m1: pd.DataFrame, cost: float, hours: float = 3, k: float | None = 1.0, 
     ns = _secs(t)
     out = []
     pts = reopen_points(m1)
-    if offset_h:  # בסיס להשוואה: אותה עסקה, אבל X שעות אחרי הפתיחה
-        pts = np.searchsorted(ns, ns[pts] + offset_h * 3600)
+    if offset_h or delay_min:  # בסיס להשוואה / כניסה מאוחרת כמו בבוט (אחרי סגירת נר 5 דקות)
+        pts = np.searchsorted(ns, ns[pts] + offset_h * 3600 + delay_min * 60)
         pts = pts[pts < len(ns) - 10]
     for i in pts:
         if skip_weekend and (ns[i] - ns[i - 1]) / 3600 > 24:
@@ -114,4 +115,34 @@ def report(m1: pd.DataFrame, cost: float, title: str) -> str:
     by_dow = tr.groupby(tr.t.dt.tz_convert("America/New_York").dt.dayofweek)["r"].agg(["count", "sum", "mean"])
     lines += ["", "לפי יום (1:2, יום הפתיחה בשעון NY; 6=ראשון): " + " · ".join(
         f"{int(d)}: {int(r['count'])} עסק' {r['sum']:+.0f}R" for d, r in by_dow.iterrows())]
+    return "\n".join(lines)
+
+
+
+def delay_report(m1: pd.DataFrame, cost: float, start: str | None = None, end: str | None = None) -> str:
+    """כמה מהרווח נמצא בדקות הראשונות אחרי הפתיחה? (הבוט נכנס רק בסגירת נר ה-5 דקות הראשון)."""
+    if start:
+        m1 = m1[(m1.index >= pd.Timestamp(start, tz="UTC")) & (m1.index < pd.Timestamp(end, tz="UTC"))]
+    lines = [f"### ⏱ כניסה מאוחרת בפתיחה · {m1.index[0]:%Y-%m-%d} עד {m1.index[-1]:%Y-%m-%d} · סטופ 1 ATR · 1:3 · 4ש' · עלות {cost}$", "",
+             "| עיכוב | עסקאות | הצלחה | R | ממוצע | t | לפי חודש |", "|---|---|---|---|---|---|---|"]
+    from research.loop import _s
+    for dm in (0, 1, 2, 5, 10, 15, 30, 60):
+        tr = run(m1, cost, hours=4, k=1.0, rr=3.0, delay_min=dm)
+        if tr.empty:
+            continue
+        s = _s(tr)
+        by = tr.groupby(tr.t.dt.strftime("%Y-%m"))["r"].sum()
+        lines.append(f"| {dm} דק' | {s['n']} | {s['win']:.0f}% | {s['sum']:+.1f} | {tr.r.mean():+.3f} | {s['t']:+.1f} | "
+                     + " ".join(f"{k[5:]}:{v:+.0f}" for k, v in by.items()) + " |")
+    # כמה המחיר זז בדקות הראשונות (מהפתיחה) - ב-ATR
+    o, c = m1["open"].to_numpy(), m1["close"].to_numpy()
+    pts = reopen_points(m1)
+    ns = _secs(m1.index)
+    h1 = m1.resample("1h").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    atr = wilder_atr(h1, 14).reindex(m1.index, method="ffill").shift(1).to_numpy()
+    for dm in (1, 5, 15, 60, 180):
+        j = np.searchsorted(ns, ns[pts] + dm * 60)
+        ok = (j < len(c)) & (atr[pts] > 0)
+        mv = (c[np.minimum(j, len(c) - 1)] - o[pts])[ok] / atr[pts][ok]
+        lines.append(f"- תנועה ממוצעת מהפתיחה עד {dm} דק': {np.nanmean(mv):+.3f} ATR (חציון {np.nanmedian(mv):+.3f})")
     return "\n".join(lines)

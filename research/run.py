@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--delay", action="store_true", help="פתיחה: כמה מהרווח בדקות הראשונות")
     ap.add_argument("--crule", action="store_true", help="הכלל של Cryptonew84 על 2018 עד היום")
     ap.add_argument("--channel", default="", help="ערוץ טלגרם ציבורי לבדיקת הסיגנלים שלו")
     ap.add_argument("--pair", default="XAUUSD", help="נכס ב-HistData (למשל NSXUSD = נאסד\"ק 100)")
@@ -87,6 +88,14 @@ def main():
     end = dt.date.today() - dt.timedelta(days=1)
     start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
     t0 = time.time()
+    if a.delay:
+        from research import reopen
+        full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
+        full = full[~full.index.duplicated()].sort_index()
+        print(reopen.delay_report(full, a.cost, "2026-04-19", "2026-10-28"), flush=True)
+        print("\n" + reopen.delay_report(full, a.cost, "2024-10-01", "2026-10-28"), flush=True)
+        print("\n" + reopen.delay_report(full, a.cost, "2018-01-01", "2024-10-01"), flush=True)
+        return
     if a.crule:
         from research import channel_rule
         full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
