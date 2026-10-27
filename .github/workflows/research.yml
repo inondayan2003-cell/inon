@@ -32,4 +32,4 @@ jobs:
             echo "$u -> $(curl -s -o /tmp/o -w '%{http_code} %{size_download}B %{time_total}s' --max-time 20 -A 'Mozilla/5.0' "$u")"
           done
       - name: run
-        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" ${{ inputs.flags || '--old 2018 --reopen' }}
+        run: python -m research.run --months "${{ inputs.months || '24' }}" --cost "${{ inputs.cost || '0.35' }}" --only "${{ inputs.only }}" ${{ inputs.flags || '--old 2018 --day' }}
