@@ -81,3 +81,11 @@ def test_parse_channel_page():
     assert [m["id"] for m in msgs] == [812, 813] and msgs[0]["t"].startswith("2026-10-27T06:22:10")
     sigs = channel_signals(msgs)
     assert len(sigs) == 1 and sigs[0]["sl"] == 3988 and sigs[0]["tps"] == [4006, 4008]
+
+
+def test_report_from_bars():
+    from app.signals import report_from_bars
+    s = {**parse_signal(MSG), "t": "2026-10-27T06:22:00+00:00"}
+    m1 = bars([4005, 4003, 4004, 4006.5, 4008.2, 4011.3, 4015.5] + [4015] * 1500)
+    text = report_from_bars([s], m1, hours=24, title="test")
+    assert "TP 4/4" in text and "TP1 הושג ב-1/1" in text and "test" in text

@@ -130,6 +130,15 @@ def channel_signals(msgs: list[dict]) -> list[dict]:
     return out
 
 
+def _by_hour(rows) -> dict:
+    out = {}
+    for s, r in rows:
+        if r.get("filled"):
+            h = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem").hour
+            out.setdefault(h, []).append(r["r_split"])
+    return out
+
+
 def fetch_minutes_td(symbol: str, start: pd.Timestamp, hours: float, key: str) -> pd.DataFrame:
     import httpx
     params = {"symbol": symbol, "interval": "1min", "outputsize": 5000, "timezone": "UTC", "order": "ASC", "apikey": key,
@@ -142,6 +151,19 @@ def fetch_minutes_td(symbol: str, start: pd.Timestamp, hours: float, key: str) -
     idx = pd.DatetimeIndex(pd.to_datetime(df.pop("datetime")))
     df.index = idx.tz_localize("UTC") if idx.tz is None else idx.tz_convert("UTC")
     return df[["open", "high", "low", "close"]].astype(float)
+
+
+def report_from_bars(signals: list[dict], m1: pd.DataFrame, hours: float = 24, title: str = "") -> str:
+    """כמו report, אבל עם נרות דקה שכבר נמשכו (מהיר: בלי בקשה לכל סיגנל)."""
+    end = m1.index[-1] if len(m1) else pd.Timestamp.now(tz="UTC")
+    rows = []
+    for s in signals:
+        t = pd.Timestamp(s["t"])
+        if t < m1.index[0] or t + pd.Timedelta(hours=hours) > end + pd.Timedelta(minutes=5):
+            rows.append((s, {"filled": None, "error": "מחוץ לטווח הנתונים"}))
+            continue
+        rows.append((s, evaluate(s, m1[(m1.index >= t) & (m1.index < t + pd.Timedelta(hours=hours))], hours)))
+    return _format(rows, signals, hours, title)
 
 
 def report(signals: list[dict], symbol: str, key: str, hours: float = 24) -> str:
@@ -159,9 +181,18 @@ def report(signals: list[dict], symbol: str, key: str, hours: float = 24) -> str
         except Exception as e:  # noqa: BLE001
             log.warning("signal %s: %s", s.get("t"), e)
             rows.append((s, {"filled": None, "error": str(e)}))
+    return _format(rows, signals, hours)
+
+
+def _format(rows, signals, hours, title=""):
     done = [r for _, r in rows if r.get("filled")]
-    lines = [f"🔍 <b>בדיקת סיגנלים של הקבוצה</b> · {len(signals)} סיגנלים · {len(done)} התמלאו", ""]
-    for s, r in rows:
+    lines = [f"🔍 <b>בדיקת סיגנלים{' - ' + title if title else ' של הקבוצה'}</b> · {len(signals)} סיגנלים · {len(done)} התמלאו", ""]
+    if len(rows) > 40:   # הרבה סיגנלים: מציגים רק את 25 האחרונים בפירוט
+        rows_shown = [x for x in rows if x[1].get("filled") is not None][-25:]
+        lines.append(f"<i>מוצגים 25 האחרונים מתוך {len(rows)}; הסיכום למטה על כולם.</i>")
+    else:
+        rows_shown = rows
+    for s, r in rows_shown:
         when = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem").strftime("%d/%m %H:%M")
         side = "קנייה" if s["direction"] == 1 else "מכירה"
         head = f"{when} {side} {s['zone_lo']:g}-{s['zone_hi']:g} SL {s['sl']:g}"
@@ -182,6 +213,8 @@ def report(signals: list[dict], symbol: str, key: str, hours: float = 24) -> str
         lines += ["", f"<b>סיכום:</b> TP1 הושג ב-{tp1}/{len(done)} ({100 * tp1 / len(done):.0f}%) · סטופ ב-{sl}/{len(done)}",
                   f"סך הכל (חלוקה שווה בין היעדים): <b>{tot:+.2f}R</b> · עם סטופ לכניסה אחרי TP1: <b>{tot_be:+.2f}R</b>",
                   f"יחס ממוצע של TP1 מהכניסה: 1:{rr1:.2f}",
+                  "לפי שעה (ישראל): " + " · ".join(
+                      f"{h:02d}:00 {len(v)}× {sum(v):+.1f}R" for h, v in sorted(_by_hour(rows).items())),
                   "<i>כניסה בנגיעה הראשונה באזור (הקצה הקרוב), סטופ אחד לכל החלקים, בלי עמלות. "
                   f"אחרי {hours:g} שעות עסקה פתוחה נמדדת במחיר האחרון.</i>"]
     return "\n".join(lines)

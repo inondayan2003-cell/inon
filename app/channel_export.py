@@ -1,0 +1,83 @@
+"""ייצוא ובדיקה של ערוץ סיגנלים מוגן (בלי Forward ובלי תצוגת רשת) דרך החשבון שלך בטלגרם.
+
+הרצה על השרת (פעם ראשונה מבקשת: API ID/Hash מ-my.telegram.org, מספר טלפון, קוד שטלגרם שולח,
+וסיסמת אימות דו-שלבי אם יש). ההתחברות נשמרת רק בשרת שלך (data/tg_user.session):
+
+    cd /opt/gold-analyzer && sudo docker compose exec app python -m app.channel_export Cryptonew84
+
+אפשרויות: --months 6 (כמה חודשים אחורה לבדוק), --hours 24 (כמה זמן אחרי סיגנל לעקוב).
+הדוח נשלח לכל מי שרשום לבוט, ונשמר גם ב-data/channel_<שם>.json.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+
+import httpx
+import pandas as pd
+
+from .backtest import fetch_twelvedata_history
+from .config import settings
+from .signals import channel_signals, report_from_bars
+from .storage import Store
+
+DATA = Path(os.getenv("DB_PATH", "data/bot.db")).parent
+
+
+def _ask(env: str, prompt: str) -> str:
+    v = os.getenv(env, "").strip()
+    return v or input(prompt).strip()
+
+
+def export(channel: str, months: int) -> list[dict]:
+    from telethon.sync import TelegramClient
+
+    cfg_file = DATA / "tg_api.json"
+    if cfg_file.exists():
+        api = json.loads(cfg_file.read_text())
+    else:
+        print("צריך API ID ו-API Hash מ-https://my.telegram.org → API development tools (פעם אחת).")
+        api = {"id": int(_ask("TG_API_ID", "API ID: ")), "hash": _ask("TG_API_HASH", "API Hash: ")}
+        cfg_file.write_text(json.dumps(api))
+        cfg_file.chmod(0o600)
+    since = pd.Timestamp.now(tz="UTC") - pd.DateOffset(months=months)
+    msgs = []
+    with TelegramClient(str(DATA / "tg_user"), api["id"], api["hash"]) as client:   # מבקש טלפון וקוד בפעם הראשונה
+        for m in client.iter_messages(channel.strip("@/ ").split("/")[-1]):
+            if m.date < since:
+                break
+            if m.message:
+                msgs.append({"id": m.id, "t": pd.Timestamp(m.date).tz_convert("UTC").isoformat(), "text": m.message})
+    msgs.sort(key=lambda x: x["id"])
+    (DATA / f"channel_{channel}.json").write_text(json.dumps(msgs, ensure_ascii=False))
+    return msgs
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("channel")
+    ap.add_argument("--months", type=int, default=6)
+    ap.add_argument("--hours", type=float, default=24)
+    a = ap.parse_args()
+    msgs = export(a.channel, a.months)
+    sigs = channel_signals(msgs)
+    print(f"נקראו {len(msgs)} הודעות, זוהו {len(sigs)} סיגנלי זהב.")
+    if not sigs:
+        for m in msgs[-5:]:
+            print("---\n" + m["text"][:300])
+        return
+    start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=1)
+    print("מושך נרות דקה מ-Twelve Data (כ-10 שניות לכל 3.5 ימים)...")
+    m1 = fetch_twelvedata_history(settings.td_symbol, "1min", start, settings.twelvedata_api_key, max_requests=80)
+    text = report_from_bars(sigs, m1, a.hours, title=a.channel)
+    print(text)
+    if settings.bot_token:
+        for chat in Store(settings.db_path).subscribers():
+            for i in range(0, len(text), 3800):
+                httpx.post(f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
+                           json={"chat_id": chat, "text": text[i:i + 3800], "parse_mode": "HTML"}, timeout=30)
+        print("הדוח נשלח בבוט.")
+
+
+if __name__ == "__main__":
+    main()
