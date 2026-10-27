@@ -89,3 +89,11 @@ def test_report_from_bars():
     m1 = bars([4005, 4003, 4004, 4006.5, 4008.2, 4011.3, 4015.5] + [4015] * 1500)
     text = report_from_bars([s], m1, hours=24, title="test")
     assert "TP 4/4" in text and "TP1 הושג ב-1/1" in text and "test" in text
+
+
+def test_normalize_phone():
+    from app.channel_export import normalize_phone
+    assert normalize_phone("050-1234567") == "+972501234567"
+    assert normalize_phone("+972 50 123 4567") == "+972501234567"
+    assert normalize_phone("972501234567") == "+972501234567"
+    assert normalize_phone("+9723511590") is None and normalize_phone("123") is None

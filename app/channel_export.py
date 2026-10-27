@@ -29,6 +29,25 @@ def _ask(env: str, prompt: str) -> str:
     return v or input(prompt).strip()
 
 
+def normalize_phone(raw: str) -> str | None:
+    """מקבל 050-1234567 / 0501234567 / 972501234567 / +972501234567 ומחזיר +972501234567."""
+    d = "".join(ch for ch in raw if ch.isdigit())
+    if d.startswith("0"):
+        d = "972" + d[1:]
+    if d.startswith("972") and len(d) != 12:
+        return None   # נייד ישראלי: 972 + 9 ספרות
+    return "+" + d if 10 <= len(d) <= 15 else None
+
+
+def _ask_phone() -> str:
+    while True:
+        p = normalize_phone(input("מספר הטלפון שלך (למשל 050-1234567): "))
+        if p:
+            print(f"מתחבר עם {p[:6]}****{p[-2:]}")
+            return p
+        print("המספר לא שלם. נייד ישראלי הוא 10 ספרות שמתחילות ב-05, למשל 050-1234567.")
+
+
 def export(channel: str, months: int) -> list[dict]:
     from telethon.sync import TelegramClient
 
@@ -42,7 +61,9 @@ def export(channel: str, months: int) -> list[dict]:
         cfg_file.chmod(0o600)
     since = pd.Timestamp.now(tz="UTC") - pd.DateOffset(months=months)
     msgs = []
-    with TelegramClient(str(DATA / "tg_user"), api["id"], api["hash"]) as client:   # מבקש טלפון וקוד בפעם הראשונה
+    client = TelegramClient(str(DATA / "tg_user"), api["id"], api["hash"])
+    client.start(phone=_ask_phone)   # מבקש טלפון וקוד רק בפעם הראשונה
+    with client:
         for m in client.iter_messages(channel.strip("@/ ").split("/")[-1]):
             if m.date < since:
                 break
