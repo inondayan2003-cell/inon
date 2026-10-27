@@ -146,3 +146,43 @@ def delay_report(m1: pd.DataFrame, cost: float, start: str | None = None, end: s
         mv = (c[np.minimum(j, len(c) - 1)] - o[pts])[ok] / atr[pts][ok]
         lines.append(f"- תנועה ממוצעת מהפתיחה עד {dm} דק': {np.nanmean(mv):+.3f} ATR (חציון {np.nanmedian(mv):+.3f})")
     return "\n".join(lines)
+
+
+def regime_report(m1: pd.DataFrame, cost: float) -> str:
+    """האם השיטות עובדות רק ב'סוג שוק' מסוים (כמו השנתיים האחרונות), וגם בעבר כשהשוק היה דומה?
+    סוג שוק נמדד עם נתונים שידועים לפני העסקה: מגמה (מחיר מעל ממוצע 100 ימים) ותנודתיות (טווח יומי / מחיר
+    מעל החציון של השנה האחרונה)."""
+    from research.loop import _s
+    d = m1.resample("1D").agg({"high": "max", "low": "min", "close": "last"}).dropna()
+    rng = ((d.high - d.low) / d.close).rolling(14).mean()
+    trend = (d.close > d.close.rolling(100).mean()).shift(1)
+    vol = (rng > rng.rolling(250, min_periods=120).median()).shift(1)
+    reg = pd.DataFrame({"trend": trend, "vol": vol}).dropna()
+    reg.index = reg.index.tz_convert("UTC") if reg.index.tz is not None else reg.index.tz_localize("UTC")
+    tr = run(m1, cost, hours=4, k=1.0, rr=3.0, delay_min=5)
+    day = tr.t.dt.tz_convert("UTC").dt.normalize()
+    tr = tr.join(reg, on=day.rename("d")) if False else tr.assign(trend=reg.trend.reindex(day).to_numpy(),
+                                                                    vol=reg.vol.reindex(day).to_numpy())
+    tr = tr.dropna(subset=["trend", "vol"])
+    names = {(True, True): "עולה + תנודתי (כמו עכשיו)", (True, False): "עולה + רגוע",
+             (False, True): "יורד/צדדי + תנודתי", (False, False): "יורד/צדדי + רגוע"}
+    periods = [("2018-2019", "2018-01-01", "2020-01-01"), ("2020", "2020-01-01", "2021-01-01"),
+               ("2021-2023", "2021-01-01", "2024-01-01"), ("2024", "2024-01-01", "2025-01-01"),
+               ("2025-2026", "2025-01-01", "2027-01-01")]
+    lines = [f"### 🌦 לונג בפתיחה (כניסה ריאלית אחרי 5 דק') לפי סוג שוק · {m1.index[0]:%Y} עד {m1.index[-1]:%Y-%m} · עלות {cost}$", "",
+             "| סוג שוק | " + " | ".join(p[0] for p in periods) + " | הכל |", "|" + "---|" * (len(periods) + 2)]
+    for key, name in names.items():
+        sub = tr[(tr.trend == key[0]) & (tr.vol == key[1])]
+        cells = []
+        for _, a, b in periods:
+            x = sub[(sub.t >= pd.Timestamp(a, tz="UTC")) & (sub.t < pd.Timestamp(b, tz="UTC"))]
+            s = _s(x)
+            cells.append(f"{s['n']} · {s['sum']:+.0f}R · t {s['t']:+.1f}" if s["n"] else "-")
+        s = _s(sub)
+        lines.append(f"| {name} | " + " | ".join(cells) + f" | **{s['n']} · {s['sum']:+.0f}R · t {s['t']:+.1f}** |")
+    share = reg.groupby([reg.trend, reg.vol]).size() / len(reg)
+    lines += ["", "כמה מהזמן השוק היה בכל סוג: " + " · ".join(f"{names[(bool(k[0]), bool(k[1]))]} {100 * v:.0f}%"
+                                                            for k, v in share.items())]
+    last = reg.iloc[-1]
+    lines.append(f"סוג השוק היום: **{names[(bool(last.trend), bool(last.vol))]}**")
+    return "\n".join(lines)

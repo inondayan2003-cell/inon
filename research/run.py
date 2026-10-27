@@ -92,6 +92,10 @@ def main():
         from research import reopen
         full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
         full = full[~full.index.duplicated()].sort_index()
+        print(reopen.regime_report(full, a.cost), flush=True)
+        from research import channel_rule
+        print("\n" + channel_rule.regime_report(full, a.cost), flush=True)
+        return
         print(reopen.delay_report(full, a.cost, "2026-04-19", "2026-10-28"), flush=True)
         print("\n" + reopen.delay_report(full, a.cost, "2024-10-01", "2026-10-28"), flush=True)
         print("\n" + reopen.delay_report(full, a.cost, "2018-01-01", "2024-10-01"), flush=True)

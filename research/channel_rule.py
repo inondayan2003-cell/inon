@@ -162,3 +162,43 @@ def report(m1: pd.DataFrame, cost: float) -> str:
                       f"{len(tr)} עסקאות, TP1 ב-{100 * tr.tp1.mean():.0f}%, סטופ ב-{100 * tr.sl.mean():.0f}%, "
                       f"סך הכל {tr.r.sum():+.1f}R (ממוצע {tr.r.mean():+.3f}R לעסקה)"]
     return "\n".join(lines)
+
+
+def regime_report(m1: pd.DataFrame, cost: float) -> str:
+    """שיטת הערוץ (גרסה הכי קרובה, רק TP1 וגם 5/10/15) לפי סוג שוק ותקופה."""
+    from research.allday import session_stats
+    from research.loop import _s
+    dt = Data(m1)
+    _, rng_avg, _, _ = session_stats(dt)
+    d = m1.resample("1D").agg({"high": "max", "low": "min", "close": "last"}).dropna()
+    rng = ((d.high - d.low) / d.close).rolling(14).mean()
+    trend = (d.close > d.close.rolling(100).mean()).shift(1)
+    vol = (rng > rng.rolling(250, min_periods=120).median()).shift(1)
+    periods = [("2018-2019", "2018-01-01", "2020-01-01"), ("2020", "2020-01-01", "2021-01-01"),
+               ("2021-2023", "2021-01-01", "2024-01-01"), ("2024", "2024-01-01", "2025-01-01"),
+               ("2025-2026", "2025-01-01", "2027-01-01")]
+    names = {(True, True): "עולה + תנודתי (כמו עכשיו)", (True, False): "עולה + רגוע",
+             (False, True): "יורד/צדדי + תנודתי", (False, False): "יורד/צדדי + רגוע"}
+    lines = []
+    for ex, label in (("tp1", "רק TP1"), ("theirs", "יעדים 5/10/15")):
+        p = dict(a24=0, a4=0.3, bounce=False, hours={2, 7, 8}, both=True, exit=ex, width=10, tz="America/New_York")
+        tr = run(dt, rng_avg, p, cost)
+        day = tr.t.dt.tz_convert(None).dt.normalize()
+        ti = trend.copy()
+        ti.index = ti.index.tz_localize(None) if ti.index.tz is not None else ti.index
+        vi = vol.copy()
+        vi.index = ti.index
+        tr = tr.assign(trend=ti.reindex(day).to_numpy(), vol=vi.reindex(day).to_numpy()).dropna(subset=["trend", "vol"])
+        lines += [f"### 📡 שיטת הערוץ ({label}) לפי סוג שוק · עלות {cost}$", "",
+                  "| סוג שוק | " + " | ".join(x[0] for x in periods) + " | הכל |", "|" + "---|" * (len(periods) + 2)]
+        for key, name in names.items():
+            sub = tr[(tr.trend == key[0]) & (tr.vol == key[1])]
+            cells = []
+            for _, a, b in periods:
+                x = sub[(sub.t >= pd.Timestamp(a, tz="UTC")) & (sub.t < pd.Timestamp(b, tz="UTC"))]
+                s = _s(x)
+                cells.append(f"{s['n']} · {s['sum']:+.0f}R" if s["n"] else "-")
+            s = _s(sub)
+            lines.append(f"| {name} | " + " | ".join(cells) + f" | **{s['n']} · {s['sum']:+.0f}R · t {s['t']:+.1f}** |")
+        lines.append("")
+    return "\n".join(lines)
