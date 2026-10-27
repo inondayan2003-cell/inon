@@ -16,7 +16,18 @@ def report(name: str, cache: Path, hours: float = 24, cost: float = 0.35) -> str
     sigs = channel_signals(msgs)
     lines = [f"### 📡 ערוץ {name}: {len(msgs)} הודעות, {len(sigs)} סיגנלי זהב מפוענחים"]
     if not msgs:
-        return "\n".join(lines + ["לא הצלחתי לקרוא הודעות (אולי התצוגה הציבורית סגורה)."])
+        import re
+
+        import httpx
+        r = httpx.get(f"https://t.me/s/{name}", follow_redirects=True, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        title = re.search(r"<title>(.*?)</title>", r.text, re.S)
+        desc = re.search(r'<meta property="og:description" content="([^"]*)"', r.text)
+        info = re.search(r'<div class="tgme_page_extra">(.*?)</div>', r.text, re.S)
+        return "\n".join(lines + ["לא הצלחתי לקרוא הודעות.", f"סטטוס {r.status_code} · כתובת סופית {r.url}",
+                                   f"כותרת: {title.group(1).strip() if title else '-'}",
+                                   f"תיאור: {desc.group(1)[:200] if desc else '-'}",
+                                   f"מידע: {re.sub('<[^>]+>', '', info.group(1)).strip() if info else '-'}",
+                                   f"מכיל tgme_widget_message: {'tgme_widget_message' in r.text} · אורך {len(r.text)}"])
     lines.append(f"טווח: {msgs[0]['t'][:10]} עד {msgs[-1]['t'][:10]}")
     if not sigs:
         sample = [m["text"][:120].replace("\n", " | ") for m in msgs[-8:]]
