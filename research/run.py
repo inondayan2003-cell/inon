@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--allday", action="store_true", help="סבב 8: שיטות כל היום על 2018 עד היום")
     ap.add_argument("--liq9", action="store_true", help="סבב 7: שיטות נזילות על 2018 עד היום")
     ap.add_argument("--day", action="store_true", help="סבב 6: שיטות לשעות היום על 2018 עד היום")
     ap.add_argument("--reopen", action="store_true", help="סבב 5: לונג בפתיחה היומית (על הישן ועל החדש)")
@@ -88,12 +89,12 @@ def main():
         old = histdata.fetch_minutes(dt.date(int(a.old), 1, 1), old_end, Path(a.cache))
         old = old[old.index < pd.Timestamp(old_end, tz="UTC")]
         print(f"היסטוריה ישנה: {len(old):,} דקות ({time.time() - t0:.0f}s)", flush=True)
-        if a.day or a.liq9:
-            from research import daytime, liq9
+        if a.day or a.liq9 or a.allday:
+            from research import allday, daytime, liq9
             recent = histdata.fetch_minutes(start, end, Path(a.cache))
             full = pd.concat([old, recent[recent.index >= pd.Timestamp(old_end, tz="UTC")]])
             full = full[~full.index.duplicated()].sort_index()
-            print((liq9 if a.liq9 else daytime).report(full, a.cost), flush=True)
+            print((allday if a.allday else liq9 if a.liq9 else daytime).report(full, a.cost), flush=True)
             return
         if a.reopen:
             from research import reopen
