@@ -67,9 +67,8 @@ def export(channel: str, months: int) -> list[dict]:
         for m in client.iter_messages(channel.strip("@/ ").split("/")[-1]):
             if m.date < since:
                 break
-            if m.message:
-                msgs.append({"id": m.id, "t": pd.Timestamp(m.date).tz_convert("UTC").isoformat(), "text": m.message,
-                             "reply_to": getattr(m, "reply_to_msg_id", None)})
+            msgs.append({"id": m.id, "t": pd.Timestamp(m.date).tz_convert("UTC").isoformat(), "text": m.message or "",
+                         "reply_to": getattr(m, "reply_to_msg_id", None), "media": m.media is not None})
     msgs.sort(key=lambda x: x["id"])
     (DATA / f"channel_{channel}.json").write_text(json.dumps(msgs, ensure_ascii=False))
     return msgs
@@ -80,10 +79,14 @@ def main():
     ap.add_argument("channel")
     ap.add_argument("--months", type=int, default=0, help="כמה חודשים אחורה (0 = כל ההיסטוריה של הערוץ)")
     ap.add_argument("--hours", type=float, default=24)
+    ap.add_argument("--audit", action="store_true", help="רק פירוט של סוגי ההודעות בערוץ (בלי בדיקת מחירים)")
     ap.add_argument("--cached", action="store_true", help="להשתמש בהודעות שכבר נשמרו בלי לקרוא שוב מטלגרם")
     a = ap.parse_args()
     f = DATA / f"channel_{a.channel}.json"
     msgs = json.loads(f.read_text()) if a.cached and f.exists() else export(a.channel, a.months)
+    if a.audit:
+        print(audit(msgs))
+        return
     sigs = channel_signals(msgs)
     print(f"נקראו {len(msgs)} הודעות ({msgs[0]['t'][:10]} עד {msgs[-1]['t'][:10]}), זוהו {len(sigs)} סיגנלי זהב.")
     if not sigs:
@@ -111,6 +114,38 @@ def main():
                         httpx.post(f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
                                    json={"chat_id": chat, "text": part}, timeout=30)
         print("הדוחות נשלחו בבוט.")
+
+
+def audit(msgs: list[dict]) -> str:
+    """לאן הולכות כל ההודעות: סיגנלים, הודעות רווח, תמונות בלי טקסט, נכסים אחרים, ומה לא זוהה."""
+    import re
+    from .signals import parse_signal
+    cats = {"סיגנל זהב שזוהה": 0, "הודעת Profit": 0, "תמונה/וידאו בלי טקסט": 0, "ביטקוין/את'ריום/קריפטו": 0,
+            "פורקס אחר": 0, "מזכיר זהב אבל לא זוהה": 0, "אחר (פרסום/צ'אט)": 0}
+    unparsed = []
+    for m in msgs:
+        t = m.get("text", "")
+        if parse_signal(t):
+            cats["סיגנל זהב שזוהה"] += 1
+        elif re.search(r"profit", t, re.I):
+            cats["הודעת Profit"] += 1
+        elif not t.strip():
+            cats["תמונה/וידאו בלי טקסט"] += 1
+        elif re.search(r"btc|eth|bitcoin|crypto|usdt|sol\b", t, re.I):
+            cats["ביטקוין/את'ריום/קריפטו"] += 1
+        elif re.search(r"gold|xau", t, re.I):
+            cats["מזכיר זהב אבל לא זוהה"] += 1
+            unparsed.append(m)
+        elif re.search(r"eur|gbp|jpy|usd|aud|cad|chf|nzd|us30|nas", t, re.I):
+            cats["פורקס אחר"] += 1
+        else:
+            cats["אחר (פרסום/צ'אט)"] += 1
+    lines = [f"{len(msgs)} הודעות ({msgs[0]['t'][:10]} עד {msgs[-1]['t'][:10]}):"]
+    lines += [f"  {k}: {v}" for k, v in cats.items()]
+    lines.append(f"\nהודעות שמזכירות זהב ולא זוהו כסיגנל ({len(unparsed)}), עד 15 לדוגמה:")
+    for m in unparsed[:15]:
+        lines.append(f"--- {m['t'][:16]}\n{m['text'][:400]}")
+    return "\n".join(lines)
 
 
 def _chunks(text: str, size: int = 3800) -> list[str]:
