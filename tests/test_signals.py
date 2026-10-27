@@ -97,3 +97,11 @@ def test_normalize_phone():
     assert normalize_phone("+972 50 123 4567") == "+972501234567"
     assert normalize_phone("972501234567") == "+972501234567"
     assert normalize_phone("+9723511590") is None and normalize_phone("123") is None
+
+
+def test_parse_cryptonew_format():
+    s = parse_signal("🪙 Product: Gold (XAUUSD)\n\n🟢BUY：4130-4120\n\n🎯 TP1: 4135\n🎯 TP2: 4140\n🎯 TP3: 4145\n\n⛔️ SL: 4110")
+    assert s == {"direction": 1, "zone_hi": 4130.0, "zone_lo": 4120.0, "sl": 4110.0, "tps": [4135.0, 4140.0, 4145.0]}
+    s = parse_signal("🪙 Product: Gold (XAUUSD)\n🔴SELL：4150-4160\n🎯 TP1: 4145\n🎯 TP2: 4140\n⛔️ SL: 4170")
+    assert s["direction"] == -1 and s["zone_lo"] == 4150 and s["sl"] == 4170
+    assert parse_signal("✅ Profit +90 PIPS 💰") is None

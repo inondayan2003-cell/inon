@@ -79,8 +79,10 @@ def main():
     ap.add_argument("channel")
     ap.add_argument("--months", type=int, default=6)
     ap.add_argument("--hours", type=float, default=24)
+    ap.add_argument("--cached", action="store_true", help="להשתמש בהודעות שכבר נשמרו בלי לקרוא שוב מטלגרם")
     a = ap.parse_args()
-    msgs = export(a.channel, a.months)
+    f = DATA / f"channel_{a.channel}.json"
+    msgs = json.loads(f.read_text()) if a.cached and f.exists() else export(a.channel, a.months)
     sigs = channel_signals(msgs)
     print(f"נקראו {len(msgs)} הודעות, זוהו {len(sigs)} סיגנלי זהב.")
     if not sigs:
@@ -91,6 +93,13 @@ def main():
     print("מושך נרות דקה מ-Twelve Data (כ-10 שניות לכל 3.5 ימים)...")
     m1 = fetch_twelvedata_history(settings.td_symbol, "1min", start, settings.twelvedata_api_key, max_requests=80)
     text = report_from_bars(sigs, m1, a.hours, title=a.channel)
+    import re
+    claims = [int(x) for m in msgs for x in re.findall(r"profit\W*\+?\s*(\d+)\s*pips", m["text"], re.I)]
+    losses = sum(1 for m in msgs if re.search(r"\b(sl hit|stop ?loss hit|loss|hit sl)\b", m["text"], re.I)
+                 and not re.search(r"\bsl\s*[:@]", m["text"], re.I))
+    text += (f"\n\n📣 <b>מה הערוץ פרסם בעצמו:</b> {len(claims)} הודעות 'Profit' (סה\"כ +{sum(claims)} פיפס = "
+             f"+{sum(claims) / 10:.0f}$ לאונקיה), {losses} הודעות על הפסד/סטופ. "
+             f"<i>פיפס בזהב = 0.1$, כלומר '+50 PIPS' = תנועה של 5$.</i>")
     print(text)
     if settings.bot_token:
         for chat in Store(settings.db_path).subscribers():

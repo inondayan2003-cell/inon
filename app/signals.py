@@ -14,12 +14,16 @@ NUM = r"(\d{3,5}(?:\.\d+)?)"
 
 
 def parse_signal(text: str) -> dict | None:
-    t = text.replace("‏", "").replace("‎", "")
-    m = re.search(rf"(?:gold|xau(?:usd)?)\W*(buy|sell)\w*\s*(?:now|limit)?\s*@?\s*{NUM}(?:\s*[-–/to]+\s*{NUM})?", t, re.I)
-    if not m:
-        m = re.search(rf"(buy|sell)\w*\s+(?:gold|xau(?:usd)?)\s*(?:now|limit)?\s*@?\s*{NUM}(?:\s*[-–/to]+\s*{NUM})?", t, re.I)
-    sl = re.search(rf"\bs\.?\s*l\b\W*{NUM}", t, re.I)
-    tps = [float(x) for x in re.findall(rf"\bt\.?\s*p\s*\d?\b\W*{NUM}", t, re.I)]
+    """מזהה סיגנל זהב בכמה פורמטים נפוצים, למשל:
+    'Gold buy @ 4003 - 3995 / Sl @ 3988 / Tp1 @ 4006'  או
+    'Product: Gold (XAUUSD) / 🟢BUY：4130-4120 / 🎯 TP1: 4135 / ⛔️ SL: 4110'."""
+    t = (text.replace("\u200f", "").replace("\u200e", "").replace("：", ":").replace("－", "-")
+         .replace("–", "-").replace("—", "-"))
+    if not re.search(r"gold|xau", t, re.I):
+        return None
+    m = re.search(rf"\b(buy|sell)\b[^\d\n]{{0,25}}{NUM}(?:\s*(?:-|/|to)\s*{NUM})?", t, re.I)
+    sl = re.search(rf"\bs\.?\s*l\b[^\d\n]{{0,10}}{NUM}", t, re.I)
+    tps = [float(x) for x in re.findall(rf"\bt\.?\s*p\s*\d?\b[^\d\n]{{0,10}}{NUM}", t, re.I)]
     if not m or not sl or not tps:
         return None
     d = 1 if m.group(1).lower() == "buy" else -1
