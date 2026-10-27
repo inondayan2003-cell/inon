@@ -67,6 +67,8 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--pair", default="XAUUSD", help="נכס ב-HistData (למשל NSXUSD = נאסד\"ק 100)")
+    ap.add_argument("--all", action="store_true", help="כל המבחנים (פתיחה, שעות, נזילות, כל היום) על 2018 עד היום")
     ap.add_argument("--allday", action="store_true", help="סבב 8: שיטות כל היום על 2018 עד היום")
     ap.add_argument("--liq9", action="store_true", help="סבב 7: שיטות נזילות על 2018 עד היום")
     ap.add_argument("--day", action="store_true", help="סבב 6: שיטות לשעות היום על 2018 עד היום")
@@ -83,6 +85,22 @@ def main():
     end = dt.date.today() - dt.timedelta(days=1)
     start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
     t0 = time.time()
+    if a.pair != "XAUUSD" and a.cost == 0.35:
+        a.cost = {"NSXUSD": 1.5, "SPXUSD": 0.5, "XAGUSD": 0.02}.get(a.pair, a.cost)
+    if a.all:
+        from research import allday, daytime, liq9, reopen
+        full = histdata.fetch_minutes(dt.date(int(a.old or 2018), 1, 1), end, Path(a.cache), pair=a.pair)
+        full = full[~full.index.duplicated()].sort_index()
+        print(f"{a.pair}: {len(full):,} דקות, {full.index[0]:%Y-%m} - {full.index[-1]:%Y-%m}, עלות {a.cost} ({time.time() - t0:.0f}s)\n", flush=True)
+        split = pd.Timestamp(start, tz="UTC")
+        print(reopen.report(full[full.index < split], a.cost, f"{a.pair} · לפני השנתיים"), flush=True)
+        print("\n" + reopen.report(full[full.index >= split], a.cost, f"{a.pair} · השנתיים האחרונות"), flush=True)
+        for mod in (daytime, liq9, allday):
+            try:
+                print("\n" + mod.report(full, a.cost), flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"\n{mod.__name__} נכשל: {e!r}", flush=True)
+        return
     if a.old:
         from research import oldcheck
         old_end = start - dt.timedelta(days=1)
