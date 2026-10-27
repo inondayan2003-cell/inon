@@ -24,17 +24,23 @@ def parse_signal(text: str) -> dict | None:
     m = re.search(rf"\b(buy|sell)\b[^\d\n]{{0,25}}{NUM}(?:\s*(?:-|/|to)\s*{NUM})?", t, re.I)
     sl = re.search(rf"\bs\.?\s*l\b[^\d\n]{{0,10}}{NUM}", t, re.I)
     tps = [float(x) for x in re.findall(rf"\bt\.?\s*p\s*\d?\b[^\d\n]{{0,10}}{NUM}", t, re.I)]
-    if not m or not sl or not tps:
+    if not m or not tps:
         return None
     d = 1 if m.group(1).lower() == "buy" else -1
     a = float(m.group(2))
     b = float(m.group(3)) if m.group(3) else a
-    sig = {"direction": d, "zone_hi": max(a, b), "zone_lo": min(a, b), "sl": float(sl.group(1)), "tps": tps}
+    sig = {"direction": d, "zone_hi": max(a, b), "zone_lo": min(a, b), "sl": float(sl.group(1)) if sl else None,
+           "tps": tps}
+    if sig["sl"] is None:   # "SL⛔ #VIP" - הסטופ מוסתר למנויים בתשלום
+        sig["sl_hidden"] = True
     # בדיקת שפיות: סטופ בצד הנכון והיעדים בכיוון העסקה
     entry = sig["zone_hi"] if d == 1 else sig["zone_lo"]
-    if (entry - sig["sl"]) * d <= 0 or any((tp - entry) * d <= 0 for tp in tps):
+    if (sig["sl"] is not None and (entry - sig["sl"]) * d <= 0) or any((tp - entry) * d <= 0 for tp in tps):
         return None
     return sig
+
+
+ASSUMED_SL = 10.0   # בסיגנלים עם סטופ גלוי הסטופ היה כמעט תמיד 10$ מעבר לקצה הרחוק של האזור
 
 
 def evaluate(sig: dict, bars: pd.DataFrame, hours: float = 24) -> dict:
@@ -43,6 +49,8 @@ def evaluate(sig: dict, bars: pd.DataFrame, hours: float = 24) -> dict:
     d, sl, tps = sig["direction"], sig["sl"], sig["tps"]
     near = sig["zone_hi"] if d == 1 else sig["zone_lo"]
     far = sig["zone_lo"] if d == 1 else sig["zone_hi"]
+    if sl is None:
+        sl = far - d * ASSUMED_SL
     bars = bars[bars.index < bars.index[0] + pd.Timedelta(hours=hours)] if len(bars) else bars
     hi, lo = bars["high"].to_numpy(), bars["low"].to_numpy()
     touch = (lo <= near) if d == 1 else (hi >= near)
@@ -50,6 +58,10 @@ def evaluate(sig: dict, bars: pd.DataFrame, hours: float = 24) -> dict:
         return {"filled": False}
     i0 = int(touch.argmax())
     entry = near
+    # בלי סטופ בכלל: האם TP1 הגיע אי פעם, וכמה המחיר הלך נגדנו עד אז (MAE)
+    reach = (hi[i0:] >= tps[0]) if d == 1 else (lo[i0:] <= tps[0])
+    j1 = i0 + int(reach.argmax()) if reach.any() else len(bars) - 1
+    mae = float((entry - lo[i0:j1 + 1].min()) if d == 1 else (hi[i0:j1 + 1].max() - entry))
     deep = ((lo[i0:] <= far) if d == 1 else (hi[i0:] >= far)).any()
     risk = abs(entry - sl)
     hit, stopped, be_stopped, n_hit_be = [], False, False, 0
@@ -80,7 +92,8 @@ def evaluate(sig: dict, bars: pd.DataFrame, hours: float = 24) -> dict:
     else:
         r_split = (sum(gains[: len(hit)]) + (k - len(hit)) * open_r) / k
     r_be = (sum(gains[:n_hit_be])) / k if hit else r_split
-    return {"filled": True, "entry": entry, "deep_fill": bool(deep), "risk": round(risk, 2), "tp_hits": len(hit),
+    return {"filled": True, "entry": entry, "sl_used": sl, "sl_hidden": sig.get("sl") is None,
+            "tp1_no_stop": bool(reach.any()), "mae": round(mae, 2), "deep_fill": bool(deep), "risk": round(risk, 2), "tp_hits": len(hit),
             "stopped": stopped, "r_split": round(r_split, 2), "r_be": round(r_be, 2),
             "r_tp1_only": round(gains[0] if hit else (-1.0 if stopped else open_r), 2),
             "rr": [round(g, 2) for g in gains], "fill_minutes": i0}
@@ -131,6 +144,20 @@ def channel_signals(msgs: list[dict]) -> list[dict]:
         sig = parse_signal(m["text"])
         if sig:
             out.append({**sig, "t": m["t"], "id": m["id"], "forwarded": True})
+    return out
+
+
+def _hidden_summary(done: list[dict]) -> list[str]:
+    import numpy as np
+    h = [r for r in done if r.get("sl_hidden")]
+    v = [r for r in done if not r.get("sl_hidden")]
+    out = []
+    for name, grp in (("עם סטופ גלוי", v), ("עם סטופ מוסתר (#VIP)", h)):
+        if grp:
+            mae = np.array([r["mae"] for r in grp])
+            out.append(f"• {name}: {len(grp)} · סך {sum(r['r_split'] for r in grp):+.1f}R · "
+                       f"TP1 הגיע בסוף (גם בלי סטופ) ב-{100 * np.mean([r['tp1_no_stop'] for r in grp]):.0f}% · "
+                       f"ירידה נגדך עד TP1: חציון {np.median(mae):.1f}$, הכי גרוע {mae.max():.1f}$")
     return out
 
 
@@ -199,7 +226,8 @@ def _format(rows, signals, hours, title=""):
     for s, r in rows_shown:
         when = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem").strftime("%d/%m %H:%M")
         side = "קנייה" if s["direction"] == 1 else "מכירה"
-        head = f"{when} {side} {s['zone_lo']:g}-{s['zone_hi']:g} SL {s['sl']:g}"
+        head = f"{when} {side} {s['zone_lo']:g}-{s['zone_hi']:g} SL {s['sl']:g}" if s.get("sl") is not None else \
+            f"{when} {side} {s['zone_lo']:g}-{s['zone_hi']:g} SL מוסתר (הנחה {ASSUMED_SL:g}$)"
         if r.get("filled") is None:
             lines.append(f"• {head}: ⏳ עוד אין נתונים" + (f" ({r['error'][:60]})" if r.get("error") else ""))
         elif not r["filled"]:
@@ -219,6 +247,7 @@ def _format(rows, signals, hours, title=""):
                   f"יחס ממוצע של TP1 מהכניסה: 1:{rr1:.2f}",
                   "לפי שעה (ישראל): " + " · ".join(
                       f"{h:02d}:00 {len(v)}× {sum(v):+.1f}R" for h, v in sorted(_by_hour(rows).items())),
+                  *_hidden_summary(done),
                   "<i>כניסה בנגיעה הראשונה באזור (הקצה הקרוב), סטופ אחד לכל החלקים, בלי עמלות. "
                   f"אחרי {hours:g} שעות עסקה פתוחה נמדדת במחיר האחרון.</i>"]
     return "\n".join(lines)
@@ -247,7 +276,7 @@ def reverse_engineer(signals: list[dict], m1: pd.DataFrame) -> str:
             "hour_il": t.tz_convert("Asia/Jerusalem").hour, "dir": d,
             "width": abs(s["zone_hi"] - s["zone_lo"]),
             "tp_off": tuple(round((tp - near) * d, 1) for tp in s["tps"]),
-            "sl_off": round((far - s["sl"]) * d, 1),
+            "sl_off": round((far - s["sl"]) * d, 1) if s.get("sl") is not None else None,
             "near_vs_price": round((near - p) * d, 1),          # שלילי = האזור "מאחורי" המחיר (מחכים לתיקון)
             "in_zone": min(s["zone_lo"], s["zone_hi"]) <= p <= max(s["zone_lo"], s["zone_hi"]),
             "mv1": (p - float(h1["close"].iloc[0])) * d, "mv4": (p - float(h4["close"].iloc[0])) * d,
@@ -255,7 +284,8 @@ def reverse_engineer(signals: list[dict], m1: pd.DataFrame) -> str:
             "trend": 1 if p > ema else -1,
             "from_low24": p - float(day["low"].min()), "from_high24": float(day["high"].max()) - p,
             "far_round10": float(far) % 10 == 0, "near_round10": float(near) % 10 == 0,
-            "sl_round10": s["sl"] % 10 == 0,
+            "sl_round10": (s["sl"] % 10 == 0) if s.get("sl") is not None else None,
+            "hidden": s.get("sl") is None, "n_tps": len(s["tps"]),
         })
     if not rows:
         return "אין מספיק נתוני מחיר לפני הסיגנלים לניתוח."
@@ -269,8 +299,10 @@ def reverse_engineer(signals: list[dict], m1: pd.DataFrame) -> str:
              "<b>1. איך בנויים המספרים:</b>",
              f"• רוחב האזור: {top('width')}",
              f"• יעדים ביחס לראש האזור ($): {top('tp_off')}",
-             f"• סטופ מתחת לתחתית האזור ($): {top('sl_off')}",
-             f"• סטופ על מספר עגול (x0): {pct(df.sl_round10)} · תחתית אזור עגולה: {pct(df.far_round10)} · ראש אזור עגול: {pct(df.near_round10)}",
+             f"• סטופ מתחת לתחתית האזור ($): {top('sl_off')} · סטופ מוסתר (#VIP): {int(df.hidden.sum())}/{n}",
+             f"• מספר יעדים: {top('n_tps')}",
+             f"• סטופ על מספר עגול (x0): {pct(df.sl_round10.dropna().astype(bool)) if df.sl_round10.notna().any() else '-'} · "
+             f"תחתית אזור עגולה: {pct(df.far_round10)} · ראש אזור עגול: {pct(df.near_round10)}",
              "", "<b>2. מתי:</b>",
              "• שעה (ישראל): " + " · ".join(f"{h:02d}:00×{k}" for h, k in df.hour_il.value_counts().sort_index().items()),
              f"• קנייה/מכירה: {len(buys)}/{n - len(buys)}",
@@ -287,7 +319,7 @@ def reverse_engineer(signals: list[dict], m1: pd.DataFrame) -> str:
     hyp = []
     if df.tp_off.nunique() <= 3:
         hyp.append(f"היעדים קבועים: {df.tp_off.mode()[0]} מעל ראש האזור")
-    if df.sl_off.nunique() <= 3:
+    if df.sl_off.dropna().nunique() and df.sl_off.dropna().nunique() <= 3:
         hyp.append(f"הסטופ קבוע: {df.sl_off.mode()[0]}$ מתחת לתחתית")
     if (df.dir == df.trend).mean() > 0.7:
         hyp.append("כמעט תמיד בכיוון המגמה (קונים ירידות במגמה עולה)")

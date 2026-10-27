@@ -100,7 +100,8 @@ def main():
     m1 = fetch_twelvedata_history(settings.td_symbol, "1min", start, settings.twelvedata_api_key, max_requests=need)
     print(f"התקבלו נרות מ-{m1.index[0]:%Y-%m-%d} עד {m1.index[-1]:%Y-%m-%d}")
     from .signals import reverse_engineer
-    sections = [report_from_bars(sigs, m1, a.hours, title=f"{a.channel} (זהב בלבד)"), reverse_engineer(sigs, m1),
+    sections = ["📋 <b>מה יש בערוץ</b>\n" + audit(msgs).split("\nהודעות שמזכירות")[0],
+                report_from_bars(sigs, m1, a.hours, title=f"{a.channel} (זהב בלבד)"), reverse_engineer(sigs, m1),
                 gold_claims(msgs, sigs)]
     for sec in sections:
         print(sec + "\n")

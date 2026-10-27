@@ -120,3 +120,12 @@ def test_reverse_engineer_finds_fixed_geometry():
                      "tps": [top + 5, top + 10, top + 15], "t": t.isoformat()})
     text = reverse_engineer(sigs, m1)
     assert "(5, 10, 15)" in text and "הסטופ קבוע: 10" in text and "בכיוון המגמה" in text
+
+
+def test_parse_hidden_stop_and_evaluate():
+    s = parse_signal("Gold（XAUUSD）📊\nSELL🟢4380-4370\nTP1 🎯4365\nTP2 🎯4360\nTP3 🎯4355\nTP4 🎯OPEN\n\nSL⛔#VIP")
+    assert s["direction"] == -1 and s["zone_lo"] == 4370 and s["zone_hi"] == 4380 and s["sl"] is None
+    assert s["sl_hidden"] and s["tps"] == [4365, 4360, 4355]
+    r = evaluate(s, bars([4365, 4370.5, 4378, 4385, 4372, 4364, 4359, 4354]))
+    # הנחת סטופ: 10$ מעל הקצה הרחוק (4380) = 4390 -> לא נלקח; המחיר הלך נגדנו עד 4385.5 לפני TP1
+    assert r["filled"] and r["sl_used"] == 4390 and r["tp_hits"] == 3 and r["mae"] == 15.5 and r["tp1_no_stop"]
