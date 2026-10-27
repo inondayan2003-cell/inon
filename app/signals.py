@@ -82,6 +82,54 @@ def evaluate(sig: dict, bars: pd.DataFrame, hours: float = 24) -> dict:
             "rr": [round(g, 2) for g in gains], "fill_minutes": i0}
 
 
+def _html_text(fragment: str) -> str:
+    import html
+    t = re.sub(r"<br\s*/?>", "\n", fragment)
+    t = re.sub(r"<[^>]+>", "", t)
+    return html.unescape(t).strip()
+
+
+def parse_channel_page(page: str) -> list[dict]:
+    """עמוד t.me/s/<ערוץ>: מחזיר [{id, t, text}] לכל הודעה (טקסט ושעת פרסום ב-UTC)."""
+    out = []
+    for block in re.split(r'(?=<div class="tgme_widget_message_wrap)', page)[1:]:
+        pid = re.search(r'data-post="[^"/]+/(\d+)"', block)
+        tm = re.search(r'<time[^>]+datetime="([^"]+)"', block)
+        tx = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', block, re.S)
+        if pid and tm and tx:
+            out.append({"id": int(pid.group(1)), "t": pd.Timestamp(tm.group(1)).tz_convert("UTC").isoformat(),
+                        "text": _html_text(tx.group(1))})
+    return out
+
+
+def fetch_channel(name: str, max_pages: int = 60, pause: float = 1.0) -> list[dict]:
+    """קורא ערוץ ציבורי מתצוגת הרשת של טלגרם (t.me/s/...), מהחדש לישן, עד max_pages עמודים."""
+    import httpx
+    url = f"https://t.me/s/{name.strip('@/ ').split('/')[-1]}"
+    msgs, before = {}, None
+    with httpx.Client(follow_redirects=True, timeout=30, headers={"User-Agent": "Mozilla/5.0"}) as c:
+        for _ in range(max_pages):
+            r = c.get(url, params={"before": before} if before else None)
+            r.raise_for_status()
+            page = parse_channel_page(r.text)
+            new = [m for m in page if m["id"] not in msgs]
+            if not new:
+                break
+            msgs.update({m["id"]: m for m in new})
+            before = min(m["id"] for m in page)
+            time.sleep(pause)
+    return sorted(msgs.values(), key=lambda m: m["id"])
+
+
+def channel_signals(msgs: list[dict]) -> list[dict]:
+    out = []
+    for m in msgs:
+        sig = parse_signal(m["text"])
+        if sig:
+            out.append({**sig, "t": m["t"], "id": m["id"], "forwarded": True})
+    return out
+
+
 def fetch_minutes_td(symbol: str, start: pd.Timestamp, hours: float, key: str) -> pd.DataFrame:
     import httpx
     params = {"symbol": symbol, "interval": "1min", "outputsize": 5000, "timezone": "UTC", "order": "ASC", "apikey": key,

@@ -66,3 +66,18 @@ def test_bot_saves_forwarded_signal(tmp_path):
     assert saved[0]["t"] == pd.Timestamp(1792995720, unit="s", tz="UTC").isoformat()
     asyncio.run(bot.handle(msg))
     assert len(store.get("group_signals")) == 1 and "כבר שמור" in sent[-1]
+
+
+def test_parse_channel_page():
+    from app.signals import channel_signals, parse_channel_page
+    page = ('<div class="tgme_widget_message_wrap js-widget_message_wrap"><div class="tgme_widget_message" data-post="Cryptonew84/812">'
+            '<div class="tgme_widget_message_text js-message_text" dir="auto">Gold buy @ 4003 - 3995<br/>Sl @ 3988<br/>'
+            'Tp1 @ 4006<br/>Tp2 @ 4008</div><a class="tgme_widget_message_date"><time datetime="2026-10-27T06:22:10+00:00" '
+            'class="time">08:22</time></a></div></div>'
+            '<div class="tgme_widget_message_wrap"><div class="tgme_widget_message" data-post="Cryptonew84/813">'
+            '<div class="tgme_widget_message_text js-message_text" dir="auto">TP1 hit &#9989;</div>'
+            '<time datetime="2026-10-27T07:00:00+00:00">09:00</time></div></div>')
+    msgs = parse_channel_page(page)
+    assert [m["id"] for m in msgs] == [812, 813] and msgs[0]["t"].startswith("2026-10-27T06:22:10")
+    sigs = channel_signals(msgs)
+    assert len(sigs) == 1 and sigs[0]["sl"] == 3988 and sigs[0]["tps"] == [4006, 4008]

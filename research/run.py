@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--holdout", type=int, default=4, help="חודשי כספת")
     ap.add_argument("--excess", action="store_true", help="ציון מעבר לכיוון הכללי של השוק")
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
+    ap.add_argument("--channel", default="", help="ערוץ טלגרם ציבורי לבדיקת הסיגנלים שלו")
     ap.add_argument("--pair", default="XAUUSD", help="נכס ב-HistData (למשל NSXUSD = נאסד\"ק 100)")
     ap.add_argument("--all", action="store_true", help="כל המבחנים (פתיחה, שעות, נזילות, כל היום) על 2018 עד היום")
     ap.add_argument("--allday", action="store_true", help="סבב 8: שיטות כל היום על 2018 עד היום")
@@ -85,6 +86,10 @@ def main():
     end = dt.date.today() - dt.timedelta(days=1)
     start = (pd.Timestamp(end) - pd.DateOffset(months=a.months)).date()
     t0 = time.time()
+    if a.channel:
+        from research import channel
+        print(channel.report(a.channel, Path(a.cache)), flush=True)
+        return
     if a.pair != "XAUUSD" and a.cost == 0.35:
         a.cost = {"NSXUSD": 1.5, "SPXUSD": 0.5, "XAGUSD": 0.02}.get(a.pair, a.cost)
     if a.all:
