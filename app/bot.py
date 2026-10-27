@@ -3,10 +3,12 @@ import asyncio
 import logging
 
 import httpx
+import pandas as pd
 
 from .backtest import backtest_report
 from .config import Settings
 from .messages import status_message
+from .signals import parse_signal, report as signals_report
 from .storage import Store
 
 log = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ HELP = (
     "📊 נבדק על 2018-2026: אותה עסקה בשעה אחרת לא מרוויחה, ובפתיחה כן. מומלץ להתחיל בדמו.\n\n"
     "/status - מצב השוק עכשיו\n"
     "/backtest - בדיקה היסטורית על 6 החודשים האחרונים\n"
+    "/signals - בדיקת סיגנלים שהעברת מקבוצה (Forward של ההודעות לכאן)\n"
     "/alerts_on - הפעלת התראות\n"
     "/alerts_off - השתקת התראות\n"
     "/app - פתיחת האפליקציה"
@@ -72,6 +75,7 @@ class Bot:
             {"command": "alerts_off", "description": "השתקת התראות"},
             {"command": "app", "description": "פתיחת האפליקציה"},
             {"command": "backtest", "description": "בדיקה היסטורית של השיטה"},
+            {"command": "signals", "description": "בדיקת סיגנלים שהועברו מקבוצה"},
         ])
         if self.cfg.webapp_url:
             await self.call("setChatMenuButton", menu_button={
@@ -101,6 +105,26 @@ class Bot:
                 log.warning("polling: %s", e)
                 await asyncio.sleep(5)
 
+    async def save_group_signal(self, chat_id: int, msg: dict, sig: dict):
+        """סיגנל שהועבר (Forward) מקבוצה: שומרים עם שעת השליחה המקורית."""
+        origin = msg.get("forward_origin") or {}
+        ts = origin.get("date") or msg.get("forward_date")
+        forwarded = ts is not None
+        ts = ts or msg.get("date")
+        t = pd.Timestamp(ts, unit="s", tz="UTC").isoformat()
+        sigs = self.store.get("group_signals", [])
+        if any(x["t"] == t and x["sl"] == sig["sl"] for x in sigs):
+            await self.send(chat_id, "ℹ️ הסיגנל הזה כבר שמור.")
+            return
+        sigs.append({**sig, "t": t, "forwarded": forwarded})
+        sigs.sort(key=lambda x: x["t"])
+        self.store.put("group_signals", sigs)
+        when = pd.Timestamp(t).tz_convert("Asia/Jerusalem").strftime("%d/%m/%Y %H:%M")
+        note = "" if forwarded else "\n⚠️ זו לא הודעה מועברת, אז נשמרה שעת ההדבקה. לבדיקה מדויקת עדיף Forward."
+        await self.send(chat_id, f"✅ נשמר סיגנל #{len(sigs)}: {'קנייה' if sig['direction'] == 1 else 'מכירה'} "
+                                 f"{sig['zone_lo']:g}-{sig['zone_hi']:g}, SL {sig['sl']:g}, {len(sig['tps'])} יעדים · {when}"
+                                 f"{note}\nכשתסיים להעביר, שלח /signals לבדיקה.")
+
     async def handle(self, msg: dict):
         text = (msg.get("text") or "").strip()
         chat_id, user = msg["chat"]["id"], msg.get("from", {})
@@ -109,6 +133,9 @@ class Bot:
             return
         cmd = text.split()[0].split("@")[0].lower() if text else ""
         name = user.get("first_name", "")
+        if not cmd.startswith("/") and (sig := parse_signal(text or msg.get("caption") or "")):
+            await self.save_group_signal(chat_id, msg, sig)
+            return
         if cmd in ("/start", "/alerts_on"):
             self.store.set_subscription(chat_id, user.get("id", 0), name, True)
             prefix = f"שלום {name}! " if cmd == "/start" else ""
@@ -123,6 +150,20 @@ class Bot:
         elif cmd == "/backtest":
             await self.send(chat_id, "⏳ מריץ את השיטה על 6 החודשים האחרונים של הזהב. זה לוקח כ-3 דקות...")
             await self.send(chat_id, await self.backtest())
+        elif cmd == "/signals":
+            sigs = self.store.get("group_signals", [])
+            if not sigs:
+                await self.send(chat_id, "אין סיגנלים שמורים. עשה Forward להודעות הסיגנל מהקבוצה אל הבוט.")
+                return
+            if text.split()[1:2] == ["clear"]:
+                self.store.put("group_signals", [])
+                await self.send(chat_id, "🗑 הסיגנלים השמורים נמחקו.")
+                return
+            await self.send(chat_id, f"⏳ בודק {len(sigs)} סיגנלים מול נרות דקה אמיתיים (כ-10 שניות לסיגנל)...")
+            async with self._backtest_lock:
+                text_out = await asyncio.to_thread(signals_report, sigs, self.cfg.td_symbol, self.cfg.twelvedata_api_key)
+            for i in range(0, len(text_out), 3800):
+                await self.send(chat_id, text_out[i:i + 3800])
         elif cmd == "/app":
             await self.send(chat_id, "פתח את האפליקציה:", with_button=True)
         else:
