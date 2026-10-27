@@ -1,6 +1,7 @@
 """הורדת נרות דקה של XAU/USD מ-HistData.com (ארכיון חינמי) עם מטמון מקומי.
 
-כל שנה שהסתיימה = קובץ אחד; השנה הנוכחית = קובץ לכל חודש. הזמנים בקבצים הם EST קבוע (UTC-5, בלי שעון קיץ).
+כל שנה שהסתיימה = קובץ אחד; השנה הנוכחית = קובץ לכל חודש.
+הזמנים בקבצים הם שעון ניו יורק כולל שעון קיץ (נבדק: הפתיחה היומית יוצאת 18:00 גם בינואר וגם ביולי).
 """
 import datetime as dt
 import io
@@ -32,9 +33,10 @@ def _form(html: str) -> dict:
 
 def parse_csv(raw: bytes) -> pd.DataFrame:
     df = pd.read_csv(io.BytesIO(raw), sep=";", header=None, names=["ts", "open", "high", "low", "close", "volume"])
-    idx = pd.to_datetime(df.pop("ts"), format="%Y%m%d %H%M%S") + pd.Timedelta(hours=5)  # EST -> UTC
-    df.index = pd.DatetimeIndex(idx).tz_localize("UTC")
-    return df.astype(float)
+    idx = pd.DatetimeIndex(pd.to_datetime(df.pop("ts"), format="%Y%m%d %H%M%S"))
+    df.index = idx.tz_localize("America/New_York", ambiguous="NaT", nonexistent="shift_forward").tz_convert("UTC")
+    df = df[df.index.notna()]
+    return df[~df.index.duplicated()].sort_index().astype(float)
 
 
 def _download(client: httpx.Client, pair: str, period: str) -> pd.DataFrame | None:
@@ -68,7 +70,7 @@ def fetch_minutes(start: dt.date, end: dt.date, cache: Path, pair: str = "XAUUSD
     frames = []
     with httpx.Client(follow_redirects=True) as client:
         for p in periods:
-            f = cache / f"hd_{pair}_{p.replace('/', '-')}.parquet"
+            f = cache / f"hd2_{pair}_{p.replace('/', '-')}.parquet"
             done = not ("/" in p and int(p.split("/")[1]) >= today.month and int(p.split("/")[0]) == today.year)
             if f.exists() and done:
                 frames.append(pd.read_parquet(f))
