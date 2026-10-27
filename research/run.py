@@ -91,7 +91,7 @@ def main():
         from research import channel_rule
         full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
         full = full[~full.index.duplicated()].sort_index()
-        print(channel_rule.report(full, a.cost), flush=True)
+        print(channel_rule.report2(full, a.cost), flush=True)
         return
     if a.channel:
         from research import channel

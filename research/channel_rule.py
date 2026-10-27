@@ -21,11 +21,12 @@ REF = 4150.0
 IL = "Asia/Jerusalem"
 
 
-def candidates(dt: Data, rng_avg: np.ndarray, a24: float, a4: float, bounce: bool, hours: set | None, both: bool):
+def candidates(dt: Data, rng_avg: np.ndarray, a24: float, a4: float, bounce: bool, hours: set | None, both: bool,
+               tz: str = IL):
     """נקודות החלטה: כל שעה עגולה (+5 דקות). מחזיר [(i, d)] עם הפרדה של 4 שעות לפחות בין סיגנלים."""
     m1 = dt.m1
     idx = m1.index
-    il = idx.tz_convert(IL)
+    il = idx.tz_convert(tz)
     ok = (il.minute == 5)
     if hours is not None:
         ok &= np.isin(il.hour, list(hours))
@@ -46,7 +47,7 @@ def candidates(dt: Data, rng_avg: np.ndarray, a24: float, a4: float, bounce: boo
             continue
         m24, m4, m1_ = c[i] - c[j24], c[i] - c[j4], c[i] - c[j1]
         for d in ((1, -1) if both else (1,)):
-            if m24 * d <= -a24 * R and m4 * d <= -a4 * R and (not bounce or m1_ * d > 0):
+            if (a24 <= 0 or m24 * d <= -a24 * R) and m4 * d <= -a4 * R and (not bounce or m1_ * d > 0):
                 out.append((i, d))
                 last = secs[i]
                 break
@@ -55,11 +56,11 @@ def candidates(dt: Data, rng_avg: np.ndarray, a24: float, a4: float, bounce: boo
 
 def run(dt: Data, rng_avg, p, cost):
     res = []
-    for i, d in candidates(dt, rng_avg, p["a24"], p["a4"], p["bounce"], p["hours"], p["both"]):
+    for i, d in candidates(dt, rng_avg, p["a24"], p["a4"], p["bounce"], p["hours"], p["both"], p.get("tz", IL)):
         price = dt.c[i]
         k = price / REF
-        near = price - d * 1.0 * k
-        zone = (near, near - d * 10 * k)
+        near = price - d * 0.5 * k
+        zone = (near, near - d * p.get("width", 10) * k)
         sl = zone[1] - d * 10 * k
         if p["exit"] == "theirs":
             tps = [near + d * x * k for x in (5, 10, 15)]
@@ -74,6 +75,44 @@ def run(dt: Data, rng_avg, p, cost):
         if r.get("filled"):
             res.append((dt.m1.index[i], d, r["r_split"] - cost / r["risk"], r["tp_hits"] > 0, r["stopped"]))
     return pd.DataFrame(res, columns=["t", "d", "r", "tp1", "sl"])
+
+
+KZ = {"לונדון 02": {2}, "קילזונים 02+07-08": {2, 7, 8}, "כל הקילזונים": {2, 3, 4, 7, 8, 9, 10}}
+
+
+def report2(m1: pd.DataFrame, cost: float) -> str:
+    """גרסה 2 לפי 100 הסיגנלים: שעות פתיחת הקילזונים בשעון ניו יורק, נגד תנועת 4 השעות אחרי תיקון ראשון,
+    בלי דרישת ירידה של 24 שעות, אזור 5$ או 10$, יעדים 5/10/15 וסטופ 10$ מעבר לאזור."""
+    from research.allday import session_stats
+    dt = Data(m1)
+    _, rng_avg, _, _ = session_stats(dt)
+    t1, t2 = pd.Timestamp("2023-01-01", tz="UTC"), m1.index[-1] - pd.DateOffset(months=24)
+    years = sorted(set(m1.index.year))
+    weeks = (m1.index[-1] - m1.index[0]).days / 7
+    lines = [f"### 🧬 גרסה 2: הכלל של Cryptonew84 לפי 100 סיגנלים · {m1.index[0]:%Y-%m} עד {m1.index[-1]:%Y-%m} · עלות {cost}$", "",
+             "| שעות (NY) | נגד תנועת 4ש' (טווחים) | תיקון | רוחב | יציאה | עסק'/שבוע | TP1% | סטופ% | ממוצע R | "
+             "גילוי 2018-22 R · t | 2023-24 R · t | שנתיים אחרונות R · t | " + " | ".join(str(y) for y in years) + " |",
+             "|" + "---|" * (12 + len(years))]
+    rows = []
+    for (kz, hrs), a4, bounce, width, ex in itertools.product(KZ.items(), (0.05, 0.1, 0.2, 0.3), (True, False), (5, 10),
+                                                             ("theirs", 2.0, 3.0)):
+        p = dict(a24=0, a4=a4, bounce=bounce, hours=hrs, both=True, exit=ex, width=width, tz="America/New_York")
+        tr = run(dt, rng_avg, p, cost)
+        if len(tr) < 30:
+            continue
+        r = tr.r.to_numpy()
+        parts = [r[tr.t < t1], r[(tr.t >= t1) & (tr.t < t2)], r[tr.t >= t2]]
+        rows.append((kz, p, tr, parts))
+    rows.sort(key=lambda x: _st(x[3][0])[1], reverse=True)
+    f = lambda x: f"{x.sum():+.0f} · {_st(x)[1]:+.1f}" if len(x) > 2 else "-"
+    for kz, p, tr, parts in rows:
+        ex = "שלהם 5/10/15" if p["exit"] == "theirs" else f"1:{p['exit']:.0f}"
+        lines.append(f"| {kz} | {p['a4']} | {'כן' if p['bounce'] else 'לא'} | {p['width']}$ | {ex} | {len(tr) / weeks:.1f} | "
+                     f"{100 * tr.tp1.mean():.0f}% | {100 * tr.sl.mean():.0f}% | {tr.r.mean():+.3f} | {f(parts[0])} | {f(parts[1])} | "
+                     f"{f(parts[2])} | " + " | ".join(f"{tr[tr.t.dt.year == y].r.sum():+.0f}" for y in years) + " |")
+    passed = [x for x in rows if _st(x[3][0])[1] >= 3 and x[3][1].sum() > 0 and x[3][2].sum() > 0]
+    lines += ["", f"עברו (t≥3 בגילוי ורווחי בשני המבחנים): **{len(passed)}** מתוך {len(rows)}"]
+    return "\n".join(lines)
 
 
 def report(m1: pd.DataFrame, cost: float) -> str:
