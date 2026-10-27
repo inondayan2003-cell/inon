@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--months", type=int, default=0, help="כמה חודשים אחורה (0 = כל ההיסטוריה של הערוץ)")
     ap.add_argument("--hours", type=float, default=24)
     ap.add_argument("--audit", action="store_true", help="רק פירוט של סוגי ההודעות בערוץ (בלי בדיקת מחירים)")
+    ap.add_argument("--csv", action="store_true", help="קובץ CSV של כל סיגנלי הזהב (עם תוצאה מול המחיר) - נשלח בבוט")
     ap.add_argument("--cached", action="store_true", help="להשתמש בהודעות שכבר נשמרו בלי לקרוא שוב מטלגרם")
     a = ap.parse_args()
     f = DATA / f"channel_{a.channel}.json"
@@ -92,6 +93,10 @@ def main():
     if not sigs:
         for m in msgs[-5:]:
             print("---\n" + m["text"][:300])
+        return
+    if a.csv:
+        path = write_csv(a.channel, msgs, sigs, a.hours)
+        send_file(path, f"📄 כל סיגנלי הזהב מ-{a.channel}: {len(sigs)} סיגנלים")
         return
     start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=26)
     days = (pd.Timestamp.now(tz="UTC") - start).days
@@ -147,6 +152,67 @@ def audit(msgs: list[dict]) -> str:
     for m in unparsed[:15]:
         lines.append(f"--- {m['t'][:16]}\n{m['text'][:400]}")
     return "\n".join(lines)
+
+
+def write_csv(channel: str, msgs: list[dict], sigs: list[dict], hours: float = 24) -> Path:
+    """CSV (נפתח באקסל/גוגל שיטס) עם כל סיגנל: זמן, כיוון, אזור, סטופ, יעדים, הטקסט המקורי,
+    ומה קרה בפועל מול נרות דקה (אם אפשר למשוך אותם)."""
+    import csv
+    from .signals import evaluate
+    m1 = None
+    try:
+        start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=1)
+        days = (pd.Timestamp.now(tz="UTC") - start).days
+        need = int(days * 1440 * 5 / 7 / 4800) + 3
+        print(f"מושך נרות דקה לבדיקת התוצאות ({need} בקשות לכל היותר)...")
+        m1 = fetch_twelvedata_history(settings.td_symbol, "1min", start, settings.twelvedata_api_key, max_requests=need)
+    except Exception as e:  # noqa: BLE001
+        print("בלי תוצאות (אין נתוני מחיר):", e)
+    text_by_id = {m["id"]: m["text"] for m in msgs}
+    replies = {}
+    for m in msgs:
+        if m.get("reply_to"):
+            replies.setdefault(m["reply_to"], []).append(m["text"].replace("\n", " ")[:80])
+    path = DATA / f"signals_{channel}.csv"
+    cols = ["#", "תאריך", "שעה (ישראל)", "כיוון", "אזור מ-", "אזור עד", "סטופ", "TP1", "TP2", "TP3", "TP4",
+            "התמלא", "יעדים שהושגו", "סטופ נלקח", "R (חלוקה שווה)", "R רק TP1", "ירידה נגדך עד TP1 ($)",
+            "מה הערוץ פרסם אחר כך", "טקסט מקורי"]
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:   # utf-8-sig = עברית תקינה באקסל
+        w = csv.writer(f)
+        w.writerow(cols)
+        for i, s in enumerate(sigs, 1):
+            t = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem")
+            tps = (s["tps"] + [None] * 4)[:4]
+            row = [i, t.strftime("%d/%m/%Y"), t.strftime("%H:%M"), "קנייה" if s["direction"] == 1 else "מכירה",
+                   s["zone_lo"], s["zone_hi"], s["sl"] if s.get("sl") is not None else "מוסתר (VIP)", *tps]
+            r = {}
+            if m1 is not None and len(m1):
+                ts = pd.Timestamp(s["t"])
+                bars = m1[(m1.index >= ts) & (m1.index < ts + pd.Timedelta(hours=hours))]
+                if len(bars) and ts >= m1.index[0]:
+                    r = evaluate(s, bars, hours)
+            if r.get("filled"):
+                row += ["כן", f"{r['tp_hits']}/{len(s['tps'])}", "כן" if r["stopped"] else "לא",
+                        r["r_split"], r["r_tp1_only"], r["mae"]]
+            elif r:
+                row += ["לא", "", "", "", "", ""]
+            else:
+                row += ["אין נתונים", "", "", "", "", ""]
+            row += [" | ".join(replies.get(s.get("id"), [])), text_by_id.get(s.get("id"), "").replace("\n", " / ")]
+            w.writerow(row)
+    print(f"נשמר: {path}")
+    return path
+
+
+def send_file(path: Path, caption: str):
+    if not settings.bot_token:
+        return
+    for chat in Store(settings.db_path).subscribers():
+        with open(path, "rb") as fh:
+            httpx.post(f"https://api.telegram.org/bot{settings.bot_token}/sendDocument",
+                       data={"chat_id": chat, "caption": caption}, files={"document": (path.name, fh, "text/csv")},
+                       timeout=60)
+    print("הקובץ נשלח בבוט.")
 
 
 def _chunks(text: str, size: int = 3800) -> list[str]:

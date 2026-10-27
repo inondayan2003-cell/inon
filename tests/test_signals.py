@@ -129,3 +129,17 @@ def test_parse_hidden_stop_and_evaluate():
     r = evaluate(s, bars([4365, 4370.5, 4378, 4385, 4372, 4364, 4359, 4354]))
     # הנחת סטופ: 10$ מעל הקצה הרחוק (4380) = 4390 -> לא נלקח; המחיר הלך נגדנו עד 4385.5 לפני TP1
     assert r["filled"] and r["sl_used"] == 4390 and r["tp_hits"] == 3 and r["mae"] == 15.5 and r["tp1_no_stop"]
+
+
+def test_write_csv(tmp_path, monkeypatch):
+    import csv
+    import app.channel_export as ce
+    monkeypatch.setattr(ce, "DATA", tmp_path)
+    monkeypatch.setattr(ce, "fetch_twelvedata_history", lambda *a, **k: bars([4005, 4003, 4004, 4006.5, 4008.2, 4011.3, 4015.5]))
+    msgs = [{"id": 1, "t": "2026-10-27T06:22:00+00:00", "text": MSG},
+            {"id": 2, "t": "2026-10-27T07:00:00+00:00", "text": "✅ Profit +50 PIPS", "reply_to": 1}]
+    from app.signals import channel_signals
+    p = ce.write_csv("test", msgs, channel_signals(msgs))
+    rows = list(csv.reader(open(p, encoding="utf-8-sig")))
+    assert rows[0][3] == "כיוון" and rows[1][3] == "קנייה" and rows[1][6] == "3988.0"
+    assert "Profit +50 PIPS" in rows[1][-2] and "Gold buy" in rows[1][-1]
