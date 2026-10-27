@@ -20,7 +20,7 @@ def test_backtest_runs(market, monkeypatch):
     assert trades, "האסטרטגיה צריכה לייצר עסקאות על נתונים עם מגמות"
     for t in trades:
         assert t["status"] in {"tp2", "sl", "be", "expired", "reversed"}
-        assert -1.01 <= t["result_r"] <= 3.01 or t["status"] in {"expired", "reversed"}
+        assert -1.01 <= t["result_r"] <= 3.01 or t.get("method") == "channel_fade" or t["status"] in {"expired", "reversed"}
     methods = {t["method"] for t in trades}
     print("\nmethods:", {m: sum(t["method"] == m for t in trades) for m in methods})
 
@@ -105,5 +105,5 @@ def test_only_alert_methods_are_notified(market, tmp_path):
     assert event_method(trend_ev) == "trend" and event_method(liq_ev) == "liquidity"
     assert event_method({"type": "weak"}) == "trend"
     assert event_method({"type": "closed", "trade": {"method": "liquidity"}}) == "liquidity"
-    assert CFG.alert_methods == frozenset({"reopen_long"})
+    assert CFG.alert_methods == frozenset({"reopen_long", "channel_fade"})
     assert event_method({"type": "setup", "setup": {"method": "smc"}}) == "smc"

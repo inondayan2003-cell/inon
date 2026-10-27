@@ -32,7 +32,7 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
-METHODS = {"reopen_long": "🌏 לונג בפתיחה", "london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
+METHODS = {"reopen_long": "🌏 לונג בפתיחה", "channel_fade": "📡 שיטת הערוץ", "london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
 
 
 def _label(tr: dict) -> str:
@@ -114,6 +114,32 @@ def reopen_message(ev: dict) -> str:
     ])
 
 
+CF_WARN = ("⚠️ <b>שיטה ניסיונית (לבקשתך).</b> בבדיקה על 2018-2026 היא הפסידה: TP1 מגיע בכ-76% מהפעמים, "
+           "אבל הסטופ רחוק פי 3 מהיעד, וצריך כ-79% כדי להרוויח. לסחור בדמו או בסיכון קטן מאוד.")
+
+
+def channel_message(ev: dict) -> str:
+    s = ev["trade"]
+    d = s["direction"]
+    side = "BUY 🟢" if d == 1 else "SELL 🔴"
+    lo, hi = sorted((s["entry"], s["far"]))
+    risk = abs(s["entry"] - s["sl"])
+    tps = "\n".join(f"🎯 TP{i}: {_p(x)} (+{abs(x - s['entry']):.1f}$ · 1:{abs(x - s['entry']) / risk:.2f})"
+                     for i, x in enumerate(s["tps"], 1))
+    return "\n".join([
+        f"📡 <b>שיטת הערוץ - זהב {side}</b> · {_time(s['opened_at'])}",
+        f"<i>פתיחת קילזון, {s['note']}.</i>",
+        "",
+        f"📌 אזור כניסה (לימיט): <b>{_p(lo)} - {_p(hi)}</b> · כניסה ראשונה ב-{_p(s['entry'])}",
+        tps,
+        f"⛔ SL: {_p(s['sl'])} ({risk:.1f}$ מהכניסה)",
+        f"⏳ הלימיט בתוקף עד {_time(s['expires'])}. עסקה פתוחה נסגרת אחרי 24 שעות.",
+        "",
+        CF_WARN,
+        DISCLAIMER,
+    ])
+
+
 def london_message(ev: dict) -> str:
     tr = ev["trade"]
     risk = abs(tr["entry"] - tr["sl"])
@@ -172,6 +198,18 @@ def signal_message(trade: dict, snapshot: dict | None) -> str:
 
 def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     kind = ev["type"]
+    if kind == "cf_signal":
+        return channel_message(ev)
+    if kind == "cf_filled":
+        tr = ev["trade"]
+        return f"✅ <b>הלימיט התמלא</b> ({_label(tr)}) ב-{_p(tr['entry'])} · SL {_p(tr['sl'])} · TP1 {_p(tr['tps'][0])}"
+    if kind == "cf_tp":
+        tr = ev["trade"]
+        x = tr["tps"][ev["n"] - 1]
+        return f"🎯 <b>TP{ev['n']} הושג</b> ({_label(tr)}) · {_p(x)} (+{abs(x - tr['entry']):.1f}$)"
+    if kind == "cf_cancel":
+        tr = ev["trade"]
+        return f"❌ <b>הלימיט בוטל</b> ({_label(tr)}): המחיר לא הגיע לאזור תוך 4 שעות. אם שמת הזמנה אצל הברוקר - לבטל."
     if kind == "signal":
         if ev["trade"].get("method") == "reopen_long":
             return reopen_message(ev)
@@ -200,7 +238,7 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
         return (f"✅ <b>יעד 1 הושג ({_label(tr)})</b>\n"
                 f"מחיר {_p(tr['tp1'])}. מומלץ לסגור חצי ולהזיז סטופ לכניסה ({_p(tr['entry'])}).")
     if kind == "closed":
-        if tr.get("method") in ("range", "london_short", "reopen_long") and tr["status"] == "tp2":
+        if tr.get("method") in ("range", "london_short", "reopen_long", "channel_fade") and tr["status"] == "tp2":
             return f"🏆 <b>היעד הושג</b> ({_label(tr)})\nיציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>"
         titles = {"tp2": "🏆 יעד 2 הושג - העסקה נסגרה", "sl": "🛑 הסטופ נלקח",
                   "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ הזמן נגמר - לסגור במחיר השוק",
@@ -224,7 +262,7 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא לפי שיטת המגמה - לניתוח בלבד, לא סיגנל כניסה. "
-                      "סיגנלים נשלחים רק משיטת הלונג בפתיחה היומית 🌏"]
+                      "סיגנלים נשלחים משיטת הלונג בפתיחה 🌏 ומשיטת הערוץ 📡 (ניסיונית)"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:

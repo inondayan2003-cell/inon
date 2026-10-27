@@ -627,6 +627,111 @@ class ReopenLongStrategy:
         return events
 
 
+class ChannelFadeStrategy:
+    """שיטת ערוץ Cryptonew84 (הנדסה הפוכה של 100 סיגנלים) - ניסיונית, לבקשת המשתמש.
+
+    בבדיקה על 2018-2026 היא לא הרוויחה (0 מתוך 48 גרסאות של TP1 בלבד; TP1 מגיע ב-~76% אבל צריך ~79%).
+    כללים:
+    - בדיוק בפתיחת קילזון: 02:00, 07:00, 08:00 ניו יורק (09:00/14:00/15:00 שעון ישראל, בחורף 08/13/14).
+    - אם 4 השעות האחרונות ירדו ביותר מ-0.3 מהטווח היומי הממוצע (14 ימים) -> קנייה; עלו -> מכירה (נגד התנועה).
+    - אזור ברוחב 10$ שמתחיל 0.5$ מהמחיר (לימיט), יעדים +5/+10/+15 מראש האזור, סטופ 10$ מעבר לאזור.
+      (המספרים בדולרים מותאמים למחיר: k = מחיר / 4150.)
+    - הלימיט בתוקף 4 שעות. עסקה פתוחה נסגרת אחרי 24 שעות. חלוקה שווה בין 3 היעדים.
+    """
+    HOURS = (2, 7, 8)
+    FADE = 0.3
+    REF = 4150.0
+    WIDTH, NEAR, SL_GAP, TPS = 10.0, 0.5, 10.0, (5.0, 10.0, 15.0)
+    LIMIT_H, HOLD_H = 4, 24
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        st = state or {}
+        self.cfg = cfg
+        self.ids = ids if ids is not None else {"next": 1}
+        self.closes: list = st.get("closes", [])
+        self.day, self.hi, self.lo = st.get("day"), st.get("hi"), st.get("lo")
+        self.ranges: list = st.get("ranges", [])
+        self.setup: dict | None = st.get("setup")
+        self.trade: dict | None = st.get("trade")
+        self.last_fire: str | None = st.get("last_fire")
+
+    def to_state(self) -> dict:
+        return {"closes": self.closes, "day": self.day, "hi": self.hi, "lo": self.lo, "ranges": self.ranges,
+                "setup": self.setup, "trade": self.trade, "last_fire": self.last_fire}
+
+    def _close_trade(self, t, exit_px, status, r) -> dict:
+        x = {k: v for k, v in self.trade.items() if k in Trade.__dataclass_fields__}
+        tr = Trade(**x)
+        tr.result_r, tr.status, tr.exit_price, tr.closed_at = round(r, 2), status, round(exit_px, 2), t.isoformat()
+        self.trade = None
+        return {"type": "closed", "trade": asdict(tr), "t": t.isoformat()}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        t = row["t"]
+        hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
+        ny = (t - pd.Timedelta(minutes=5)).tz_convert("America/New_York")
+        day = (ny + pd.Timedelta(hours=6)).date().isoformat()
+        if day != self.day:
+            if self.day is not None and self.hi is not None:
+                self.ranges = (self.ranges + [self.hi - self.lo])[-14:]
+            self.day, self.hi, self.lo = day, hi, lo
+        self.hi, self.lo = max(self.hi, hi), min(self.lo, lo)
+        events = []
+
+        if self.trade:   # ניהול עסקה פתוחה: סטופ קודם, אחר כך היעדים לפי הסדר
+            tr = self.trade
+            d, sl, tps = tr["direction"], tr["sl"], tr["tps"]
+            risk = abs(tr["entry"] - sl)
+            gains = [abs(x - tr["entry"]) / risk for x in tps]
+            if (lo <= sl) if d == 1 else (hi >= sl):
+                n = tr["hits"]
+                events.append(self._close_trade(t, sl, "sl", (sum(gains[:n]) - (3 - n)) / 3))
+            else:
+                while tr["hits"] < 3 and ((hi >= tps[tr["hits"]]) if d == 1 else (lo <= tps[tr["hits"]])):
+                    tr["hits"] += 1
+                    events.append({"type": "cf_tp", "n": tr["hits"], "trade": dict(tr), "t": t.isoformat()})
+                if tr["hits"] == 3:
+                    events.append(self._close_trade(t, tps[-1], "tp2", sum(gains) / 3))
+                elif t >= pd.Timestamp(tr["filled_at"]) + pd.Timedelta(hours=self.HOLD_H):
+                    n = tr["hits"]
+                    open_r = (close - tr["entry"]) * d / risk
+                    events.append(self._close_trade(t, close, "expired", (sum(gains[:n]) + (3 - n) * open_r) / 3))
+
+        if self.setup:   # לימיט ממתין
+            s = self.setup
+            if (lo <= s["entry"]) if s["direction"] == 1 else (hi >= s["entry"]):
+                self.trade = {**s, "hits": 0, "filled_at": t.isoformat()}
+                self.setup = None
+                events.append({"type": "cf_filled", "trade": dict(self.trade), "t": t.isoformat()})
+            elif t >= pd.Timestamp(s["expires"]):
+                self.setup = None
+                events.append({"type": "cf_cancel", "trade": dict(s), "t": t.isoformat()})
+
+        # סיגנל חדש בפתיחת קילזון
+        past = [c for ts, c in self.closes if pd.Timestamp(ts) <= t - pd.Timedelta(hours=4)]
+        self.closes = (self.closes + [[t.isoformat(), close]])[-60:]
+        fresh = self.last_fire is None or t - pd.Timestamp(self.last_fire) >= pd.Timedelta(hours=4)
+        if (allow_entry and fresh and not self.setup and not self.trade and ny.minute == 0 and ny.hour in self.HOURS
+                and len(self.ranges) >= 5 and past):
+            R = sum(self.ranges) / len(self.ranges)
+            m4 = close - past[-1]
+            d = 1 if m4 <= -self.FADE * R else -1 if m4 >= self.FADE * R else 0
+            if d:
+                k = close / self.REF
+                entry = round(close - d * self.NEAR * k, 2)
+                far = round(entry - d * self.WIDTH * k, 2)
+                sl = round(far - d * self.SL_GAP * k, 2)
+                tps = [round(entry + d * x * k, 2) for x in self.TPS]
+                self.setup = {"id": self.ids["next"], "direction": d, "opened_at": t.isoformat(), "entry": entry,
+                              "far": far, "sl": sl, "tp1": tps[0], "tp2": tps[-1], "tps": tps, "score": 0.0, "stop": sl,
+                              "method": "channel_fade", "note": f"נגד תנועה של {m4:+.1f}$ ב-4 שעות",
+                              "expires": (t + pd.Timedelta(hours=self.LIMIT_H)).isoformat()}
+                self.ids["next"] += 1
+                self.last_fire = t.isoformat()
+                events.append({"type": "cf_signal", "trade": dict(self.setup), "t": t.isoformat()})
+        return events
+
+
 class Strategy:
     """השיטה שרצה בבוט: לונג בפתיחה היומית. השיטות הקודמות (כולל שורט לונדון, שנכשל ב-2018-2024)
     נשארו בקוד למחקר בלבד."""
@@ -636,19 +741,21 @@ class Strategy:
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
         self.reopen = ReopenLongStrategy(cfg, state.get("reopen"), self.ids)
+        self.channel = ChannelFadeStrategy(cfg, state.get("channel"), self.ids)
 
     def to_state(self) -> dict:
-        return {"next_id": self.ids["next"], "last_t": self.last_t, "reopen": self.reopen.to_state()}
+        return {"next_id": self.ids["next"], "last_t": self.last_t, "reopen": self.reopen.to_state(),
+                "channel": self.channel.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
-        return self.reopen.on_bar(row, allow_entry)
+        return self.reopen.on_bar(row, allow_entry) + self.channel.on_bar(row, allow_entry)
 
     @property
     def open_trades(self) -> list[dict]:
-        return list(self.reopen.trades)
+        return list(self.reopen.trades) + ([self.channel.trade] if self.channel.trade else [])
 
     @property
     def pending(self) -> dict | None:
-        return None
+        return self.channel.setup

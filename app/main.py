@@ -29,7 +29,7 @@ service = GoldService(settings, store)
 bot = Bot(settings, store, lambda: service.snapshot) if settings.bot_token else None
 
 
-BACKTEST_ID = "v7"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
+BACKTEST_ID = "v8"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
 
 
 async def send_backtest_once():
@@ -91,7 +91,7 @@ def get_candles(tf: str = "15m", limit: int = 200):
 @app.get("/api/trades")
 def get_trades():
     trades = store.trades(200)
-    by_method = {m: trade_stats([t for t in trades if t.get("method", "trend") == m]) for m in ("reopen_long",)}
+    by_method = {m: trade_stats([t for t in trades if t.get("method", "trend") == m]) for m in ("reopen_long", "channel_fade")}
     return {"trades": trades[:30], "stats": trade_stats(trades), "by_method": by_method}
 
 
