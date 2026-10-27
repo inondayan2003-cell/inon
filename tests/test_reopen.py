@@ -67,3 +67,28 @@ def test_combined_strategy_state_roundtrip():
     s.on_bar(bar(REOPEN, 4000.0))
     s2 = Strategy(CFG, s.to_state())
     assert len(s2.open_trades) == 1 and s2.reopen.last_day == s.reopen.last_day
+
+
+def test_regime_filter_skips_and_explains():
+    st = ReopenLongStrategy(CFG)
+    st.on_bar(bar(CLOSE, 4000.0))
+    row = bar(REOPEN, 4002.0)
+    row["regime_ok"], row["regime_label"] = False, "יורד/צדדי + רגוע"
+    ev = st.on_bar(row)
+    assert ev[0]["type"] == "reopen_skip" and not st.trades
+    msg = event_message(ev[0])
+    assert "אין לונג" in msg and "יורד/צדדי + רגוע" in msg
+    from app.service import event_method
+    assert event_method(ev[0]) == "reopen_long"
+
+
+def test_daily_regime_up_and_calm():
+    import numpy as np
+    from app.regime import daily_regime, lookup
+    idx = pd.date_range("2025-01-01", periods=24 * 400, freq="1h", tz="UTC")
+    p = 2000 + np.arange(len(idx)) * 0.05                 # עלייה רגועה ויציבה
+    h1 = pd.DataFrame({"open": p, "high": p + 1, "low": p - 1, "close": p}, index=idx)
+    reg = daily_regime(h1)
+    ok, label = lookup(reg, idx[-1])
+    assert ok is True and label == "עולה + רגוע"
+    assert lookup(None, idx[-1])[0] is None

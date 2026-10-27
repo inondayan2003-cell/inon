@@ -198,6 +198,10 @@ def signal_message(trade: dict, snapshot: dict | None) -> str:
 
 def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     kind = ev["type"]
+    if kind == "reopen_skip":
+        return (f"🌏 <b>אין לונג בפתיחה הלילה</b> · סוג השוק: {ev['label']}.\n"
+                "<i>מהיום השיטה שולחת סיגנל רק בשוק עולה ורגוע (מעל ממוצע 100 ימים, תנודתיות נמוכה) - "
+                "סוג השוק היחיד שבו היא לא הפסידה באף תקופה ב-2018-2026.</i>")
     if kind == "cf_signal":
         return channel_message(ev)
     if kind == "cf_filled":

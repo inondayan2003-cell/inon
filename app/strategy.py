@@ -613,7 +613,12 @@ class ReopenLongStrategy:
         day = self._reopen(row)
         self.prev_t = t.isoformat()
         a = _num(row.get("atr_1h"))
-        if day and allow_entry and a and not self.trades:
+        ok = row.get("regime_ok", True)   # מסנן סוג שוק (app/regime.py); בלי תיוג = בלי מסנן
+        if day and allow_entry and a and not self.trades and ok is not True:
+            self.last_day = day
+            events.append({"type": "reopen_skip", "method": "reopen_long", "label": row.get("regime_label", "לא ידוע"),
+                           "t": t.isoformat()})
+        elif day and allow_entry and a and not self.trades:
             self.last_day = day
             sl = round(close - self.SL_ATR * a, 2)
             tp = round(close + self.SL_ATR * self.RR * a, 2)

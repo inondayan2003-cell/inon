@@ -8,6 +8,7 @@ from .analysis import Analysis, analyze
 from .config import Settings
 from .data import DataFeed
 from .messages import event_message
+from .regime import daily_regime, lookup
 from .storage import Store
 from .strategy import Strategy
 
@@ -20,6 +21,8 @@ def event_method(ev: dict) -> str:
         return ev["trade"].get("method", "trend")
     if "setup" in ev:
         return ev["setup"].get("method", "liquidity")
+    if "method" in ev:
+        return ev["method"]
     return "trend"  # weak = מגמה
 
 
@@ -54,8 +57,11 @@ class GoldService:
         tl = analysis.timeline
         # בהפעלה ראשונה מזינים 4 שעות אחורה (בלי כניסות) כדי ששיטת הנזילות תכיר את המבנה האחרון
         rows = tl.tail(48) if strat.last_t is None else tl[tl["t"] > pd.Timestamp(strat.last_t)].tail(300)
+        reg = daily_regime(md.h1)
         events = []
         for _, row in rows.iterrows():
+            row = row.copy()
+            row["regime_ok"], row["regime_label"] = lookup(reg, row["t"])
             events += strat.on_bar(row, allow_entry=now - row["t"] <= FRESH)
         self.store.put("strategy", strat.to_state())
 

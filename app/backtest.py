@@ -7,6 +7,7 @@ import pandas as pd
 from .analysis import analyze
 from .config import Settings
 from .data import MarketData, _clean, drop_closed, fetch_yfinance, resample
+from .regime import daily_regime, tag_rows
 from .strategy import Strategy
 
 log = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def run(md: MarketData, cfg: Settings) -> list[dict]:
     now = md.m5.index[-1] + pd.Timedelta(minutes=5)
     timeline = analyze(md, now, cfg).timeline
     strat, trades = Strategy(cfg), []
-    for row in timeline.to_dict("records"):
+    for row in tag_rows(timeline.to_dict("records"), daily_regime(md.h1)):
         for ev in strat.on_bar(pd.Series(row)):
             if ev["type"] == "closed":
                 trades.append(ev["trade"])
@@ -106,7 +107,7 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"reopen_long": "🌏 לונג בפתיחה היומית (יחס 1:3)",
+METHOD_NAMES = {"reopen_long": "🌏 לונג בפתיחה (יחס 1:3, רק בשוק עולה ורגוע)",
                 "channel_fade": "📡 שיטת הערוץ (ניסיונית, TP 5/10/15)"}
 
 

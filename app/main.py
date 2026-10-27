@@ -29,7 +29,7 @@ service = GoldService(settings, store)
 bot = Bot(settings, store, lambda: service.snapshot) if settings.bot_token else None
 
 
-BACKTEST_ID = "v8"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
+BACKTEST_ID = "v9"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
 
 
 async def send_backtest_once():
