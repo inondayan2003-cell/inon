@@ -105,3 +105,18 @@ def test_parse_cryptonew_format():
     s = parse_signal("🪙 Product: Gold (XAUUSD)\n🔴SELL：4150-4160\n🎯 TP1: 4145\n🎯 TP2: 4140\n⛔️ SL: 4170")
     assert s["direction"] == -1 and s["zone_lo"] == 4150 and s["sl"] == 4170
     assert parse_signal("✅ Profit +90 PIPS 💰") is None
+
+
+def test_reverse_engineer_finds_fixed_geometry():
+    from app.signals import reverse_engineer
+    idx = pd.date_range("2026-10-05 00:00", periods=60 * 24 * 4, freq="1min", tz="UTC")
+    p = 4100 + np.linspace(0, 40, len(idx))
+    m1 = pd.DataFrame({"open": p, "high": p + 0.5, "low": p - 0.5, "close": p}, index=idx)
+    sigs = []
+    for day in (6, 7, 8):
+        t = pd.Timestamp(f"2026-10-0{day} 11:08", tz="UTC")
+        top = round(float(m1.close[m1.index < t].iloc[-1]))
+        sigs.append({"direction": 1, "zone_hi": top, "zone_lo": top - 8, "sl": top - 18,
+                     "tps": [top + 5, top + 10, top + 15], "t": t.isoformat()})
+    text = reverse_engineer(sigs, m1)
+    assert "(5, 10, 15)" in text and "הסטופ קבוע: 10" in text and "בכיוון המגמה" in text

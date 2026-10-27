@@ -222,3 +222,78 @@ def _format(rows, signals, hours, title=""):
                   "<i>כניסה בנגיעה הראשונה באזור (הקצה הקרוב), סטופ אחד לכל החלקים, בלי עמלות. "
                   f"אחרי {hours:g} שעות עסקה פתוחה נמדדת במחיר האחרון.</i>"]
     return "\n".join(lines)
+
+
+def reverse_engineer(signals: list[dict], m1: pd.DataFrame) -> str:
+    """הנדסה הפוכה: מה היה בשוק ברגע השליחה של כל סיגנל, ואיך נבנו המספרים.
+    מחפש כלל קבוע: גאומטריה (אזור/יעדים/סטופ), שעה, מיקום האזור ביחס למחיר, מגמה, רמות ומספרים עגולים."""
+    import numpy as np
+    rows = []
+    c = m1["close"]
+    for s in signals:
+        t = pd.Timestamp(s["t"])
+        past = m1[m1.index < t]
+        if len(past) < 60 * 24:
+            continue
+        p = float(past["close"].iloc[-1])
+        d = s["direction"]
+        near = s["zone_hi"] if d == 1 else s["zone_lo"]
+        far = s["zone_lo"] if d == 1 else s["zone_hi"]
+        day = past[past.index >= t - pd.Timedelta(hours=24)]
+        h4 = past[past.index >= t - pd.Timedelta(hours=4)]
+        h1 = past[past.index >= t - pd.Timedelta(hours=1)]
+        ema = float(c[c.index < t].iloc[-60 * 50:].ewm(span=60 * 20).mean().iloc[-1])   # מגמה של בערך יום
+        rows.append({
+            "hour_il": t.tz_convert("Asia/Jerusalem").hour, "dir": d,
+            "width": abs(s["zone_hi"] - s["zone_lo"]),
+            "tp_off": tuple(round((tp - near) * d, 1) for tp in s["tps"]),
+            "sl_off": round((far - s["sl"]) * d, 1),
+            "near_vs_price": round((near - p) * d, 1),          # שלילי = האזור "מאחורי" המחיר (מחכים לתיקון)
+            "in_zone": min(s["zone_lo"], s["zone_hi"]) <= p <= max(s["zone_lo"], s["zone_hi"]),
+            "mv1": (p - float(h1["close"].iloc[0])) * d, "mv4": (p - float(h4["close"].iloc[0])) * d,
+            "mv24": (p - float(day["close"].iloc[0])) * d,
+            "trend": 1 if p > ema else -1,
+            "from_low24": p - float(day["low"].min()), "from_high24": float(day["high"].max()) - p,
+            "far_round10": float(far) % 10 == 0, "near_round10": float(near) % 10 == 0,
+            "sl_round10": s["sl"] % 10 == 0,
+        })
+    if not rows:
+        return "אין מספיק נתוני מחיר לפני הסיגנלים לניתוח."
+    df = pd.DataFrame(rows)
+    n = len(df)
+    pct = lambda m: f"{100 * m.mean():.0f}%"
+    top = lambda col: ", ".join(f"{k} ({v})" for k, v in df[col].value_counts().head(3).items())
+    med = lambda col: f"{df[col].median():+.1f}"
+    buys = df[df.dir == 1]
+    lines = [f"🧬 <b>הנדסה הפוכה - {n} סיגנלים</b>", "",
+             "<b>1. איך בנויים המספרים:</b>",
+             f"• רוחב האזור: {top('width')}",
+             f"• יעדים ביחס לראש האזור ($): {top('tp_off')}",
+             f"• סטופ מתחת לתחתית האזור ($): {top('sl_off')}",
+             f"• סטופ על מספר עגול (x0): {pct(df.sl_round10)} · תחתית אזור עגולה: {pct(df.far_round10)} · ראש אזור עגול: {pct(df.near_round10)}",
+             "", "<b>2. מתי:</b>",
+             "• שעה (ישראל): " + " · ".join(f"{h:02d}:00×{k}" for h, k in df.hour_il.value_counts().sort_index().items()),
+             f"• קנייה/מכירה: {len(buys)}/{n - len(buys)}",
+             "", "<b>3. איפה המחיר היה ברגע השליחה:</b>",
+             f"• המחיר כבר בתוך האזור: {pct(df.in_zone)}",
+             f"• ראש האזור ביחס למחיר (בכיוון העסקה, $): חציון {med('near_vs_price')} "
+             f"(שלילי = מחכים שהמחיר יחזור אליו)",
+             "", "<b>4. מה השוק עשה לפני (בכיוון העסקה, $):</b>",
+             f"• שעה אחרונה: חציון {med('mv1')} · 4 שעות: {med('mv4')} · 24 שעות: {med('mv24')}",
+             f"• העסקה בכיוון המגמה היומית: {pct(df.dir == df.trend)}",
+             f"• מרחק מהשפל של 24 שעות: חציון {df.from_low24.median():.1f}$ · מהשיא: {df.from_high24.median():.1f}$",
+             ""]
+    # ניסוח השערה
+    hyp = []
+    if df.tp_off.nunique() <= 3:
+        hyp.append(f"היעדים קבועים: {df.tp_off.mode()[0]} מעל ראש האזור")
+    if df.sl_off.nunique() <= 3:
+        hyp.append(f"הסטופ קבוע: {df.sl_off.mode()[0]}$ מתחת לתחתית")
+    if (df.dir == df.trend).mean() > 0.7:
+        hyp.append("כמעט תמיד בכיוון המגמה (קונים ירידות במגמה עולה)")
+    if df.in_zone.mean() > 0.6:
+        hyp.append("האזור נבנה סביב המחיר הנוכחי (כניסה מיידית)")
+    elif (df.near_vs_price < 0).mean() > 0.6:
+        hyp.append("האזור מתחת/מעל למחיר - לימיט שמחכה לתיקון")
+    lines += ["<b>השערה לכלל:</b> " + ("; ".join(hyp) if hyp else "לא נמצא דפוס חד")]
+    return "\n".join(lines)

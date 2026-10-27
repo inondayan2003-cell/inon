@@ -89,10 +89,12 @@ def main():
         for m in msgs[-5:]:
             print("---\n" + m["text"][:300])
         return
-    start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=1)
+    start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=26)
     print("מושך נרות דקה מ-Twelve Data (כ-10 שניות לכל 3.5 ימים)...")
     m1 = fetch_twelvedata_history(settings.td_symbol, "1min", start, settings.twelvedata_api_key, max_requests=80)
     text = report_from_bars(sigs, m1, a.hours, title=a.channel)
+    from .signals import reverse_engineer
+    text += "\n\n" + reverse_engineer(sigs, m1)
     import re
     claims = [int(x) for m in msgs for x in re.findall(r"profit\W*\+?\s*(\d+)\s*pips", m["text"], re.I)]
     losses = sum(1 for m in msgs if re.search(r"\b(sl hit|stop ?loss hit|loss|hit sl)\b", m["text"], re.I)
