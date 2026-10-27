@@ -189,6 +189,11 @@ def report(m1: pd.DataFrame, cost: float) -> str:
         f = lambda v: f"{v[0]} · {v[1]:+.0f} · {v[2]:+.1f}"
         lines.append(f"| {k} | {label(x['fam'], x['p'])} | {f(x['dev'])} | {x['dev_pos']}/5 | **{f(x['t1'])}** | **{f(x['t2'])}** | "
                      + " | ".join(f"{v:+.0f}" for v in x["years"]) + " |")
+    near = sorted(rows, key=lambda x: x["dev"][2], reverse=True)[:12]
+    lines += ["", "**הכי קרובים (12 עם ה-t הגבוה בגילוי, בלי סף):**", ""]
+    for x in near:
+        f = lambda v: f"{v[0]} · {v[1]:+.0f} · {v[2]:+.1f}"
+        lines.append(f"- {label(x['fam'], x['p'])} · גילוי {f(x['dev'])} ({x['dev_pos']}/5) · מבחן 1 {f(x['t1'])} · מבחן 2 {f(x['t2'])}")
     both = [x for x in passed if x["t1"][1] > 0 and x["t2"][1] > 0]
     lines += ["", f"מתוך העוברים, רווחיים בשני המבחנים: **{len(both)}** · "
               + "; ".join(label(x["fam"], x["p"]) for x in both[:10])]
