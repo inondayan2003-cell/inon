@@ -249,3 +249,61 @@ def outcomes(m1: pd.DataFrame, sigs: list[dict] | None = None, hours: float = 24
                                                      labels=["בוקר", "צהריים", "ערב"]), observed=True)) + " |",
               "", "‏1$ לאונקיה = 1$ על 0.01 לוט (1 אונקיה), 100$ על לוט שלם."]
     return "\n".join(lines)
+
+
+def bot_report(m1: pd.DataFrame, cost: float = 0.35) -> str:
+    """הבוט שלנו (ChannelFadeStrategy, גרסה 2) על נרות 5 דקות: התקופה של הערוץ ואחריה. דולרים לאונקיה, אחרי עלות."""
+    import itertools
+
+    from app.config import Settings
+    from app.strategy import ChannelFadeStrategy
+    m5 = m1.resample("5min").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    rows = [dict(t=t + pd.Timedelta(minutes=5), open=o, high=h, low=l, close=c)
+            for t, o, h, l, c in m5[m5.index >= "2026-07-25"].itertuples()]
+    split, start = pd.Timestamp("2026-10-08", tz="UTC"), pd.Timestamp("2026-08-03", tz="UTC")
+    cfg = Settings()
+
+    def run(p):
+        st, out = ChannelFadeStrategy(cfg, **p), []
+        for r in rows:
+            for ev in st.on_bar(pd.Series(r)):
+                if ev["type"] == "closed":
+                    tr = ev["trade"]
+                    risk = abs(tr["entry"] - tr["sl"])
+                    out.append({"t": pd.Timestamp(tr["opened_at"]), "d": tr["direction"], "status": tr["status"],
+                                "usd": tr["result_r"] * risk - cost, "entry": tr["entry"]})
+        df = pd.DataFrame(out)
+        return df[df.t >= start] if len(df) else df
+
+    def cell(x):
+        if not len(x):
+            return "-"
+        eq = x.usd.cumsum()
+        dd = float((eq.cummax().clip(lower=0) - eq).max())
+        return f"{len(x)} · {x.usd.sum():+.0f}$ · DD {dd:.0f}$"
+
+    lines = [f"### 🤖 הבוט שלנו (שיטת הערוץ גרסה 2) · עלות {cost}$ · דולרים לאונקיה (0.01 לוט)", "",
+             "| ירידה/עלייה 4ש' | תיקון (דק') | רוחב | BE אחרי TP1 | 03/08-07/10 (הערוץ) עסק' · $ · DD | "
+             "08/10-היום (אחרי) | TP1% | סטופ מלא% | $ לעסקה |", "|---|---|---|---|---|---|---|---|---|"]
+    default = None
+    for fade, bmin, width, be in itertools.product((5.0, 10.0, 15.0), (5, 15, 30), (5.0, 10.0), (True, False)):
+        df = run({"fade": fade, "bounce_min": bmin, "width": width, "be": be})
+        if not len(df):
+            continue
+        a, b = df[df.t < split], df[df.t >= split]
+        tp1 = (df.status != "sl").mean() if len(df) else 0
+        lines.append(f"| {fade:g}$ | {bmin} | {width:g}$ | {'כן' if be else 'לא'} | {cell(a)} | {cell(b)} | "
+                     f"{100 * tp1:.0f}% | {100 * (df.status == 'sl').mean():.0f}% | {df.usd.mean():+.2f} |")
+        if (fade, bmin, width, be) == (ChannelFadeStrategy.FADE, ChannelFadeStrategy.BOUNCE_MIN,
+                                       ChannelFadeStrategy.WIDTH, ChannelFadeStrategy.BE):
+            default = df
+    if default is not None:
+        lines += ["", f"**ברירת המחדל בבוט** (4ש' ≥{ChannelFadeStrategy.FADE:g}$, תיקון {ChannelFadeStrategy.BOUNCE_MIN} דק', "
+                      f"רוחב {ChannelFadeStrategy.WIDTH:g}$, BE): כל העסקאות", "",
+                  "| זמן (ישראל) | צד | כניסה | תוצאה | $ |", "|---|---|---|---|---|"]
+        names = {"tp2": "✅ כל היעדים", "be": "⚖️ TP ואז כניסה", "sl": "❌ סטופ", "expired": "⏰ נסגר בזמן"}
+        for r in default.itertuples():
+            lines.append(f"| {r.t.tz_convert(IL):%d/%m %H:%M} | {'BUY' if r.d == 1 else 'SELL'} | {r.entry:.2f} | "
+                         f"{names.get(r.status, r.status)} | {r.usd:+.1f} |")
+    lines += ["", "‏סטטוס \"סטופ מלא\" = נעצר לפני TP1. TP1% = כל מה שלא נעצר בסטופ מלא."]
+    return "\n".join(lines)

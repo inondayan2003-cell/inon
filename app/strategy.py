@@ -636,36 +636,41 @@ class ReopenLongStrategy:
 
 
 class ChannelFadeStrategy:
-    """שיטת ערוץ Cryptonew84 (הנדסה הפוכה של 100 סיגנלים) - ניסיונית, לבקשת המשתמש.
+    """שיטת הערוץ, גרסה 2: לפי 105 הסיגנלים של Cryptonew84 מול נתוני דקה (docs/CRYPTONEW84.md).
 
-    בבדיקה על 2018-2026 היא לא הרוויחה (0 מתוך 48 גרסאות של TP1 בלבד; TP1 מגיע ב-~76% אבל צריך ~79%).
+    מה נמצא: הם נכנסים נגד התנועה של 4 השעות (62%), אחרי ש-15 הדקות האחרונות כבר זזות לכיוון העסקה (65%),
+    באזור שצמוד למחיר, יעדים 5/10/15$ וסטופ 10$ מעבר לאזור. אחרי TP1 הזזת סטופ לכניסה שיפרה את התוצאה.
     כללים:
-    - בדיוק בפתיחת קילזון: 02:00, 07:00, 08:00 ניו יורק (09:00/14:00/15:00 שעון ישראל, בחורף 08/13/14).
-    - אם 4 השעות האחרונות ירדו ביותר מ-0.3 מהטווח היומי הממוצע (14 ימים) -> קנייה; עלו -> מכירה (נגד התנועה).
-    - אזור ברוחב 10$ שמתחיל 0.5$ מהמחיר (לימיט), יעדים +5/+10/+15 מראש האזור, סטופ 10$ מעבר לאזור.
-      (המספרים בדולרים מותאמים למחיר: k = מחיר / 4150.)
-    - הלימיט בתוקף 4 שעות. עסקה פתוחה נסגרת אחרי 24 שעות. חלוקה שווה בין 3 היעדים.
+    - שלושה חלונות בשעון ישראל: 09:15-10:30, 14:00-16:15, 17:15-19:45. לכל היותר סיגנל אחד בכל חלון,
+      ולפחות 2.5 שעות בין סיגנלים. רק כשאין עסקה פתוחה או לימיט ממתין.
+    - קנייה: ב-4 השעות האחרונות ירידה של FADE$ לפחות, וב-15 הדקות האחרונות המחיר עולה. מכירה: הפוך.
+    - כניסה (לימיט) 0.5$ מהמחיר, אזור ברוחב WIDTH$, סטופ 10$ מעבר לאזור, יעדים +5/+10/+15 מהכניסה,
+      שליש בכל יעד. אחרי TP1 הסטופ זז לכניסה (BE). המספרים מותאמים למחיר: k = מחיר / 4150.
+    - הלימיט בתוקף LIMIT_H שעות, עסקה פתוחה נסגרת אחרי 24 שעות.
     """
-    HOURS = (2, 7, 8)
-    FADE = 0.3
+    WINDOWS = ((9.25, 10.5, "בוקר"), (14.0, 16.25, "צהריים"), (17.25, 19.75, "ערב"))
+    TZ = "Asia/Jerusalem"
     REF = 4150.0
-    WIDTH, NEAR, SL_GAP, TPS = 10.0, 0.5, 10.0, (5.0, 10.0, 15.0)
-    LIMIT_H, HOLD_H = 4, 24
+    FADE, BOUNCE_MIN = 10.0, 15
+    WIDTH, NEAR, SL_GAP, TPS = 5.0, 0.5, 10.0, (5.0, 10.0, 15.0)
+    BE = True
+    LIMIT_H, HOLD_H, GAP_H = 2, 24, 2.5
 
-    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None, **params):
         st = state or {}
         self.cfg = cfg
         self.ids = ids if ids is not None else {"next": 1}
+        for k, v in params.items():   # למחקר: FADE / WIDTH / BE / BOUNCE_MIN וכו'
+            setattr(self, k.upper(), v)
         self.closes: list = st.get("closes", [])
-        self.day, self.hi, self.lo = st.get("day"), st.get("hi"), st.get("lo")
-        self.ranges: list = st.get("ranges", [])
+        self.done: list = st.get("done", [])
         self.setup: dict | None = st.get("setup")
         self.trade: dict | None = st.get("trade")
         self.last_fire: str | None = st.get("last_fire")
 
     def to_state(self) -> dict:
-        return {"closes": self.closes, "day": self.day, "hi": self.hi, "lo": self.lo, "ranges": self.ranges,
-                "setup": self.setup, "trade": self.trade, "last_fire": self.last_fire}
+        return {"closes": self.closes, "done": self.done, "setup": self.setup, "trade": self.trade,
+                "last_fire": self.last_fire}
 
     def _close_trade(self, t, exit_px, status, r) -> dict:
         x = {k: v for k, v in self.trade.items() if k in Trade.__dataclass_fields__}
@@ -674,36 +679,33 @@ class ChannelFadeStrategy:
         self.trade = None
         return {"type": "closed", "trade": asdict(tr), "t": t.isoformat()}
 
+    def _manage(self, t, hi, lo, close) -> list[dict]:
+        tr = self.trade
+        d, tps, n0 = tr["direction"], tr["tps"], len(tr["tps"])
+        risk = abs(tr["entry"] - tr["sl"])
+        gains = [abs(x - tr["entry"]) / risk for x in tps]
+        stop = tr["entry"] if self.BE and tr["hits"] else tr["sl"]
+        if (lo <= stop) if d == 1 else (hi >= stop):
+            n = tr["hits"]
+            lost = 0.0 if stop == tr["entry"] else 1.0
+            return [self._close_trade(t, stop, "be" if lost == 0 else "sl", (sum(gains[:n]) - (n0 - n) * lost) / n0)]
+        events = []
+        while tr["hits"] < n0 and ((hi >= tps[tr["hits"]]) if d == 1 else (lo <= tps[tr["hits"]])):
+            tr["hits"] += 1
+            events.append({"type": "cf_tp", "n": tr["hits"], "be": self.BE, "trade": dict(tr), "t": t.isoformat()})
+        if tr["hits"] == n0:
+            events.append(self._close_trade(t, tps[-1], "tp2", sum(gains) / n0))
+        elif t >= pd.Timestamp(tr["filled_at"]) + pd.Timedelta(hours=self.HOLD_H):
+            n = tr["hits"]
+            open_r = (close - tr["entry"]) * d / risk
+            events.append(self._close_trade(t, close, "expired", (sum(gains[:n]) + (n0 - n) * open_r) / n0))
+        return events
+
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        """row = נר 5 דקות סגור, t = זמן הסגירה (UTC)."""
         t = row["t"]
         hi, lo, close = float(row["high"]), float(row["low"]), float(row["close"])
-        ny = (t - pd.Timedelta(minutes=5)).tz_convert("America/New_York")
-        day = (ny + pd.Timedelta(hours=6)).date().isoformat()
-        if day != self.day:
-            if self.day is not None and self.hi is not None:
-                self.ranges = (self.ranges + [self.hi - self.lo])[-14:]
-            self.day, self.hi, self.lo = day, hi, lo
-        self.hi, self.lo = max(self.hi, hi), min(self.lo, lo)
-        events = []
-
-        if self.trade:   # ניהול עסקה פתוחה: סטופ קודם, אחר כך היעדים לפי הסדר
-            tr = self.trade
-            d, sl, tps = tr["direction"], tr["sl"], tr["tps"]
-            risk = abs(tr["entry"] - sl)
-            gains = [abs(x - tr["entry"]) / risk for x in tps]
-            if (lo <= sl) if d == 1 else (hi >= sl):
-                n = tr["hits"]
-                events.append(self._close_trade(t, sl, "sl", (sum(gains[:n]) - (3 - n)) / 3))
-            else:
-                while tr["hits"] < 3 and ((hi >= tps[tr["hits"]]) if d == 1 else (lo <= tps[tr["hits"]])):
-                    tr["hits"] += 1
-                    events.append({"type": "cf_tp", "n": tr["hits"], "trade": dict(tr), "t": t.isoformat()})
-                if tr["hits"] == 3:
-                    events.append(self._close_trade(t, tps[-1], "tp2", sum(gains) / 3))
-                elif t >= pd.Timestamp(tr["filled_at"]) + pd.Timedelta(hours=self.HOLD_H):
-                    n = tr["hits"]
-                    open_r = (close - tr["entry"]) * d / risk
-                    events.append(self._close_trade(t, close, "expired", (sum(gains[:n]) + (3 - n) * open_r) / 3))
+        events = self._manage(t, hi, lo, close) if self.trade else []
 
         if self.setup:   # לימיט ממתין
             s = self.setup
@@ -715,27 +717,34 @@ class ChannelFadeStrategy:
                 self.setup = None
                 events.append({"type": "cf_cancel", "trade": dict(s), "t": t.isoformat()})
 
-        # סיגנל חדש בפתיחת קילזון
-        past = [c for ts, c in self.closes if pd.Timestamp(ts) <= t - pd.Timedelta(hours=4)]
-        self.closes = (self.closes + [[t.isoformat(), close]])[-60:]
-        fresh = self.last_fire is None or t - pd.Timestamp(self.last_fire) >= pd.Timedelta(hours=4)
-        if (allow_entry and fresh and not self.setup and not self.trade and ny.minute == 0 and ny.hour in self.HOURS
-                and len(self.ranges) >= 5 and past):
-            R = sum(self.ranges) / len(self.ranges)
-            m4 = close - past[-1]
-            d = 1 if m4 <= -self.FADE * R else -1 if m4 >= self.FADE * R else 0
+        now = t.timestamp()   # closes = [שניות UTC, מחיר] של 5 השעות האחרונות
+        past4 = [c for ts, c in self.closes if ts <= now - 4 * 3600]
+        pastb = [c for ts, c in self.closes if ts <= now - self.BOUNCE_MIN * 60]
+        self.closes = (self.closes + [[now, close]])[-60:]
+        il = t.tz_convert(self.TZ)
+        h = il.hour + il.minute / 60
+        win = next((w for w in self.WINDOWS if w[0] <= h < w[1]), None) if il.weekday() < 5 else None
+        key = f"{il.date()}-{win[2]}" if win else None
+        fresh = self.last_fire is None or t - pd.Timestamp(self.last_fire) >= pd.Timedelta(hours=self.GAP_H)
+        if (allow_entry and win and key not in self.done and fresh and not self.setup and not self.trade
+                and past4 and pastb):
+            k = close / self.REF
+            m4, mb = close - past4[-1], close - pastb[-1]
+            d = 1 if m4 <= -self.FADE * k and mb > 0 else -1 if m4 >= self.FADE * k and mb < 0 else 0
             if d:
-                k = close / self.REF
                 entry = round(close - d * self.NEAR * k, 2)
                 far = round(entry - d * self.WIDTH * k, 2)
                 sl = round(far - d * self.SL_GAP * k, 2)
                 tps = [round(entry + d * x * k, 2) for x in self.TPS]
                 self.setup = {"id": self.ids["next"], "direction": d, "opened_at": t.isoformat(), "entry": entry,
                               "far": far, "sl": sl, "tp1": tps[0], "tp2": tps[-1], "tps": tps, "score": 0.0, "stop": sl,
-                              "method": "channel_fade", "note": f"נגד תנועה של {m4:+.1f}$ ב-4 שעות",
+                              "method": "channel_fade", "window": win[2],
+                              "note": f"{'ירידה' if d == 1 else 'עלייה'} של {abs(m4):.1f}$ ב-4 שעות ותיקון של "
+                                      f"{abs(mb):.1f}$ ב-{self.BOUNCE_MIN} דקות",
                               "expires": (t + pd.Timedelta(hours=self.LIMIT_H)).isoformat()}
                 self.ids["next"] += 1
                 self.last_fire = t.isoformat()
+                self.done = (self.done + [key])[-10:]
                 events.append({"type": "cf_signal", "trade": dict(self.setup), "t": t.isoformat()})
         return events
 

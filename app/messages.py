@@ -114,8 +114,8 @@ def reopen_message(ev: dict) -> str:
     ])
 
 
-CF_WARN = ("⚠️ <b>שיטה ניסיונית (לבקשתך).</b> בבדיקה על 2018-2026 היא הפסידה: TP1 מגיע בכ-76% מהפעמים, "
-           "אבל הסטופ רחוק פי 3 מהיעד, וצריך כ-79% כדי להרוויח. לסחור בדמו או בסיכון קטן מאוד.")
+CF_WARN = ("⚠️ <b>שיטה ניסיונית.</b> נבנתה מ-105 הסיגנלים של Cryptonew84 (08-10/2026). הסטופ רחוק פי 3 מ-TP1, "
+           "אז חובה לשים אותו, ואחרי TP1 להזיז אותו לכניסה. לסחור בדמו או בסיכון קטן מאוד.")
 
 
 def channel_message(ev: dict) -> str:
@@ -128,11 +128,12 @@ def channel_message(ev: dict) -> str:
                      for i, x in enumerate(s["tps"], 1))
     return "\n".join([
         f"📡 <b>שיטת הערוץ - זהב {side}</b> · {_time(s['opened_at'])}",
-        f"<i>פתיחת קילזון, {s['note']}.</i>",
+        f"<i>חלון {s.get('window', '')}: {s['note']}.</i>",
         "",
         f"📌 אזור כניסה (לימיט): <b>{_p(lo)} - {_p(hi)}</b> · כניסה ראשונה ב-{_p(s['entry'])}",
         tps,
         f"⛔ SL: {_p(s['sl'])} ({risk:.1f}$ מהכניסה)",
+        "🔁 שליש בכל יעד. <b>אחרי TP1: להזיז את הסטופ לכניסה.</b>",
         f"⏳ הלימיט בתוקף עד {_time(s['expires'])}. עסקה פתוחה נסגרת אחרי 24 שעות.",
         "",
         CF_WARN,
@@ -210,10 +211,11 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     if kind == "cf_tp":
         tr = ev["trade"]
         x = tr["tps"][ev["n"] - 1]
-        return f"🎯 <b>TP{ev['n']} הושג</b> ({_label(tr)}) · {_p(x)} (+{abs(x - tr['entry']):.1f}$)"
+        be = f"\n🔁 להזיז את הסטופ לכניסה ({_p(tr['entry'])})" if ev["n"] == 1 and ev.get("be") else ""
+        return f"🎯 <b>TP{ev['n']} הושג</b> ({_label(tr)}) · {_p(x)} (+{abs(x - tr['entry']):.1f}$){be}"
     if kind == "cf_cancel":
         tr = ev["trade"]
-        return f"❌ <b>הלימיט בוטל</b> ({_label(tr)}): המחיר לא הגיע לאזור תוך 4 שעות. אם שמת הזמנה אצל הברוקר - לבטל."
+        return f"❌ <b>הלימיט בוטל</b> ({_label(tr)}): המחיר לא הגיע לאזור בזמן. אם שמת הזמנה אצל הברוקר - לבטל."
     if kind == "signal":
         if ev["trade"].get("method") == "reopen_long":
             return reopen_message(ev)
