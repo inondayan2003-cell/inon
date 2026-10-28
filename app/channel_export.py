@@ -97,7 +97,7 @@ def main():
         return
     if a.raw:
         path = write_raw(a.channel, msgs, sigs)
-        send_file(path, f"📝 {len(sigs)} סיגנלי זהב מ-{a.channel}, בדיוק כמו שפורסמו")
+        send_file(path, f"📝 {len(sigs) + len(typo_signals(msgs))} סיגנלי זהב מ-{a.channel}, בדיוק כמו שפורסמו")
         return
     if a.csv:
         path = write_csv(a.channel, msgs, sigs, a.hours)
@@ -155,7 +155,7 @@ def audit(msgs: list[dict]) -> str:
     lines = [f"{len(msgs)} הודעות ({msgs[0]['t'][:10]} עד {msgs[-1]['t'][:10]}):"]
     lines += [f"  {k}: {v}" for k, v in cats.items()]
     from .signals import why_not_signal
-    near = [m for m in unparsed if re.search(r"\b(buy|sell)\b", m["text"], re.I)]
+    near = typo_signals(msgs)
     lines.append(f"\nהודעות זהב עם BUY/SELL שלא זוהו כסיגנל ({len(near)}) - אלה המועמדים לסיגנלים שפוספסו:")
     for m in near:
         t = pd.Timestamp(m["t"]).tz_convert("Asia/Jerusalem")
@@ -165,15 +165,27 @@ def audit(msgs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def typo_signals(msgs: list[dict]) -> list[dict]:
+    """הודעות זהב עם BUY/SELL שהמפענח לא קיבל (בדרך כלל טעות הקלדה במחיר בערוץ)."""
+    import re
+    from .signals import parse_signal
+    return [m for m in msgs if not parse_signal(m.get("text", "")) and re.search(r"gold|xau", m.get("text", ""), re.I)
+            and not re.search(r"profit", m["text"], re.I) and re.search(r"\b(buy|sell)\b", m["text"], re.I)]
+
+
 def write_raw(channel: str, msgs: list[dict], sigs: list[dict]) -> Path:
-    """רק הסיגנלים עצמם, כמו שפורסמו בערוץ, עם תאריך ושעה. בלי בדיקת מחיר ובלי תוצאות."""
+    """רק הסיגנלים עצמם, כמו שפורסמו בערוץ, עם תאריך ושעה. בלי בדיקת מחיר ובלי תוצאות.
+    כולל גם סיגנלים עם טעות הקלדה במחיר (מסומנים), כי גם הם פורסמו."""
     text_by_id = {m["id"]: m["text"] for m in msgs}
+    items = [(s["t"], text_by_id.get(s.get("id"), ""), "") for s in sigs]
+    items += [(m["t"], m["text"], " · ⚠️ טעות הקלדה במקור") for m in typo_signals(msgs)]
+    items.sort(key=lambda x: pd.Timestamp(x[0]))
     blocks = []
-    for i, s in enumerate(sigs, 1):
-        t = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem")
-        blocks.append(f"#{i} · {t:%d/%m/%Y %H:%M}\n{text_by_id.get(s.get('id'), '').strip()}")
+    for i, (ts, text, note) in enumerate(items, 1):
+        t = pd.Timestamp(ts).tz_convert("Asia/Jerusalem")
+        blocks.append(f"#{i} · {t:%d/%m/%Y %H:%M}{note}\n{text.strip()}")
     path = DATA / f"signals_{channel}_raw.txt"
-    path.write_text(f"סיגנלי זהב מהערוץ {channel} ({len(sigs)} סיגנלים, שעון ישראל)\n\n" + "\n\n".join(blocks),
+    path.write_text(f"סיגנלי זהב מהערוץ {channel} ({len(items)} סיגנלים, שעון ישראל)\n\n" + "\n\n".join(blocks),
                     encoding="utf-8")
     print(f"נשמר: {path}")
     return path
