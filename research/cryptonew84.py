@@ -200,3 +200,52 @@ if __name__ == "__main__":
     s = load()
     print(profile(s))
     print("\n--- דוגמה מהקלון (מחיר 4150, קנייה) ---\n" + render(build(4150, 1)))
+
+
+def outcomes(m1: pd.DataFrame, sigs: list[dict] | None = None, hours: float = 24) -> str:
+    """מה קרה לכל סיגנל מרגע השליחה: נכנס או לא, אילו יעדים, סטופ. רווח בדולרים לאונקיה, חלוקה שווה בין 3 היעדים."""
+    from app.signals import evaluate
+    sigs = sigs or load()
+    lines = ["### 📊 Cryptonew84: מה קרה לכל סיגנל (24 שעות מהשליחה, סטופ מוסתר = 10$ מעבר לאזור)", "",
+             "| # | זמן (ישראל) | צד | אזור | תוצאה | דקות עד כניסה | הכי נגד עד TP1 | $ (שליש לכל יעד) | $ רק TP1 |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    rows = []
+    for s in sigs:
+        bars = m1[(m1.index >= s["t"]) & (m1.index < s["t"] + pd.Timedelta(hours=hours))]
+        if len(bars) < 30:
+            continue
+        r = evaluate(s, bars, hours)
+        side = "BUY" if s["direction"] == 1 else "SELL"
+        zone = f"{s['zone_lo']:.0f}-{s['zone_hi']:.0f}"
+        if not r.get("filled"):
+            lines.append(f"| {s['n']} | {s['il']:%d/%m %H:%M} | {side} | {zone} | ⚪ לא נכנס | - | - | 0 | 0 |")
+            rows.append({"filled": False})
+            continue
+        n = r["tp_hits"]
+        usd, usd1 = r["r_split"] * r["risk"], r["r_tp1_only"] * r["risk"]
+        res = (f"✅ TP{n} ואז סטופ" if n and r["stopped"] else "❌ סטופ" if r["stopped"] else
+               "✅ כל היעדים" if n == 3 else f"✅ TP{n}, השאר נסגר בזמן" if n else "⏳ לא הגיע לכלום, נסגר בזמן")
+        lines.append(f"| {s['n']} | {s['il']:%d/%m %H:%M} | {side} | {zone} | {res} | {r['fill_minutes']} | "
+                     f"{r['mae']:.1f}$ | {usd:+.1f} | {usd1:+.1f} |")
+        rows.append({"filled": True, "n": n, "sl": r["stopped"], "usd": usd, "usd1": usd1, "tp1ns": r["tp1_no_stop"],
+                     "be": r["r_be"] * r["risk"], "d": s["direction"], "h": s["il"].hour})
+    df = pd.DataFrame(rows)
+    f = df[df.filled]
+    p = lambda x: f"{100 * x.mean():.0f}%"
+    lines += ["", "| מדד | ערך |", "|---|---|",
+              f"| סיגנלים שנבדקו | {len(df)} |",
+              f"| נכנסו (המחיר נגע באזור) | {len(f)} ({p(df.filled)}) |",
+              f"| TP1 לפני סטופ | **{p(f.n >= 1)}** |",
+              f"| TP2 | {p(f.n >= 2)} |", f"| TP3 | {p(f.n >= 3)} |",
+              f"| סטופ לפני TP1 | **{p((f.n == 0) & f.sl)}** |",
+              f"| TP1 ואז חזר לסטופ | {p((f.n >= 1) & f.sl)} |",
+              f"| TP1 הגיע אי פעם, גם בלי סטופ בכלל | {p(f.tp1ns)} |",
+              f"| סה\"כ $ לאונקיה, שליש לכל יעד | **{f.usd.sum():+.0f}$** (ממוצע {f.usd.mean():+.2f}$) |",
+              f"| סה\"כ $, סוגרים הכל ב-TP1 | **{f.usd1.sum():+.0f}$** |",
+              f"| סה\"כ $, שליש לכל יעד וסטופ לכניסה אחרי TP1 | {f.be.sum():+.0f}$ |",
+              f"| קניות / מכירות ($ שליש לכל יעד) | {f[f.d == 1].usd.sum():+.0f}$ / {f[f.d == -1].usd.sum():+.0f}$ |",
+              "| לפי חלון | " + " · ".join(f"{a}: {len(g)} עסק' {g.usd.sum():+.0f}$" for a, g in
+                                    f.groupby(pd.cut(f.h, [0, 12, 17, 24], right=False,
+                                                     labels=["בוקר", "צהריים", "ערב"]), observed=True)) + " |",
+              "", "‏1$ לאונקיה = 1$ על 0.01 לוט (1 אונקיה), 100$ על לוט שלם."]
+    return "\n".join(lines)
