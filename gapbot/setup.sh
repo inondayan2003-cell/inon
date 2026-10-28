@@ -8,7 +8,10 @@ C="${OCI_TENANCY:?OCI_TENANCY missing - run this inside Oracle Cloud Shell}"
 [ -n "$AK" ] || read -p "Alpaca Key ID: " AK </dev/tty
 [ -n "$AS" ] || read -p "Alpaca Secret: " AS </dev/tty
 [ -n "$TT" ] || read -p "Telegram Bot Token: " TT </dev/tty
-[ -n "$TC" ] || read -p "Telegram Chat ID: " TC </dev/tty
+if [ -z "$TC" ]; then
+  TC=$(curl -s "https://api.telegram.org/bot$TT/getUpdates" | grep -o '"chat":{"id":-\?[0-9]*' | tail -1 | grep -o -- '-\?[0-9]*$')
+  [ -n "$TC" ] && echo "Chat ID: $TC" || read -p "Telegram Chat ID (שלח קודם הודעה לבוט): " TC </dev/tty
+fi
 
 echo "== בודק מפתחות..."
 curl -sf -H "APCA-API-KEY-ID: $AK" -H "APCA-API-SECRET-KEY: $AS" \
