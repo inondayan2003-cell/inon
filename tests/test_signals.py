@@ -143,3 +143,5 @@ def test_write_csv(tmp_path, monkeypatch):
     rows = list(csv.reader(open(p, encoding="utf-8-sig")))
     assert rows[0][3] == "כיוון" and rows[1][3] == "קנייה" and rows[1][6] == "3988.0"
     assert "Profit +50 PIPS" in rows[1][-2] and "Gold buy" in rows[1][-1]
+    txt = p.with_suffix(".txt").read_text(encoding="utf-8")
+    assert "#1 · 27/10/2026" in txt and "Gold buy @ 4003 - 3995" in txt and "יעדים=4/4" in txt

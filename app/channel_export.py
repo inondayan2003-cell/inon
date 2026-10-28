@@ -96,7 +96,8 @@ def main():
         return
     if a.csv:
         path = write_csv(a.channel, msgs, sigs, a.hours)
-        send_file(path, f"📄 כל סיגנלי הזהב מ-{a.channel}: {len(sigs)} סיגנלים")
+        send_file(path, f"📄 כל סיגנלי הזהב מ-{a.channel}: {len(sigs)} סיגנלים (טבלה לאקסל)")
+        send_file(path.with_suffix(".txt"), f"📝 אותם {len(sigs)} סיגנלים כטקסט (להדבקה בצ'אט)")
         return
     start = pd.Timestamp(sigs[0]["t"]) - pd.Timedelta(hours=26)
     days = (pd.Timestamp.now(tz="UTC") - start).days
@@ -177,6 +178,7 @@ def write_csv(channel: str, msgs: list[dict], sigs: list[dict], hours: float = 2
     cols = ["#", "תאריך", "שעה (ישראל)", "כיוון", "אזור מ-", "אזור עד", "סטופ", "TP1", "TP2", "TP3", "TP4",
             "התמלא", "יעדים שהושגו", "סטופ נלקח", "R (חלוקה שווה)", "R רק TP1", "ירידה נגדך עד TP1 ($)",
             "מה הערוץ פרסם אחר כך", "טקסט מקורי"]
+    blocks = []
     with open(path, "w", newline="", encoding="utf-8-sig") as f:   # utf-8-sig = עברית תקינה באקסל
         w = csv.writer(f)
         w.writerow(cols)
@@ -200,7 +202,12 @@ def write_csv(channel: str, msgs: list[dict], sigs: list[dict], hours: float = 2
                 row += ["אין נתונים", "", "", "", "", ""]
             row += [" | ".join(replies.get(s.get("id"), [])), text_by_id.get(s.get("id"), "").replace("\n", " / ")]
             w.writerow(row)
-    print(f"נשמר: {path}")
+            blocks.append(f"#{i} · {t:%d/%m/%Y %H:%M} (שעון ישראל) · {row[3]}\n"
+                          f"{text_by_id.get(s.get('id'), '').strip()}\n"
+                          f"→ תוצאה: התמלא={row[11]}, יעדים={row[12]}, סטופ נלקח={row[13]}, R={row[14]}")
+    path.with_suffix(".txt").write_text(f"סיגנלי זהב מהערוץ {channel} ({len(sigs)} סיגנלים)\n\n" + "\n\n".join(blocks),
+                                        encoding="utf-8")
+    print(f"נשמר: {path} + {path.with_suffix('.txt')}")
     return path
 
 
@@ -210,7 +217,8 @@ def send_file(path: Path, caption: str):
     for chat in Store(settings.db_path).subscribers():
         with open(path, "rb") as fh:
             httpx.post(f"https://api.telegram.org/bot{settings.bot_token}/sendDocument",
-                       data={"chat_id": chat, "caption": caption}, files={"document": (path.name, fh, "text/csv")},
+                       data={"chat_id": chat, "caption": caption},
+                       files={"document": (path.name, fh, "text/csv" if path.suffix == ".csv" else "text/plain")},
                        timeout=60)
     print("הקובץ נשלח בבוט.")
 
