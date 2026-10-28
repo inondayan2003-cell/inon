@@ -68,7 +68,7 @@ def test_summary_and_report(market, monkeypatch):
     assert abs(s["total_r"] - sum(t["result_r"] for t in trades)) < 0.05
     assert s["max_drawdown_r"] >= 0
     text = format_report(trades, market)
-    assert "לונג בפתיחה" in text and "לפי חודש" in text
+    assert "שיטת הערוץ" in text and "לפי חודש" in text and "אחרי ספרד ועמלה" in text
     assert format_report([], market).endswith("לא היו סיגנלים בתקופה הזאת.")
 
 

@@ -107,8 +107,8 @@ def summarize(trades: list[dict]) -> dict:
     }
 
 
-METHOD_NAMES = {"reopen_long": "🌏 לונג בפתיחה (יחס 1:3, רק בשוק עולה ורגוע)",
-                "channel_fade": "📡 שיטת הערוץ (TP 5/10/15, סטופ לכניסה אחרי TP1)"}
+METHOD_NAMES = {"channel_fade": "📡 שיטת הערוץ (TP 5/10/15, סטופ לכניסה אחרי TP1)"}
+COST = 0.35   # ספרד+עמלה לעסקה, דולרים לאונקיה
 
 
 def _block(title: str, s: dict) -> list[str]:
@@ -140,13 +140,11 @@ def format_report(trades: list[dict], md: MarketData) -> str:
     for mo in months:
         vals = [sums[m].get("months", {}).get(mo, 0.0) for m in METHOD_NAMES]
         lines.append(f"{mo}: " + " / ".join(f"{v:+.1f}R" for v in vals) + f" {'🟢' if sum(vals) > 0 else '🔴'}")
-    best = max(METHOD_NAMES, key=lambda m: sums[m].get("total_r", float("-inf")))
-    if sums[best].get("total_r", 0) > 0:
-        lines += ["", f"🏅 הכי טובה בתקופה: {METHOD_NAMES[best]}"]
-    else:
-        lines += ["", "⚠️ כל השיטות הפסידו בתקופה הזאת - לא לסחור לפיהן עם כסף אמיתי."]
+    done = [t for t in trades if t.get("method") in METHOD_NAMES and t.get("result_r") is not None]
+    net = sum(t["result_r"] - COST / abs(t["entry"] - t["sl"]) for t in done if t["entry"] != t["sl"])
+    lines += ["", f"💸 אחרי ספרד ועמלה (~{COST}$ לעסקה): <b>{net:+.1f}R</b>"]
     lines += ["", "<i>R = הסכום שאתה מסכן בעסקה. למשל, בסיכון של 100$ לעסקה, ‎+10R = רווח של 1,000$. "
-                  "ביצועי עבר לא מבטיחים ביצועים בעתיד. לא כולל עמלות ומרווח.</i>"]
+                  "ביצועי עבר לא מבטיחים ביצועים בעתיד.</i>"]
     return "\n".join(lines)
 
 
