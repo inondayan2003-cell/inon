@@ -155,3 +155,11 @@ def test_write_raw(tmp_path, monkeypatch):
             {"id": 2, "t": "2026-10-27T07:00:00+00:00", "text": "✅ Profit +50 PIPS", "reply_to": 1}]
     txt = ce.write_raw("test", msgs, channel_signals(msgs)).read_text(encoding="utf-8")
     assert "#1 · 27/10/2026 08:22" in txt and "Gold buy @ 4003 - 3995" in txt and "Profit" not in txt and "תוצאה" not in txt
+
+
+def test_why_not_signal():
+    from app.signals import why_not_signal
+    typo = "Gold (XAUUSD)\nBUY 4130-4120\nTP1 4135\nSL 4140"          # סטופ מעל הכניסה בקנייה
+    assert parse_signal(typo) is None and "טעות" in why_not_signal(typo)
+    assert why_not_signal("Gold looks strong") == "אין BUY/SELL"
+    assert why_not_signal("Gold BUY now\nTP1 4135") == "יש BUY/SELL בלי מחיר אחריו"

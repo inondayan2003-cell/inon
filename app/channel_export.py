@@ -154,9 +154,14 @@ def audit(msgs: list[dict]) -> str:
             cats["אחר (פרסום/צ'אט)"] += 1
     lines = [f"{len(msgs)} הודעות ({msgs[0]['t'][:10]} עד {msgs[-1]['t'][:10]}):"]
     lines += [f"  {k}: {v}" for k, v in cats.items()]
-    lines.append(f"\nהודעות שמזכירות זהב ולא זוהו כסיגנל ({len(unparsed)}), עד 15 לדוגמה:")
-    for m in unparsed[:15]:
-        lines.append(f"--- {m['t'][:16]}\n{m['text'][:400]}")
+    from .signals import why_not_signal
+    near = [m for m in unparsed if re.search(r"\b(buy|sell)\b", m["text"], re.I)]
+    lines.append(f"\nהודעות זהב עם BUY/SELL שלא זוהו כסיגנל ({len(near)}) - אלה המועמדים לסיגנלים שפוספסו:")
+    for m in near:
+        t = pd.Timestamp(m["t"]).tz_convert("Asia/Jerusalem")
+        lines.append(f"--- #{m['id']} · {t:%d/%m/%Y %H:%M} · סיבה: {why_not_signal(m['text'])}\n{m['text'][:400]}")
+    media = [m for m in msgs if not m.get("text", "").strip()]
+    lines.append(f"\nתמונות/וידאו בלי טקסט: {len(media)} (סיגנל שנשלח כתמונה אי אפשר לקרוא)")
     return "\n".join(lines)
 
 

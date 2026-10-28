@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 NUM = r"(\d{3,5}(?:\.\d+)?)"
 
 
-def parse_signal(text: str) -> dict | None:
+def parse_signal(text: str, strict: bool = True) -> dict | None:
     """מזהה סיגנל זהב בכמה פורמטים נפוצים, למשל:
     'Gold buy @ 4003 - 3995 / Sl @ 3988 / Tp1 @ 4006'  או
     'Product: Gold (XAUUSD) / 🟢BUY：4130-4120 / 🎯 TP1: 4135 / ⛔️ SL: 4110'."""
@@ -35,9 +35,23 @@ def parse_signal(text: str) -> dict | None:
         sig["sl_hidden"] = True
     # בדיקת שפיות: סטופ בצד הנכון והיעדים בכיוון העסקה
     entry = sig["zone_hi"] if d == 1 else sig["zone_lo"]
-    if (sig["sl"] is not None and (entry - sig["sl"]) * d <= 0) or any((tp - entry) * d <= 0 for tp in tps):
+    if strict and ((sig["sl"] is not None and (entry - sig["sl"]) * d <= 0) or any((tp - entry) * d <= 0 for tp in tps)):
         return None
     return sig
+
+
+def why_not_signal(text: str) -> str:
+    """למה הודעה שמזכירה זהב לא זוהתה כסיגנל (לבדיקה ידנית)."""
+    t = text.replace("：", ":")
+    if parse_signal(text, strict=False):
+        return "פורמט מזוהה, אבל המספרים לא הגיוניים (סטופ/יעד בצד הלא נכון - כנראה טעות הקלדה בערוץ)"
+    if not re.search(r"\b(buy|sell)\b", t, re.I):
+        return "אין BUY/SELL"
+    if not re.search(rf"\b(buy|sell)\b[^\d\n]{{0,25}}{NUM}", t, re.I):
+        return "יש BUY/SELL בלי מחיר אחריו"
+    if not re.search(r"\bt\.?\s*p", t, re.I):
+        return "אין TP"
+    return "TP בלי מספר"
 
 
 ASSUMED_SL = 10.0   # בסיגנלים עם סטופ גלוי הסטופ היה כמעט תמיד 10$ מעבר לקצה הרחוק של האזור
