@@ -5,10 +5,10 @@ set -e
 RAW="https://raw.githubusercontent.com/inondayan2003-cell/inon/gapbot/gapbot"
 C="${OCI_TENANCY:?OCI_TENANCY missing - run this inside Oracle Cloud Shell}"
 
-read -p "Alpaca Key ID: " AK </dev/tty
-read -p "Alpaca Secret: " AS </dev/tty
-read -p "Telegram Bot Token: " TT </dev/tty
-read -p "Telegram Chat ID: " TC </dev/tty
+[ -n "$AK" ] || read -p "Alpaca Key ID: " AK </dev/tty
+[ -n "$AS" ] || read -p "Alpaca Secret: " AS </dev/tty
+[ -n "$TT" ] || read -p "Telegram Bot Token: " TT </dev/tty
+[ -n "$TC" ] || read -p "Telegram Chat ID: " TC </dev/tty
 
 echo "== בודק מפתחות..."
 curl -sf -H "APCA-API-KEY-ID: $AK" -H "APCA-API-SECRET-KEY: $AS" \
