@@ -23,7 +23,7 @@ class Settings:
     # הביקורת (t=2.4 מול 1.9), אבל ב-7 החודשים האחרונים יצאה באפס - לכן ההתראות מסומנות "דמו בלבד".
     # מגמה ונזילות הפסידו/יצאו באפס ורצות במעקב בלבד
     # לבקשת המשתמש: רק שיטת "שורט לונדון" רצה ושולחת התראות (מבחן חי, דמו בלבד)
-    alert_methods: frozenset[str] = frozenset({"reopen_long", "channel_fade"})
+    alert_methods: frozenset[str] = frozenset({"channel_fade"})
 
     # פרמטרים של אסטרטגיית הסיגנלים
     entry_threshold: float = 50.0     # ציון משוקלל מינימלי לכניסה
@@ -56,7 +56,7 @@ def load_settings() -> Settings:
         check_interval=int(e("CHECK_INTERVAL_SECONDS", "300" if has_td else "120")),
         db_path=e("DB_PATH", "data/bot.db"),
         allowed_user_ids=_int_set(e("ALLOWED_USER_IDS", "")),
-        alert_methods=frozenset(e("ALERT_METHODS", "reopen_long,channel_fade").replace(" ", "").split(",")),
+        alert_methods=frozenset(e("ALERT_METHODS", "channel_fade").replace(" ", "").split(",")),
     )
 
 

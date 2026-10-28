@@ -62,11 +62,11 @@ def test_exits_target_stop_time():
 
 
 def test_combined_strategy_state_roundtrip():
-    s = Strategy(CFG)
+    s = ReopenLongStrategy(CFG)
     s.on_bar(bar(CLOSE, 4000.0))
     s.on_bar(bar(REOPEN, 4000.0))
-    s2 = Strategy(CFG, s.to_state())
-    assert len(s2.open_trades) == 1 and s2.reopen.last_day == s.reopen.last_day
+    s2 = ReopenLongStrategy(CFG, s.to_state())
+    assert len(s2.trades) == 1 and s2.last_day == s.last_day
 
 
 def test_regime_filter_skips_and_explains():

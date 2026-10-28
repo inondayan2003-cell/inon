@@ -35,10 +35,10 @@ def test_fade_after_bounce_in_morning_window():
     s = sig[0]["trade"]
     k = 4152.0 / 4150
     assert s["direction"] == 1 and s["window"] == "בוקר"
-    assert s["entry"] == round(4152 - 0.5 * k, 2) and s["sl"] == round(s["far"] - 10 * k, 2)
-    assert [round((x - s["entry"]) / k, 1) for x in s["tps"]] == [5.0, 10.0, 15.0]
+    assert s["entry"] == round(4152 - 0.5 * k) and s["far"] == s["entry"] - 5 and s["sl"] == s["far"] - 10
+    assert [x - s["entry"] for x in s["tps"]] == [5.0, 10.0, 15.0]
     msg = event_message(sig[0])
-    assert "TP1" in msg and "SL" in msg and "לכניסה" in msg
+    assert "BUY: <b>4151-4146</b>" in msg and "TP3: 4166" in msg and "SL: 4136" in msg
     t += pd.Timedelta(minutes=5)
     assert not [e for e in st.on_bar(bar(t, 4152.0)) if e["type"] == "cf_signal"]   # סיגנל אחד לחלון
 

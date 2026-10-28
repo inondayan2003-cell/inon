@@ -1,4 +1,5 @@
 """אסטרטגיות הסיגנלים וניהול העסקה - משותף לבוט החי ול-backtest.
+בבוט רצה רק שיטת הערוץ (Strategy בסוף הקובץ). שאר המחלקות נשארו למחקר.
 
 שתי שיטות רצות במקביל, כל אחת עם עסקה משלה:
 - מגמה (trend): יישור טווחים לפי אינדיקטורים, כניסה במחיר השוק.
@@ -734,10 +735,10 @@ class ChannelFadeStrategy:
             d = 1 if m4 <= -self.FADE * k and mb > 0 else -1 if m4 >= self.FADE * k and mb < 0 else 0
             d *= self.DIR
             if d:
-                entry = round(close - d * self.NEAR * k, 2)
-                far = round(entry - d * self.WIDTH * k, 2)
-                sl = round(far - d * self.SL_GAP * k, 2)
-                tps = [round(entry + d * x * k, 2) for x in self.TPS]
+                entry = float(round(close - d * self.NEAR * k))   # מספרים שלמים, כמו בערוץ
+                far = float(round(entry - d * self.WIDTH * k))
+                sl = float(round(far - d * self.SL_GAP * k))
+                tps = [float(round(entry + d * x * k)) for x in self.TPS]
                 self.setup = {"id": self.ids["next"], "direction": d, "opened_at": t.isoformat(), "entry": entry,
                               "far": far, "sl": sl, "tp1": tps[0], "tp2": tps[-1], "tps": tps, "score": 0.0, "stop": sl,
                               "method": "channel_fade", "window": win[2],
@@ -752,28 +753,26 @@ class ChannelFadeStrategy:
 
 
 class Strategy:
-    """השיטה שרצה בבוט: לונג בפתיחה היומית. השיטות הקודמות (כולל שורט לונדון, שנכשל ב-2018-2024)
-    נשארו בקוד למחקר בלבד."""
+    """השיטה שרצה בבוט: שיטת הערוץ Cryptonew84 בלבד (ChannelFadeStrategy).
+    השיטות הקודמות (לונג בפתיחה, שורט לונדון וכו') נשארו בקוד למחקר בלבד ולא רצות בבוט."""
 
     def __init__(self, cfg: Settings, state: dict | None = None):
         state = state or {}
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
-        self.reopen = ReopenLongStrategy(cfg, state.get("reopen"), self.ids)
         self.channel = ChannelFadeStrategy(cfg, state.get("channel"), self.ids)
 
     def to_state(self) -> dict:
-        return {"next_id": self.ids["next"], "last_t": self.last_t, "reopen": self.reopen.to_state(),
-                "channel": self.channel.to_state()}
+        return {"next_id": self.ids["next"], "last_t": self.last_t, "channel": self.channel.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
-        return self.reopen.on_bar(row, allow_entry) + self.channel.on_bar(row, allow_entry)
+        return self.channel.on_bar(row, allow_entry)
 
     @property
     def open_trades(self) -> list[dict]:
-        return list(self.reopen.trades) + ([self.channel.trade] if self.channel.trade else [])
+        return [self.channel.trade] if self.channel.trade else []
 
     @property
     def pending(self) -> dict | None:

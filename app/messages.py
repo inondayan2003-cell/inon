@@ -114,30 +114,27 @@ def reopen_message(ev: dict) -> str:
     ])
 
 
-CF_WARN = ("⚠️ <b>שיטה ניסיונית - בבדיקה היא הפסידה.</b> 03/08-07/10/2026: ‎-29$ לאונקיה, 08-27/10: ‎-22$ "
-           "(עם עלות 0.35$). הסטופ רחוק פי 3 מ-TP1. דמו בלבד.")
+CF_WARN = "<i>⚠️ בבדיקה על 08-10/2026 השיטה האוטומטית הפסידה. לנהל סיכון, תמיד עם SL.</i>"
 
 
 def channel_message(ev: dict) -> str:
+    """הסיגנל בפורמט של הערוץ: אזור כניסה, TP1-3, SL."""
     s = ev["trade"]
     d = s["direction"]
-    side = "BUY 🟢" if d == 1 else "SELL 🔴"
-    lo, hi = sorted((s["entry"], s["far"]))
-    risk = abs(s["entry"] - s["sl"])
-    tps = "\n".join(f"🎯 TP{i}: {_p(x)} (+{abs(x - s['entry']):.1f}$ · 1:{abs(x - s['entry']) / risk:.2f})"
-                     for i, x in enumerate(s["tps"], 1))
+    first, second = (max(s["entry"], s["far"]), min(s["entry"], s["far"])) if d == 1 else \
+        (min(s["entry"], s["far"]), max(s["entry"], s["far"]))
+    n = lambda x: f"{x:.0f}"
     return "\n".join([
-        f"📡 <b>שיטת הערוץ - זהב {side}</b> · {_time(s['opened_at'])}",
-        f"<i>חלון {s.get('window', '')}: {s['note']}.</i>",
+        "🪙 <b>Gold (XAUUSD)</b>",
         "",
-        f"📌 אזור כניסה (לימיט): <b>{_p(lo)} - {_p(hi)}</b> · כניסה ראשונה ב-{_p(s['entry'])}",
-        tps,
-        f"⛔ SL: {_p(s['sl'])} ({risk:.1f}$ מהכניסה)",
-        "🔁 שליש בכל יעד. <b>אחרי TP1: להזיז את הסטופ לכניסה.</b>",
-        f"⏳ הלימיט בתוקף עד {_time(s['expires'])}. עסקה פתוחה נסגרת אחרי 24 שעות.",
+        f"{'🟢 BUY' if d == 1 else '🔴 SELL'}: <b>{n(first)}-{n(second)}</b>",
         "",
+        *[f"🎯 TP{i}: {n(x)}" for i, x in enumerate(s["tps"], 1)],
+        "",
+        f"⛔️ SL: {n(s['sl'])}",
+        "",
+        f"🕒 {_time(s['opened_at'])} · שליש בכל יעד · אחרי TP1 להזיז SL ל-{n(s['entry'])}",
         CF_WARN,
-        DISCLAIMER,
     ])
 
 
