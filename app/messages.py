@@ -114,9 +114,6 @@ def reopen_message(ev: dict) -> str:
     ])
 
 
-CF_WARN = "<i>⚠️ בבדיקה על 08-10/2026 השיטה האוטומטית הפסידה. לנהל סיכון, תמיד עם SL.</i>"
-
-
 def channel_message(ev: dict) -> str:
     """הסיגנל בפורמט של הערוץ: אזור כניסה, TP1-3, SL."""
     s = ev["trade"]
@@ -134,7 +131,6 @@ def channel_message(ev: dict) -> str:
         f"⛔️ SL: {n(s['sl'])}",
         "",
         f"🕒 {_time(s['opened_at'])} · שליש בכל יעד · אחרי TP1 להזיז SL ל-{n(s['entry'])}",
-        CF_WARN,
     ])
 
 
