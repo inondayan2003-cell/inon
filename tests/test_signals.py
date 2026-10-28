@@ -145,3 +145,13 @@ def test_write_csv(tmp_path, monkeypatch):
     assert "Profit +50 PIPS" in rows[1][-2] and "Gold buy" in rows[1][-1]
     txt = p.with_suffix(".txt").read_text(encoding="utf-8")
     assert "#1 · 27/10/2026" in txt and "Gold buy @ 4003 - 3995" in txt and "יעדים=4/4" in txt
+
+
+def test_write_raw(tmp_path, monkeypatch):
+    import app.channel_export as ce
+    from app.signals import channel_signals
+    monkeypatch.setattr(ce, "DATA", tmp_path)
+    msgs = [{"id": 1, "t": "2026-10-27T06:22:00+00:00", "text": MSG},
+            {"id": 2, "t": "2026-10-27T07:00:00+00:00", "text": "✅ Profit +50 PIPS", "reply_to": 1}]
+    txt = ce.write_raw("test", msgs, channel_signals(msgs)).read_text(encoding="utf-8")
+    assert "#1 · 27/10/2026 08:22" in txt and "Gold buy @ 4003 - 3995" in txt and "Profit" not in txt and "תוצאה" not in txt

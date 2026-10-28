@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--months", type=int, default=0, help="כמה חודשים אחורה (0 = כל ההיסטוריה של הערוץ)")
     ap.add_argument("--hours", type=float, default=24)
     ap.add_argument("--audit", action="store_true", help="רק פירוט של סוגי ההודעות בערוץ (בלי בדיקת מחירים)")
+    ap.add_argument("--raw", action="store_true", help="קובץ טקסט של סיגנלי הזהב בדיוק כמו שפורסמו (בלי תוצאות) - נשלח בבוט")
     ap.add_argument("--csv", action="store_true", help="קובץ CSV של כל סיגנלי הזהב (עם תוצאה מול המחיר) - נשלח בבוט")
     ap.add_argument("--cached", action="store_true", help="להשתמש בהודעות שכבר נשמרו בלי לקרוא שוב מטלגרם")
     a = ap.parse_args()
@@ -93,6 +94,10 @@ def main():
     if not sigs:
         for m in msgs[-5:]:
             print("---\n" + m["text"][:300])
+        return
+    if a.raw:
+        path = write_raw(a.channel, msgs, sigs)
+        send_file(path, f"📝 {len(sigs)} סיגנלי זהב מ-{a.channel}, בדיוק כמו שפורסמו")
         return
     if a.csv:
         path = write_csv(a.channel, msgs, sigs, a.hours)
@@ -153,6 +158,20 @@ def audit(msgs: list[dict]) -> str:
     for m in unparsed[:15]:
         lines.append(f"--- {m['t'][:16]}\n{m['text'][:400]}")
     return "\n".join(lines)
+
+
+def write_raw(channel: str, msgs: list[dict], sigs: list[dict]) -> Path:
+    """רק הסיגנלים עצמם, כמו שפורסמו בערוץ, עם תאריך ושעה. בלי בדיקת מחיר ובלי תוצאות."""
+    text_by_id = {m["id"]: m["text"] for m in msgs}
+    blocks = []
+    for i, s in enumerate(sigs, 1):
+        t = pd.Timestamp(s["t"]).tz_convert("Asia/Jerusalem")
+        blocks.append(f"#{i} · {t:%d/%m/%Y %H:%M}\n{text_by_id.get(s.get('id'), '').strip()}")
+    path = DATA / f"signals_{channel}_raw.txt"
+    path.write_text(f"סיגנלי זהב מהערוץ {channel} ({len(sigs)} סיגנלים, שעון ישראל)\n\n" + "\n\n".join(blocks),
+                    encoding="utf-8")
+    print(f"נשמר: {path}")
+    return path
 
 
 def write_csv(channel: str, msgs: list[dict], sigs: list[dict], hours: float = 24) -> Path:
