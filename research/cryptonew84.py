@@ -307,3 +307,56 @@ def bot_report(m1: pd.DataFrame, cost: float = 0.35) -> str:
                          f"{names.get(r.status, r.status)} | {r.usd:+.1f} |")
     lines += ["", "‏סטטוס \"סטופ מלא\" = נעצר לפני TP1. TP1% = כל מה שלא נעצר בסטופ מלא."]
     return "\n".join(lines)
+
+
+def rr_report(m1: pd.DataFrame, cost: float = 0.35) -> str:
+    """המבנה ההפוך: סטופ קטן ויעד אחד גדול (1:2 / 1:3), באותם חלונות ובאותו טריגר. גם נגד וגם עם תנועת 4 השעות."""
+    import itertools
+
+    from app.config import Settings
+    from app.strategy import ChannelFadeStrategy
+    m5 = m1.resample("5min").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    rows = [pd.Series(dict(t=t + pd.Timedelta(minutes=5), open=o, high=h, low=l, close=c))
+            for t, o, h, l, c in m5[m5.index >= "2026-07-25"].itertuples()]
+    split, start = pd.Timestamp("2026-10-08", tz="UTC"), pd.Timestamp("2026-08-03", tz="UTC")
+    cfg = Settings()
+
+    def run(p):
+        st, out = ChannelFadeStrategy(cfg, **p), []
+        for r in rows:
+            for ev in st.on_bar(r):
+                if ev["type"] == "closed":
+                    tr = ev["trade"]
+                    risk = abs(tr["entry"] - tr["sl"])
+                    out.append({"t": pd.Timestamp(tr["opened_at"]), "status": tr["status"],
+                                "r": tr["result_r"] - cost / risk, "usd": tr["result_r"] * risk - cost})
+        df = pd.DataFrame(out)
+        return df[df.t >= start] if len(df) else df
+
+    def cell(x):
+        if not len(x):
+            return "-"
+        eq = x.usd.cumsum()
+        dd = float((eq.cummax().clip(lower=0) - eq).max())
+        return f"{len(x)} · {x.usd.sum():+.0f}$ · {x.r.sum():+.1f}R · DD {dd:.0f}$"
+
+    lines = [f"### 🔄 מבנה הפוך: סטופ קטן, יעד גדול · עלות {cost}$ · דולרים לאונקיה (0.01 לוט)", "",
+             "| כיוון | תנועה 4ש' | תיקון (דק') | סטופ | יעד | 03/08-07/10 עסק' · $ · R · DD | 08/10-היום | "
+             "הצלחה | צריך להצלחה | $ לעסקה |", "|---|---|---|---|---|---|---|---|---|---|"]
+    res = []
+    for dr, fade, bmin, stop, rr in itertools.product((1, -1), (5.0, 10.0), (5, 15), (5.0, 8.0, 12.0), (2, 3)):
+        df = run({"dir": dr, "fade": fade, "bounce_min": bmin, "width": 0.0, "sl_gap": stop,
+                  "tps": (rr * stop,), "be": False})
+        if not len(df):
+            continue
+        a, b = df[df.t < split], df[df.t >= split]
+        win = (df.status == "tp2").mean()
+        need = (1 + cost / stop) / (1 + rr)
+        res.append((a.usd.sum() > 0 and b.usd.sum() > 0, a.usd.sum()))
+        lines.append(f"| {'נגד (כמו הערוץ)' if dr == 1 else 'עם (המשך)'} | {fade:g}$ | {bmin} | {stop:g}$ | {rr * stop:g}$ (1:{rr}) | "
+                     f"{cell(a)} | {cell(b)} | {100 * win:.0f}% | {100 * need:.0f}% | {df.usd.mean():+.2f} |")
+    both = sum(x[0] for x in res)
+    lines += ["", f"**רווחיות בשתי התקופות: {both} מתוך {len(res)} גרסאות.** "
+                  "(במקרה, בערך רבע מהגרסאות אמורות לצאת רווחיות בשתיהן.)",
+              "‏\"הצלחה\" = הגיע ליעד. \"צריך להצלחה\" = אחוז ההצלחה שבו הגרסה מתאזנת אחרי עלות."]
+    return "\n".join(lines)

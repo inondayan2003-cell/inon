@@ -654,6 +654,7 @@ class ChannelFadeStrategy:
     FADE, BOUNCE_MIN = 10.0, 15
     WIDTH, NEAR, SL_GAP, TPS = 5.0, 0.5, 10.0, (5.0, 10.0, 15.0)
     BE = True
+    DIR = 1                       # 1 = נגד תנועת 4 השעות (כמו הערוץ), -1 = עם התנועה (המשך אחרי תיקון)
     LIMIT_H, HOLD_H, GAP_H = 2, 24, 2.5
 
     def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None, **params):
@@ -731,6 +732,7 @@ class ChannelFadeStrategy:
             k = close / self.REF
             m4, mb = close - past4[-1], close - pastb[-1]
             d = 1 if m4 <= -self.FADE * k and mb > 0 else -1 if m4 >= self.FADE * k and mb < 0 else 0
+            d *= self.DIR
             if d:
                 entry = round(close - d * self.NEAR * k, 2)
                 far = round(entry - d * self.WIDTH * k, 2)

@@ -111,7 +111,7 @@ def main():
         from research import cryptonew84
         m1 = histdata.fetch_minutes(dt.date(2026, 7, 1), end, Path(a.cache))
         m1 = m1[~m1.index.duplicated()].sort_index()
-        print(cryptonew84.bot_report(m1, a.cost) + "\n\n" + cryptonew84.outcomes(m1), flush=True)
+        print(cryptonew84.rr_report(m1, a.cost), flush=True)
         return
     if a.channel:
         from research import channel
