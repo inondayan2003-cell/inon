@@ -24,6 +24,7 @@ MAX_PRICE = 20.0        # מחיר מקסימלי ($)
 MAX_RISK_PCT = 8.0      # אם הסטופ רחוק יותר מזה (%) - לא שולח
 MAX_GAP_PCT = 0         # תקרת עלייה (%). 0 = בלי תקרה
 REQUIRE_NEWS = True     # לשלוח רק מניות שיש עליהן חדשות מאז הסגירה הקודמת
+MIN_TARGET_PCT = 5.0    # יעד מינימלי (%) - אם היעד קטן מזה, לא שולח
 RR = 3.0                # יחס סיכוי:סיכון
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
@@ -186,6 +187,8 @@ def main():
                     continue
                 risk = price - stop
                 if risk / price * 100 > MAX_RISK_PCT:
+                    continue
+                if RR * risk / price * 100 < MIN_TARGET_PCT:
                     continue
                 news = news_since_last_close(sym, now)
                 if REQUIRE_NEWS and not news:
