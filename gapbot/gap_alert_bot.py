@@ -342,14 +342,37 @@ def daily_report(day):
             icon, why = "⏰", "סגירת יום"
         if pnl > 0:
             wins += 1
+        t.update(entry_fill=round(entry, 4), exit_fill=round(exit_, 4),
+                 pnl=round(pnl, 2), result=why)
         lines.append(f"{icon} {t['symbol']}  ${entry:.2f} → ${exit_:.2f}  ({why})  "
                      f"{'+' if pnl >= 0 else ''}{pnl:.0f}$")
+    with open(trades_file(day), "w") as f:
+        json.dump(trades, f, ensure_ascii=False, indent=1)
     acct = requests.get(f"{TRADE}/v2/account", headers=HDR, timeout=15).json()
     wr = f"{wins / done * 100:.0f}%" if done else "-"
     return (f"📊 דוח יומי {day}\n\n" + "\n".join(lines) +
             f"\n\nעסקאות: {done} | הצלחות: {wins} ({wr})\n"
             f"רווח/הפסד היום: {'+' if total >= 0 else ''}{total:.0f}$\n"
             f"יתרת חשבון דמו: ${float(acct.get('equity', 0)):,.0f}")
+
+
+def export_csv():
+    import csv
+    cols = ["date", "symbol", "signal_time", "time", "gap_pct", "rvol", "risk_pct", "price",
+            "stop", "target", "qty", "entry_fill", "exit_fill", "pnl", "result", "headline", "err"]
+    path = os.path.join(TRADES_DIR, "all_trades.csv")
+    os.makedirs(TRADES_DIR, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for fn in sorted(os.listdir(TRADES_DIR)):
+            if fn.endswith(".json"):
+                for t in load_trades(fn[:-5]):
+                    w.writerow({"date": fn[:-5], **t})
+    with open(path, "rb") as f:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument",
+                      data={"chat_id": TG_CHAT_ID, "caption": "📁 כל עסקאות הדמו"},
+                      files={"document": ("trades.csv", f)}, timeout=30)
 
 
 def build_signal(sym, pct, price, stop, now, demo=False, news=""):
@@ -397,12 +420,15 @@ def command_listener():
                     send_tg(demo_signal())
                 elif text.startswith("/watch"):
                     send_tg(watchlist_text(dt.datetime.now(NY)))
+                elif text.startswith("/export"):
+                    export_csv()
                 elif text.startswith("/report"):
                     send_tg(daily_report(dt.datetime.now(NY).date()))
                 elif text.startswith("/start") or text.startswith("/help"):
                     send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד\n"
                             "/report - דוח מסחר הדמו של היום\n"
-                            "/watch - רשימת מעקב (מניות עם חדשות שעולות)")
+                            "/watch - רשימת מעקב (מניות עם חדשות שעולות)\n"
+                            "/export - קובץ אקסל עם כל עסקאות הדמו")
         except Exception as e:
             print("listener error:", e)
             time.sleep(5)
@@ -487,7 +513,8 @@ def main():
                     continue
                 if RR * risk / entry * 100 < MIN_TARGET_PCT:
                     continue
-                if rvol(sym, now, bars) < MIN_RVOL:
+                rv = rvol(sym, now, bars)
+                if rv < MIN_RVOL:
                     continue
                 news = news_since_last_close(sym, now)
                 if REQUIRE_NEWS and not news:
@@ -496,7 +523,10 @@ def main():
                 target = entry + RR * risk
                 send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news)))
                 if PAPER_TRADING:
-                    pending[sym] = {"symbol": sym, "price": entry, "stop": stop, "target": target}
+                    pending[sym] = {"symbol": sym, "price": entry, "stop": stop, "target": target,
+                                    "signal_time": f"{now:%H:%M}", "gap_pct": round(pct, 1),
+                                    "rvol": round(rv, 1), "risk_pct": round(risk / entry * 100, 2),
+                                    "headline": (news[0].get("headline", "") if news else "")[:200]}
         except Exception as e:
             print("error:", e)
         time.sleep(SCAN_EVERY_SEC)
