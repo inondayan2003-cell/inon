@@ -8,6 +8,7 @@ Gap-Up Alert Bot -> Telegram
 import time
 import datetime as dt
 from zoneinfo import ZoneInfo
+import threading
 import requests
 
 # ================== הגדרות ==================
@@ -62,7 +63,53 @@ def send_tg(text):
                   data={"chat_id": TG_CHAT_ID, "text": text}, timeout=15)
 
 
+def build_signal(sym, pct, price, stop, now, demo=False):
+    risk = price - stop
+    target = price + RR * risk
+    head = "🧪 סיגנל דמו (בדיקה בלבד)\n" if demo else ""
+    return (f"{head}🚀 {sym}  +{pct:.1f}%\n"
+            f"כניסה: ${price:.2f}\n"
+            f"סטופ:  ${stop:.2f}  (-{risk / price * 100:.1f}%)\n"
+            f"יעד:   ${target:.2f}  (+{RR * risk / price * 100:.1f}%)\n"
+            f"🕒 {now:%H:%M} NY")
+
+
+def demo_signal():
+    now = dt.datetime.now(NY)
+    try:  # נתונים אמיתיים: המניה הכי עולה כרגע / בסשן האחרון
+        g = get_gainers()[0]
+        sym, pct, price = g["symbol"], g["percent_change"], g["price"]
+        src = "✅ Alpaca מחובר"
+    except Exception as e:
+        sym, pct, price = "DEMO", 12.5, 5.00
+        src = f"⚠️ Alpaca לא הגיב: {e}"
+    stop = round(price * 0.96, 2)
+    return build_signal(sym, pct, price, stop, now, demo=True) + f"\n{src}"
+
+
+def command_listener():
+    offset = None
+    while True:
+        try:
+            r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                             params={"timeout": 50, "offset": offset}, timeout=60)
+            for u in r.json().get("result", []):
+                offset = u["update_id"] + 1
+                msg = u.get("message") or {}
+                if str(msg.get("chat", {}).get("id")) != str(TG_CHAT_ID):
+                    continue
+                text = (msg.get("text") or "").strip().lower()
+                if text.startswith("/test"):
+                    send_tg(demo_signal())
+                elif text.startswith("/start") or text.startswith("/help"):
+                    send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד")
+        except Exception as e:
+            print("listener error:", e)
+            time.sleep(5)
+
+
 def main():
+    threading.Thread(target=command_listener, daemon=True).start()
     alerted, day = set(), None
     send_tg("✅ הבוט פועל - סורק גאפים בפתיחת המסחר")
     while True:
@@ -85,15 +132,8 @@ def main():
                 risk = price - stop
                 if risk / price * 100 > MAX_RISK_PCT:
                     continue
-                target = price + RR * risk
                 alerted.add(sym)
-                send_tg(
-                    f"🚀 {sym}  +{pct:.1f}%\n"
-                    f"כניסה: ${price:.2f}\n"
-                    f"סטופ:  ${stop:.2f}  (-{risk / price * 100:.1f}%)\n"
-                    f"יעד:   ${target:.2f}  (+{RR * risk / price * 100:.1f}%)\n"
-                    f"🕒 {now:%H:%M} NY"
-                )
+                send_tg(build_signal(sym, pct, price, stop, now))
         except Exception as e:
             print("error:", e)
         time.sleep(SCAN_EVERY_SEC)
