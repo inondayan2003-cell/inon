@@ -9,6 +9,9 @@ import time
 import datetime as dt
 from zoneinfo import ZoneInfo
 import re
+import json
+import math
+import os
 import threading
 import requests
 
@@ -26,11 +29,17 @@ MAX_GAP_PCT = 0         # תקרת עלייה (%). 0 = בלי תקרה
 REQUIRE_NEWS = True     # לשלוח רק מניות שיש עליהן חדשות מאז הסגירה הקודמת
 MIN_TARGET_PCT = 5.0    # יעד מינימלי (%) - אם היעד קטן מזה, לא שולח
 RR = 3.0                # יחס סיכוי:סיכון
+PAPER_TRADING = True    # לבצע כל סיגנל בחשבון הדמו של Alpaca
+RISK_PER_TRADE = 100.0  # כמה $ מסכנים בכל עסקה (בדמו)
+MAX_POSITION = 10000.0  # גודל פוזיציה מקסימלי ($)
+EOD_CLOSE = dt.time(15, 55)   # סגירת כל הפוזיציות (שעון ניו יורק)
+EOD_REPORT = dt.time(16, 5)   # שליחת דוח יומי
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
 
 NY = ZoneInfo("America/New_York")
 DATA = "https://data.alpaca.markets"
+TRADE = "https://paper-api.alpaca.markets"
 HDR = {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 
@@ -112,6 +121,105 @@ def send_tg(text):
                   data={"chat_id": TG_CHAT_ID, "text": text}, timeout=15)
 
 
+# ================== מסחר דמו ==================
+TRADES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades")
+
+
+def trades_file(day):
+    os.makedirs(TRADES_DIR, exist_ok=True)
+    return os.path.join(TRADES_DIR, f"{day}.json")
+
+
+def load_trades(day):
+    try:
+        with open(trades_file(day)) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_trade(day, t):
+    trades = load_trades(day)
+    trades.append(t)
+    with open(trades_file(day), "w") as f:
+        json.dump(trades, f, ensure_ascii=False, indent=1)
+
+
+def px(x):
+    return round(x, 2) if x >= 1 else round(x, 4)
+
+
+def place_bracket(sym, price, stop, target):
+    qty = math.floor(min(RISK_PER_TRADE / (price - stop), MAX_POSITION / price))
+    if qty < 1:
+        return None, "כמות קטנה מ-1"
+    order = {"symbol": sym, "qty": str(qty), "side": "buy", "type": "market",
+             "time_in_force": "day", "order_class": "bracket",
+             "take_profit": {"limit_price": str(px(target))},
+             "stop_loss": {"stop_price": str(px(stop))}}
+    r = requests.post(f"{TRADE}/v2/orders", headers=HDR, json=order, timeout=15)
+    if r.status_code >= 300:
+        return None, r.text[:200]
+    return qty, None
+
+
+def close_all():
+    requests.delete(f"{TRADE}/v2/orders", headers=HDR, timeout=15)
+    requests.delete(f"{TRADE}/v2/positions", headers=HDR, timeout=15)
+
+
+def market_was_open(day):
+    r = requests.get(f"{TRADE}/v2/calendar", headers=HDR, timeout=15,
+                     params={"start": str(day), "end": str(day)})
+    return bool(r.ok and r.json())
+
+
+def daily_report(day):
+    trades = load_trades(day)
+    if not trades:
+        return f"📊 דוח יומי {day}\nהיום לא היו עסקאות."
+    r = requests.get(f"{TRADE}/v2/account/activities/FILL", headers=HDR, timeout=15,
+                     params={"date": str(day)})
+    fills = r.json() if r.ok else []
+    agg = {}
+    for f in fills:
+        a = agg.setdefault(f["symbol"], {"bq": 0, "bv": 0.0, "sq": 0, "sv": 0.0})
+        q, p = float(f["qty"]), float(f["price"])
+        if f["side"] == "buy":
+            a["bq"] += q; a["bv"] += q * p
+        else:
+            a["sq"] += q; a["sv"] += q * p
+    lines, total, wins, done = [], 0.0, 0, 0
+    for t in trades:
+        a = agg.get(t["symbol"])
+        if not a or not a["bq"]:
+            lines.append(f"⚪ {t['symbol']} - לא בוצע")
+            continue
+        entry = a["bv"] / a["bq"]
+        exit_ = a["sv"] / a["sq"] if a["sq"] else None
+        if exit_ is None:
+            lines.append(f"⏳ {t['symbol']} - עדיין פתוחה (כניסה ${entry:.2f})")
+            continue
+        pnl = a["sv"] - a["bv"]
+        total += pnl; done += 1
+        if exit_ >= t["target"] * 0.995:
+            icon, why = "🎯", "יעד"
+        elif exit_ <= t["stop"] * 1.005:
+            icon, why = "🛑", "סטופ"
+        else:
+            icon, why = "⏰", "סגירת יום"
+        if pnl > 0:
+            wins += 1
+        lines.append(f"{icon} {t['symbol']}  ${entry:.2f} → ${exit_:.2f}  ({why})  "
+                     f"{'+' if pnl >= 0 else ''}{pnl:.0f}$")
+    acct = requests.get(f"{TRADE}/v2/account", headers=HDR, timeout=15).json()
+    wr = f"{wins / done * 100:.0f}%" if done else "-"
+    return (f"📊 דוח יומי {day}\n\n" + "\n".join(lines) +
+            f"\n\nעסקאות: {done} | הצלחות: {wins} ({wr})\n"
+            f"רווח/הפסד היום: {'+' if total >= 0 else ''}{total:.0f}$\n"
+            f"יתרת חשבון דמו: ${float(acct.get('equity', 0)):,.0f}")
+
+
 def build_signal(sym, pct, price, stop, now, demo=False, news=""):
     risk = price - stop
     target = price + RR * risk
@@ -155,8 +263,11 @@ def command_listener():
                 text = (msg.get("text") or "").strip().lower()
                 if text.startswith("/test"):
                     send_tg(demo_signal())
+                elif text.startswith("/report"):
+                    send_tg(daily_report(dt.datetime.now(NY).date()))
                 elif text.startswith("/start") or text.startswith("/help"):
-                    send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד")
+                    send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד\n"
+                            "/report - דוח מסחר הדמו של היום")
         except Exception as e:
             print("listener error:", e)
             time.sleep(5)
@@ -164,13 +275,26 @@ def command_listener():
 
 def main():
     threading.Thread(target=command_listener, daemon=True).start()
-    alerted, day = set(), None
+    day = None
+    closed = reported = False
     send_tg("✅ הבוט פועל - סורק גאפים בפתיחת המסחר")
     while True:
         now = dt.datetime.now(NY)
         if now.date() != day:
-            alerted, day = set(), now.date()
-        if not market_open(now):
+            day = now.date()
+            alerted = {t["symbol"] for t in load_trades(day)}
+            closed = reported = False
+        if PAPER_TRADING and now.weekday() < 5:
+            try:
+                if not closed and now.time() >= EOD_CLOSE:
+                    close_all(); closed = True
+                if not reported and now.time() >= EOD_REPORT:
+                    reported = True
+                    if market_was_open(day):
+                        send_tg(daily_report(day))
+            except Exception as e:
+                print("eod error:", e)
+        if not market_open(now) or now.time() >= EOD_CLOSE:
             time.sleep(60)
             continue
         try:
@@ -194,7 +318,20 @@ def main():
                 if REQUIRE_NEWS and not news:
                     continue
                 alerted.add(sym)
-                send_tg(build_signal(sym, pct, price, stop, now, news=news_text(news)))
+                target = price + RR * risk
+                msg = build_signal(sym, pct, price, stop, now, news=news_text(news))
+                if PAPER_TRADING:
+                    qty, err = place_bracket(sym, price, stop, target)
+                    if qty:
+                        save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
+                                              "target": target, "qty": qty,
+                                              "time": f"{now:%H:%M}"})
+                        msg += f"\n🤖 דמו: נקנו {qty} מניות"
+                    else:
+                        save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
+                                              "target": target, "qty": 0, "err": err})
+                        msg += f"\n🤖 דמו: לא בוצע ({err})"
+                send_tg(msg)
         except Exception as e:
             print("error:", e)
         time.sleep(SCAN_EVERY_SEC)
