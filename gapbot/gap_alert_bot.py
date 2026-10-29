@@ -36,6 +36,8 @@ EOD_CLOSE = dt.time(15, 55)   # סגירת כל הפוזיציות (שעון נ�
 EOD_REPORT = dt.time(16, 5)   # שליחת דוח יומי
 SIGNAL_WINDOW_MIN = 90  # סיגנלים רק ב-X הדקות הראשונות של המסחר
 MIN_RVOL = 2.0          # ווליום יחסי מינימלי (היום מול ממוצע 20 יום, לפי השעה)
+WATCHLIST_TIME = dt.time(8, 30)  # רשימת מעקב לפני הפתיחה (שעון ניו יורק)
+WATCHLIST_SIZE = 5
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
 
@@ -145,6 +147,96 @@ def news_text(news):
     h = n.get("headline", "")
     flag = "🚩 חשד לדילול/הנפקה!\n" if any(k in h.lower() for k in DILUTION) else ""
     return f"📰 {h}\n{flag}🔗 {n.get('url', '')}\n"
+
+
+def all_news_since_last_close(now, pages=4):
+    d = now.date() - dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= dt.timedelta(days=1)
+    start = dt.datetime.combine(d, dt.time(16, 0), NY)
+    out, token = [], None
+    for _ in range(pages):
+        params = {"start": start.isoformat(), "limit": 50, "sort": "desc"}
+        if token:
+            params["page_token"] = token
+        r = requests.get(f"{DATA}/v1beta1/news", headers=HDR, params=params, timeout=15)
+        r.raise_for_status()
+        j = r.json()
+        out += j.get("news") or []
+        token = j.get("next_page_token")
+        if not token:
+            break
+    return meaningful(out)
+
+
+def build_watchlist(now):
+    news = all_news_since_last_close(now)
+    by_sym = {}
+    for n in news:
+        for sym in n.get("symbols") or []:
+            by_sym.setdefault(sym, n)            # החדשה הכי עדכנית לכל מניה
+    try:
+        for g in get_gainers():
+            by_sym.setdefault(g["symbol"], None)
+    except Exception:
+        pass
+    syms = list(by_sym)
+    snaps = {}
+    for i in range(0, len(syms), 100):
+        r = requests.get(f"{DATA}/v2/stocks/snapshots", headers=HDR, timeout=20,
+                         params={"symbols": ",".join(syms[i:i + 100]), "feed": "iex"})
+        if r.ok:
+            snaps.update(r.json())
+    pre_start = now.replace(hour=4, minute=0, second=0, microsecond=0)
+    rows = []
+    for sym, sn in snaps.items():
+        try:
+            price = sn["latestTrade"]["p"]
+            prev = sn["prevDailyBar"]["c"]
+        except (KeyError, TypeError):
+            continue
+        pct = (price / prev - 1) * 100
+        if pct < MIN_GAP_PCT or not (MIN_PRICE <= price <= MAX_PRICE):
+            continue
+        n = by_sym.get(sym) or (news_since_last_close(sym, now) or [None])[0]
+        if REQUIRE_NEWS and not n:
+            continue
+        rows.append([sym, pct, price, prev, n])
+    rows.sort(key=lambda x: -x[1])
+    rows = rows[:WATCHLIST_SIZE]
+    for row in rows:           # גבוה/נמוך של המסחר המוקדם
+        sym, price = row[0], row[2]
+        try:
+            r = requests.get(f"{DATA}/v2/stocks/{sym}/bars", headers=HDR, timeout=15,
+                             params={"timeframe": "1Min", "start": pre_start.isoformat(),
+                                     "feed": "iex", "limit": 1000})
+            bars = r.json().get("bars") or []
+        except Exception:
+            bars = []
+        hi = max([b["h"] for b in bars] + [price])
+        lo = min([b["l"] for b in bars] + [price])
+        row += [hi, lo]
+    return rows
+
+
+def watchlist_text(now):
+    rows = build_watchlist(now)
+    open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
+    if not rows:
+        return f"📋 רשימת מעקב להיום\nאין הבוקר מניות עם חדשה + עלייה של {MIN_GAP_PCT:.0f}%+ במסחר המוקדם."
+    out = [f"📋 רשימת מעקב להיום (פתיחה ב-{open_il:%H:%M})\n"]
+    for i, (sym, pct, price, prev, n, hi, lo) in enumerate(rows, 1):
+        level = px(hi + 0.01)
+        stop = lo if (level - lo) / level * 100 <= MAX_RISK_PCT else px(level * (1 - MAX_RISK_PCT / 100))
+        stop = min(stop, px(level * (1 - MIN_TARGET_PCT / RR / 100)))   # יעד של לפחות MIN_TARGET_PCT
+        target = level + RR * (level - stop)
+        h = (n or {}).get("headline", "")
+        flag = " 🚩דילול?" if any(k in h.lower() for k in DILUTION) else ""
+        out.append(f"{i}. {sym}  +{pct:.1f}%  (עכשיו ${price:.2f})\n"
+                   f"📰 {h[:120]}{flag}\n"
+                   f"🎯 פריצה מעל: ${level:.2f} | סטופ: ${stop:.2f} | יעד: ${target:.2f}\n")
+    out.append("⚠️ לא הוראת קנייה - רמות להכנה. בבלינק עדיף Buy Stop/Limit ולא פקודת שוק לפתיחה.")
+    return "\n".join(out)
 
 
 def send_tg(text):
@@ -303,11 +395,14 @@ def command_listener():
                 text = (msg.get("text") or "").strip().lower()
                 if text.startswith("/test"):
                     send_tg(demo_signal())
+                elif text.startswith("/watch"):
+                    send_tg(watchlist_text(dt.datetime.now(NY)))
                 elif text.startswith("/report"):
                     send_tg(daily_report(dt.datetime.now(NY).date()))
                 elif text.startswith("/start") or text.startswith("/help"):
                     send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד\n"
-                            "/report - דוח מסחר הדמו של היום")
+                            "/report - דוח מסחר הדמו של היום\n"
+                            "/watch - רשימת מעקב (מניות עם חדשות שעולות)")
         except Exception as e:
             print("listener error:", e)
             time.sleep(5)
@@ -316,7 +411,7 @@ def command_listener():
 def main():
     threading.Thread(target=command_listener, daemon=True).start()
     day = None
-    closed = reported = False
+    closed = reported = watched = False
     send_tg("✅ הבוט פועל - סורק גאפים בפתיחת המסחר")
     while True:
         now = dt.datetime.now(NY)
@@ -324,7 +419,14 @@ def main():
             day = now.date()
             alerted = {t["symbol"] for t in load_trades(day)}
             pending = {}
-            closed = reported = False
+            closed = reported = watched = False
+        if not watched and now.weekday() < 5 and WATCHLIST_TIME <= now.time() < dt.time(9, 30):
+            watched = True
+            try:
+                if market_was_open(day):
+                    send_tg(watchlist_text(now))
+            except Exception as e:
+                print("watchlist error:", e)
         if PAPER_TRADING and now.weekday() < 5:
             try:
                 if not closed and now.time() >= EOD_CLOSE:
