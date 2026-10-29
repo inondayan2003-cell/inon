@@ -66,7 +66,7 @@ systemctl daemon-reload
 systemctl enable --now gapbot
 UD
 
-[ -f ~/.ssh/gapbot ] || ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/gapbot
+[ -f ~/.ssh/gapbot ] || ssh-keygen -q -t rsa -b 4096 -N "" -f ~/.ssh/gapbot
 AD=$(oci iam availability-domain list -c "$C" --query 'data[0].name' --raw-output)
 
 launch() { # $1 shape, $2 extra args
