@@ -8,6 +8,7 @@ Gap-Up Alert Bot -> Telegram
 import time
 import datetime as dt
 from zoneinfo import ZoneInfo
+import re
 import threading
 import requests
 
@@ -64,6 +65,26 @@ DILUTION = ("offering", "warrant", "reverse split", "reverse stock split",
             "dilut", "private placement", "shelf", "atm program", "registered direct")
 
 
+# הודעות שגרתיות שלא נחשבות קטליסט
+ROUTINE = [
+    r"\bto (announce|report|release|host|hold)\b.*\b(results|earnings|call|webcast)\b",
+    r"\b(announces?|sets|schedules?)\b.*\b(date|timing)\b.*\b(results|earnings|call)\b",
+    r"\bconference call\b", r"\bwebcast\b",
+    r"\bto (present|participate|ring|attend|speak)\b",
+    r"\b(investor|healthcare|industry) conference\b", r"\bfireside chat\b",
+    r"\bdeclares? (quarterly |monthly |regular )?(cash )?dividend\b",
+    r"\b(annual|special) (general )?meeting\b",
+    r"\bshareholder (letter|update)\b",
+    r"\blaw firm\b|\bclass action\b|\binvestigation (on behalf|of)\b|\bshareholder alert\b",
+    r"\b(stocks?|shares?) (moving|trading) (higher|lower|in)\b|\bmid-day movers\b|\bpremarket movers\b",
+]
+ROUTINE_RE = [re.compile(x, re.I) for x in ROUTINE]
+
+
+def meaningful(news):
+    return [n for n in news if not any(r.search(n.get("headline", "")) for r in ROUTINE_RE)]
+
+
 def news_since_last_close(symbol, now):
     d = now.date() - dt.timedelta(days=1)
     while d.weekday() >= 5:
@@ -73,12 +94,12 @@ def news_since_last_close(symbol, now):
                      params={"symbols": symbol, "start": start.isoformat(),
                              "limit": 5, "sort": "desc"})
     r.raise_for_status()
-    return r.json().get("news") or []
+    return meaningful(r.json().get("news") or [])
 
 
 def news_text(news):
     if not news:
-        return "⚠️ אין חדשות מאז הסגירה\n"
+        return "⚠️ אין חדשות משמעותיות מאז הסגירה\n"
     n = news[0]
     h = n.get("headline", "")
     flag = "🚩 חשד לדילול/הנפקה!\n" if any(k in h.lower() for k in DILUTION) else ""
