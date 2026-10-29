@@ -445,7 +445,21 @@ def command_listener():
             time.sleep(5)
 
 
+def set_commands():
+    cmds = [{"command": "test", "description": "סיגנל דמו - בדיקה שהכל עובד"},
+            {"command": "watch", "description": "רשימת מעקב - מניות עם חדשות שעולות"},
+            {"command": "report", "description": "דוח מסחר הדמו של היום"},
+            {"command": "export", "description": "קובץ אקסל עם כל עסקאות הדמו"},
+            {"command": "help", "description": "רשימת הפקודות"}]
+    try:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/setMyCommands",
+                      json={"commands": cmds}, timeout=15)
+    except Exception as e:
+        print("setMyCommands error:", e)
+
+
 def main():
+    set_commands()
     threading.Thread(target=command_listener, daemon=True).start()
     day = None
     closed = reported = watched = False
