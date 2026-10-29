@@ -261,6 +261,10 @@ def status_message(s: dict) -> str:
         lines += ["", f"כניסה {_p(p['entry'])} · סטופ {_p(p['sl'])} · יעדים {_p(p['tp1'])} / {_p(p['tp2'])}"]
     if s["direction"] or s["lean"]:
         lines += ["", "ℹ️ הכיוון למעלה הוא ניתוח בלבד, לא סיגנל כניסה. הסיגנלים נשלחים בשיטת הערוץ 📡"]
+    if (c := s.get("channel_check")):
+        lines += ["", f"📡 בדיקה אחרונה של שיטת הערוץ: {_time(c['t'])} (חלון {c['window']}) · {c['reason']}"]
+    elif "channel_check" in s:
+        lines += ["", "📡 שיטת הערוץ עוד לא בדקה אף חלון. החלונות: 09:15-10:30 · 14:00-16:15 · 17:15-19:45 (שני-שישי)"]
     if s.get("killzone"):
         lines += ["", f"🕐 סשן {s['killzone']} פעיל"]
     if not s["market_open"]:

@@ -26,7 +26,8 @@ if store.get("reset_id") != RESET_ID:
     store.put("strategy", {})
     store.put("reset_id", RESET_ID)
 service = GoldService(settings, store)
-bot = Bot(settings, store, lambda: service.snapshot) if settings.bot_token else None
+bot = Bot(settings, store, lambda: service.snapshot and {**service.snapshot, "channel_check": service.channel_check}) \
+    if settings.bot_token else None
 
 
 BACKTEST_ID = "v10"  # מעלים כשהשיטה משתנה, כדי שהבוט ישלח דוח מעודכן אחרי עדכון גרסה
@@ -62,7 +63,9 @@ app = FastAPI(title="Gold Analyzer", lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    return {"ok": True, "has_data": service.snapshot is not None, "error": service.last_error}
+    snap = service.snapshot or {}
+    return {"ok": True, "has_data": bool(snap), "error": service.last_error, "price": snap.get("price"),
+            "price_time": snap.get("price_time") or snap.get("updated_at"), "last_check": service.channel_check}
 
 
 @app.get("/api/analysis")

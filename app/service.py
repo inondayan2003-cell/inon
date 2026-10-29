@@ -42,6 +42,11 @@ class GoldService:
     def strategy_state(self) -> dict:
         return self.store.get("strategy", {})
 
+    @property
+    def channel_check(self) -> dict | None:
+        """מה שיטת הערוץ בדקה לאחרונה בתוך חלון, ולמה (לא) נשלח סיגנל."""
+        return (self.strategy_state().get("channel") or {}).get("check")
+
     def positions(self) -> dict:
         strat = Strategy(self.cfg, self.strategy_state())
         return {"open_trades": strat.open_trades, "pending": strat.pending,

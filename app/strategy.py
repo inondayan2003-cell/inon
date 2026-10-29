@@ -669,10 +669,11 @@ class ChannelFadeStrategy:
         self.setup: dict | None = st.get("setup")
         self.trade: dict | None = st.get("trade")
         self.last_fire: str | None = st.get("last_fire")
+        self.check: dict | None = st.get("check")   # הבדיקה האחרונה בתוך חלון: מה נמדד ולמה כן/לא נשלח סיגנל
 
     def to_state(self) -> dict:
         return {"closes": self.closes, "done": self.done, "setup": self.setup, "trade": self.trade,
-                "last_fire": self.last_fire}
+                "last_fire": self.last_fire, "check": self.check}
 
     def _close_trade(self, t, exit_px, status, r) -> dict:
         x = {k: v for k, v in self.trade.items() if k in Trade.__dataclass_fields__}
@@ -728,6 +729,19 @@ class ChannelFadeStrategy:
         win = next((w for w in self.WINDOWS if w[0] <= h < w[1]), None) if il.weekday() < 5 else None
         key = f"{il.date()}-{win[2]}" if win else None
         fresh = self.last_fire is None or t - pd.Timestamp(self.last_fire) >= pd.Timedelta(hours=self.GAP_H)
+        if win and allow_entry:
+            k = close / self.REF
+            m4 = close - past4[-1] if past4 else None
+            mb = close - pastb[-1] if pastb else None
+            why = ("כבר נשלח סיגנל בחלון הזה" if key in self.done else
+                   "יש עסקה פתוחה או לימיט ממתין" if self.setup or self.trade else
+                   f"פחות מ-{self.GAP_H:g} שעות מהסיגנל הקודם" if not fresh else
+                   "אין מספיק היסטוריה (4 שעות)" if m4 is None or mb is None else
+                   f"תנועת 4 שעות {m4:+.1f}$, צריך לפחות ±{self.FADE * k:.1f}$" if abs(m4) < self.FADE * k else
+                   f"עוד אין תיקון ב-{self.BOUNCE_MIN} דקות ({mb:+.1f}$)" if (m4 < 0) != (mb > 0) else "")
+            self.check = {"t": t.isoformat(), "window": win[2], "price": round(close, 2),
+                          "m4": None if m4 is None else round(m4, 1), "mb": None if mb is None else round(mb, 1),
+                          "reason": why or "נשלח סיגנל"}
         if (allow_entry and win and key not in self.done and fresh and not self.setup and not self.trade
                 and past4 and pastb):
             k = close / self.REF
