@@ -21,6 +21,12 @@ curl -sf "https://api.telegram.org/bot$TT/sendMessage" -d chat_id="$TC" \
   -d text="🔧 מתחיל להקים את השרת..." >/dev/null \
   && echo "Telegram ✅" || { echo "❌ Token או Chat ID לא תקינים"; exit 1; }
 
+EX=$(oci compute instance list -c "$C" --display-name gapbot --query 'data[?"lifecycle-state"!=`TERMINATED`].id | [0]' --raw-output 2>/dev/null || true)
+if [ -n "$EX" ] && [ "$EX" != "null" ]; then
+  IP=$(oci compute instance list-vnics --instance-id "$EX" --query 'data[0]."public-ip"' --raw-output 2>/dev/null || true)
+  echo "✅ שרת gapbot כבר קיים ($IP) - לא יוצר שוב. תוך כמה דקות תגיע הודעה בטלגרם."
+  exit 0
+fi
 echo "== רשת..."
 SUB=$(oci network subnet list -c "$C" --all \
   --query 'data[?"prohibit-public-ip-on-vnic"==`false` && "lifecycle-state"==`AVAILABLE`].id | [0]' --raw-output 2>/dev/null || true)
