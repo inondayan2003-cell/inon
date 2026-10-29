@@ -7,7 +7,7 @@ import pandas as pd
 
 from .backtest import backtest_report
 from .config import Settings
-from .messages import status_message
+from .messages import channel_message, status_message
 from .signals import parse_signal, report as signals_report
 from .storage import Store
 
@@ -21,6 +21,7 @@ HELP = (
     "🔁 <b>ניהול:</b> שליש בכל יעד. אחרי TP1 להזיז את ה-SL לכניסה.\n"
     "🔔 אחרי כל סיגנל תקבל עדכון: כניסה, כל TP, וסגירה.\n\n"
     "/status - מצב השוק עכשיו\n"
+    "/test - דוגמה לסיגנל (בדיקה שהבוט מחובר)\n"
     "/backtest - בדיקה היסטורית על 6 החודשים האחרונים\n"
     "/signals - בדיקת סיגנלים שהעברת מקבוצה (Forward של ההודעות לכאן)\n"
     "/alerts_on - הפעלת התראות\n"
@@ -75,6 +76,7 @@ class Bot:
             {"command": "alerts_on", "description": "הפעלת התראות לונג/שורט"},
             {"command": "alerts_off", "description": "השתקת התראות"},
             {"command": "app", "description": "פתיחת האפליקציה"},
+            {"command": "test", "description": "דוגמה לסיגנל (בדיקת חיבור)"},
             {"command": "backtest", "description": "בדיקה היסטורית של השיטה"},
             {"command": "signals", "description": "בדיקת סיגנלים שהועברו מקבוצה"},
         ])
@@ -165,6 +167,13 @@ class Bot:
                 text_out = await asyncio.to_thread(signals_report, sigs, self.cfg.td_symbol, self.cfg.twelvedata_api_key)
             for i in range(0, len(text_out), 3800):
                 await self.send(chat_id, text_out[i:i + 3800])
+        elif cmd == "/test":
+            snap = self.get_snapshot()
+            price = round(snap["price"]) if snap else 4000
+            sig = {"direction": 1, "entry": price, "far": price - 5, "sl": price - 15,
+                   "tps": [price + 5, price + 10, price + 15], "opened_at": pd.Timestamp.now(tz="UTC").isoformat()}
+            await self.send(chat_id, "🧪 <b>הודעת בדיקה - זה לא סיגנל אמיתי.</b> ככה ייראה כל סיגנל:\n\n"
+                            + channel_message({"trade": sig}))
         elif cmd == "/app":
             await self.send(chat_id, "פתח את האפליקציה:", with_button=True)
         else:
