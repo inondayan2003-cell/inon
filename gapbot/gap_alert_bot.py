@@ -21,6 +21,8 @@ MIN_GAP_PCT = 10.0      # עלייה מינימלית מסגירת אתמול (%
 MIN_PRICE = 1.0         # מחיר מינימלי ($)
 MAX_PRICE = 20.0        # מחיר מקסימלי ($)
 MAX_RISK_PCT = 8.0      # אם הסטופ רחוק יותר מזה (%) - לא שולח
+MAX_GAP_PCT = 0         # תקרת עלייה (%). 0 = בלי תקרה
+REQUIRE_NEWS = True     # לשלוח רק מניות שיש עליהן חדשות מאז הסגירה הקודמת
 RR = 3.0                # יחס סיכוי:סיכון
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
@@ -58,16 +60,41 @@ def last_closed_5m_low(symbol, now):
     return None
 
 
+DILUTION = ("offering", "warrant", "reverse split", "reverse stock split",
+            "dilut", "private placement", "shelf", "atm program", "registered direct")
+
+
+def news_since_last_close(symbol, now):
+    d = now.date() - dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= dt.timedelta(days=1)
+    start = dt.datetime.combine(d, dt.time(16, 0), NY)
+    r = requests.get(f"{DATA}/v1beta1/news", headers=HDR, timeout=15,
+                     params={"symbols": symbol, "start": start.isoformat(),
+                             "limit": 5, "sort": "desc"})
+    r.raise_for_status()
+    return r.json().get("news") or []
+
+
+def news_text(news):
+    if not news:
+        return "⚠️ אין חדשות מאז הסגירה\n"
+    n = news[0]
+    h = n.get("headline", "")
+    flag = "🚩 חשד לדילול/הנפקה!\n" if any(k in h.lower() for k in DILUTION) else ""
+    return f"📰 {h}\n{flag}🔗 {n.get('url', '')}\n"
+
+
 def send_tg(text):
     requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
                   data={"chat_id": TG_CHAT_ID, "text": text}, timeout=15)
 
 
-def build_signal(sym, pct, price, stop, now, demo=False):
+def build_signal(sym, pct, price, stop, now, demo=False, news=""):
     risk = price - stop
     target = price + RR * risk
     head = "🧪 סיגנל דמו (בדיקה בלבד)\n" if demo else ""
-    return (f"{head}🚀 {sym}  +{pct:.1f}%\n"
+    return (f"{head}🚀 {sym}  +{pct:.1f}%\n{news}"
             f"כניסה: ${price:.2f}\n"
             f"סטופ:  ${stop:.2f}  (-{risk / price * 100:.1f}%)\n"
             f"יעד:   ${target:.2f}  (+{RR * risk / price * 100:.1f}%)\n"
@@ -80,11 +107,16 @@ def demo_signal():
         g = get_gainers()[0]
         sym, pct, price = g["symbol"], g["percent_change"], g["price"]
         src = "✅ Alpaca מחובר"
+        try:
+            nt = news_text(news_since_last_close(sym, now))
+        except Exception as e:
+            nt = f"⚠️ חדשות לא זמינות: {e}\n"
     except Exception as e:
         sym, pct, price = "DEMO", 12.5, 5.00
         src = f"⚠️ Alpaca לא הגיב: {e}"
+        nt = ""
     stop = round(price * 0.96, 2)
-    return build_signal(sym, pct, price, stop, now, demo=True) + f"\n{src}"
+    return build_signal(sym, pct, price, stop, now, demo=True, news=nt) + f"\n{src}"
 
 
 def command_listener():
@@ -124,6 +156,8 @@ def main():
                 sym, pct, price = g["symbol"], g["percent_change"], g["price"]
                 if sym in alerted or pct < MIN_GAP_PCT:
                     continue
+                if MAX_GAP_PCT and pct > MAX_GAP_PCT:
+                    continue
                 if not (MIN_PRICE <= price <= MAX_PRICE):
                     continue
                 stop = last_closed_5m_low(sym, now)
@@ -132,8 +166,11 @@ def main():
                 risk = price - stop
                 if risk / price * 100 > MAX_RISK_PCT:
                     continue
+                news = news_since_last_close(sym, now)
+                if REQUIRE_NEWS and not news:
+                    continue
                 alerted.add(sym)
-                send_tg(build_signal(sym, pct, price, stop, now))
+                send_tg(build_signal(sym, pct, price, stop, now, news=news_text(news)))
         except Exception as e:
             print("error:", e)
         time.sleep(SCAN_EVERY_SEC)
