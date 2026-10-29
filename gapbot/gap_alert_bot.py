@@ -34,6 +34,8 @@ RISK_PER_TRADE = 100.0  # כמה $ מסכנים בכל עסקה (בדמו)
 MAX_POSITION = 10000.0  # גודל פוזיציה מקסימלי ($)
 EOD_CLOSE = dt.time(15, 55)   # סגירת כל הפוזיציות (שעון ניו יורק)
 EOD_REPORT = dt.time(16, 5)   # שליחת דוח יומי
+SIGNAL_WINDOW_MIN = 90  # סיגנלים רק ב-X הדקות הראשונות של המסחר
+MIN_RVOL = 2.0          # ווליום יחסי מינימלי (היום מול ממוצע 20 יום, לפי השעה)
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
 
@@ -57,18 +59,47 @@ def get_gainers():
     return r.json().get("gainers", [])
 
 
-def last_closed_5m_low(symbol, now):
+def bars_today(symbol, now):
     start = now.replace(hour=9, minute=30, second=0, microsecond=0)
     r = requests.get(f"{DATA}/v2/stocks/{symbol}/bars", headers=HDR, timeout=15,
                      params={"timeframe": "5Min", "start": start.isoformat(),
                              "feed": "iex", "limit": 200})
     r.raise_for_status()
-    bars = r.json().get("bars") or []
+    return r.json().get("bars") or []
+
+
+def last_closed_bar(bars):
     if len(bars) >= 2:
-        return bars[-2]["l"]      # הנר האחרון שנסגר
-    if bars:
-        return bars[-1]["l"]
-    return None
+        return bars[-2]           # הנר האחרון שנסגר
+    return bars[-1] if bars else None
+
+
+def last_closed_5m_low(symbol, now):
+    b = last_closed_bar(bars_today(symbol, now))
+    return b["l"] if b else None
+
+
+def rvol(symbol, now, bars):
+    """ווליום היום עד עכשיו, מול ממוצע 20 יום מחולק לפי הזמן שעבר מהפתיחה."""
+    r = requests.get(f"{DATA}/v2/stocks/{symbol}/bars", headers=HDR, timeout=15,
+                     params={"timeframe": "1Day", "feed": "iex", "limit": 30,
+                             "start": (now - dt.timedelta(days=45)).date().isoformat()})
+    r.raise_for_status()
+    days = [b for b in (r.json().get("bars") or []) if b["t"][:10] < now.date().isoformat()][-20:]
+    if not days:
+        return 0.0
+    avg = sum(b["v"] for b in days) / len(days)
+    mins = (now - now.replace(hour=9, minute=30, second=0, microsecond=0)).total_seconds() / 60
+    frac = max(mins / 390, 0.05)
+    today = sum(b["v"] for b in bars)
+    return today / (avg * frac) if avg else 0.0
+
+
+def last_price(symbol):
+    r = requests.get(f"{DATA}/v2/stocks/{symbol}/trades/latest", headers=HDR,
+                     params={"feed": "iex"}, timeout=15)
+    r.raise_for_status()
+    return r.json()["trade"]["p"]
 
 
 DILUTION = ("offering", "warrant", "reverse split", "reverse stock split",
@@ -234,7 +265,7 @@ def build_signal(sym, pct, price, stop, now, demo=False, news=""):
     target = price + RR * risk
     head = "🧪 סיגנל דמו (בדיקה בלבד)\n" if demo else ""
     return (f"{head}🚀 {sym}  +{pct:.1f}%\n{news}"
-            f"כניסה: ${price:.2f}\n"
+            f"כניסה בפריצה מעל: ${price:.2f}\n"
             f"סטופ:  ${stop:.2f}  (-{risk / price * 100:.1f}%)\n"
             f"יעד:   ${target:.2f}  (+{RR * risk / price * 100:.1f}%)\n"
             f"🕒 {now:%H:%M} NY")
@@ -292,6 +323,7 @@ def main():
         if now.date() != day:
             day = now.date()
             alerted = {t["symbol"] for t in load_trades(day)}
+            pending = {}
             closed = reported = False
         if PAPER_TRADING and now.weekday() < 5:
             try:
@@ -306,7 +338,32 @@ def main():
         if not market_open(now) or now.time() >= EOD_CLOSE:
             time.sleep(60)
             continue
+        open_t = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        in_window = now < open_t + dt.timedelta(minutes=SIGNAL_WINDOW_MIN)
         try:
+            # 1) בדיקת פריצות שממתינות (מסחר דמו)
+            for sym, t in list(pending.items()):
+                if not in_window:
+                    pending.pop(sym)
+                    continue
+                lp = last_price(sym)
+                if lp >= t["price"]:
+                    pending.pop(sym)
+                    if lp > t["price"] * 1.02:      # קפץ רחוק מעל נקודת הכניסה - לא רודפים
+                        print("skip chase", sym, lp)
+                        continue
+                    qty, err = place_bracket(sym, lp, t["stop"], t["target"])
+                    t.update(qty=qty or 0, fill=lp, time=f"{now:%H:%M}")
+                    if err:
+                        t["err"] = err
+                        print("paper order failed:", sym, err)
+                    save_trade(str(day), t)
+                elif lp <= t["stop"]:                 # נשבר לפני פריצה - מבטלים
+                    pending.pop(sym)
+            # 2) סיגנלים חדשים - רק בחלון הזמן
+            if not in_window:
+                time.sleep(SCAN_EVERY_SEC)
+                continue
             for g in get_gainers():
                 sym, pct, price = g["symbol"], g["percent_change"], g["price"]
                 if sym in alerted or pct < MIN_GAP_PCT:
@@ -315,31 +372,29 @@ def main():
                     continue
                 if not (MIN_PRICE <= price <= MAX_PRICE):
                     continue
-                stop = last_closed_5m_low(sym, now)
-                if stop is None or stop >= price:
+                bars = bars_today(sym, now)
+                b = last_closed_bar(bars)
+                if not b:
                     continue
-                risk = price - stop
-                if risk / price * 100 > MAX_RISK_PCT:
+                entry, stop = px(b["h"] + 0.01), b["l"]
+                if price > entry * 1.02:              # כבר פרץ ורחוק - לא רודפים
                     continue
-                if RR * risk / price * 100 < MIN_TARGET_PCT:
+                entry = max(entry, px(price))
+                risk = entry - stop
+                if risk <= 0 or risk / entry * 100 > MAX_RISK_PCT:
+                    continue
+                if RR * risk / entry * 100 < MIN_TARGET_PCT:
+                    continue
+                if rvol(sym, now, bars) < MIN_RVOL:
                     continue
                 news = news_since_last_close(sym, now)
                 if REQUIRE_NEWS and not news:
                     continue
                 alerted.add(sym)
-                target = price + RR * risk
-                msg = build_signal(sym, pct, price, stop, now, news=news_text(news))
+                target = entry + RR * risk
+                send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news)))
                 if PAPER_TRADING:
-                    qty, err = place_bracket(sym, price, stop, target)
-                    if qty:
-                        save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
-                                              "target": target, "qty": qty,
-                                              "time": f"{now:%H:%M}"})
-                    else:
-                        save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
-                                              "target": target, "qty": 0, "err": err})
-                        print("paper order failed:", sym, err)
-                send_tg(msg)
+                    pending[sym] = {"symbol": sym, "price": entry, "stop": stop, "target": target}
         except Exception as e:
             print("error:", e)
         time.sleep(SCAN_EVERY_SEC)
