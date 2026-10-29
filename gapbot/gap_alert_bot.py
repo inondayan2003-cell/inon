@@ -164,8 +164,17 @@ def place_bracket(sym, price, stop, target):
 
 
 def close_all():
+    """מבטל סטופים/יעדים פתוחים ואז סוגר את כל הפוזיציות. מחזיר True אם הכל סגור."""
     requests.delete(f"{TRADE}/v2/orders", headers=HDR, timeout=15)
-    requests.delete(f"{TRADE}/v2/positions", headers=HDR, timeout=15)
+    for _ in range(15):  # מחכה שהביטולים יסתיימו - אחרת המניות "תפוסות"
+        r = requests.get(f"{TRADE}/v2/orders", headers=HDR, params={"status": "open"}, timeout=15)
+        if r.ok and not r.json():
+            break
+        time.sleep(2)
+    requests.delete(f"{TRADE}/v2/positions", headers=HDR, params={"cancel_orders": "true"}, timeout=15)
+    time.sleep(5)
+    r = requests.get(f"{TRADE}/v2/positions", headers=HDR, timeout=15)
+    return r.ok and not r.json()
 
 
 def market_was_open(day):
@@ -287,7 +296,7 @@ def main():
         if PAPER_TRADING and now.weekday() < 5:
             try:
                 if not closed and now.time() >= EOD_CLOSE:
-                    close_all(); closed = True
+                    closed = close_all()  # אם לא הצליח - ינסה שוב בסיבוב הבא
                 if not reported and now.time() >= EOD_REPORT:
                     reported = True
                     if market_was_open(day):
