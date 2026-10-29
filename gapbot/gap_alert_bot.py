@@ -18,7 +18,7 @@ ALPACA_SECRET = "YOUR_ALPACA_SECRET"
 TG_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 TG_CHAT_ID = "YOUR_CHAT_ID"
 
-MIN_GAP_PCT = 10.0      # עלייה מינימלית מסגירת אתמול (%)
+MIN_GAP_PCT = 5.0       # עלייה מינימלית מסגירת אתמול (%)
 MIN_PRICE = 1.0         # מחיר מינימלי ($)
 MAX_PRICE = 20.0        # מחיר מקסימלי ($)
 MAX_RISK_PCT = 8.0      # אם הסטופ רחוק יותר מזה (%) - לא שולח
