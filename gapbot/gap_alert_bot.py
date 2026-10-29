@@ -326,11 +326,10 @@ def main():
                         save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
                                               "target": target, "qty": qty,
                                               "time": f"{now:%H:%M}"})
-                        msg += f"\n🤖 דמו: נקנו {qty} מניות"
                     else:
                         save_trade(str(day), {"symbol": sym, "price": price, "stop": stop,
                                               "target": target, "qty": 0, "err": err})
-                        msg += f"\n🤖 דמו: לא בוצע ({err})"
+                        print("paper order failed:", sym, err)
                 send_tg(msg)
         except Exception as e:
             print("error:", e)
