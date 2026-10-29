@@ -219,7 +219,7 @@ def build_watchlist(now):
     return rows
 
 
-def watchlist_text(now):
+def watchlist_text(now, levels=None):
     rows = build_watchlist(now)
     open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
     if not rows:
@@ -231,6 +231,10 @@ def watchlist_text(now):
         stop = min(stop, px(level * (1 - MIN_TARGET_PCT / RR / 100)))   # יעד של לפחות MIN_TARGET_PCT
         target = level + RR * (level - stop)
         h = (n or {}).get("headline", "")
+        if levels is not None:
+            levels.append({"symbol": sym, "price": level, "stop": stop, "target": target,
+                           "source": "watchlist", "signal_time": "pre", "gap_pct": round(pct, 1),
+                           "risk_pct": round((level - stop) / level * 100, 2), "headline": h[:200]})
         flag = " 🚩דילול?" if any(k in h.lower() for k in DILUTION) else ""
         out.append(f"{i}. {sym}  +{pct:.1f}%  (עכשיו ${price:.2f})\n"
                    f"📰 {h[:120]}{flag}\n"
@@ -322,15 +326,17 @@ def daily_report(day):
         else:
             a["sq"] += q; a["sv"] += q * p
     lines, total, wins, done = [], 0.0, 0, 0
+    by_src = {}
     for t in trades:
+        tag = "📋" if t.get("source") == "watchlist" else "⚡"
         a = agg.get(t["symbol"])
         if not a or not a["bq"]:
-            lines.append(f"⚪ {t['symbol']} - לא בוצע")
+            lines.append(f"{tag}⚪ {t['symbol']} - לא בוצע")
             continue
         entry = a["bv"] / a["bq"]
         exit_ = a["sv"] / a["sq"] if a["sq"] else None
         if exit_ is None:
-            lines.append(f"⏳ {t['symbol']} - עדיין פתוחה (כניסה ${entry:.2f})")
+            lines.append(f"{tag}⏳ {t['symbol']} - עדיין פתוחה (כניסה ${entry:.2f})")
             continue
         pnl = a["sv"] - a["bv"]
         total += pnl; done += 1
@@ -344,21 +350,26 @@ def daily_report(day):
             wins += 1
         t.update(entry_fill=round(entry, 4), exit_fill=round(exit_, 4),
                  pnl=round(pnl, 2), result=why)
-        lines.append(f"{icon} {t['symbol']}  ${entry:.2f} → ${exit_:.2f}  ({why})  "
+        b = by_src.setdefault(tag, [0, 0, 0.0])
+        b[0] += 1; b[1] += pnl > 0; b[2] += pnl
+        lines.append(f"{tag}{icon} {t['symbol']}  ${entry:.2f} → ${exit_:.2f}  ({why})  "
                      f"{'+' if pnl >= 0 else ''}{pnl:.0f}$")
     with open(trades_file(day), "w") as f:
         json.dump(trades, f, ensure_ascii=False, indent=1)
     acct = requests.get(f"{TRADE}/v2/account", headers=HDR, timeout=15).json()
     wr = f"{wins / done * 100:.0f}%" if done else "-"
-    return (f"📊 דוח יומי {day}\n\n" + "\n".join(lines) +
-            f"\n\nעסקאות: {done} | הצלחות: {wins} ({wr})\n"
+    names = {"📋": "רשימת מעקב", "⚡": "סיגנלים בזמן אמת"}
+    src_lines = "".join(f"{k} {names[k]}: {v[0]} עסקאות | הצלחות: {v[1]} | "
+                        f"{'+' if v[2] >= 0 else ''}{v[2]:.0f}$\n" for k, v in by_src.items())
+    return (f"📊 דוח יומי {day}\n\n" + "\n".join(lines) + "\n\n" + src_lines +
+            f"\nעסקאות: {done} | הצלחות: {wins} ({wr})\n"
             f"רווח/הפסד היום: {'+' if total >= 0 else ''}{total:.0f}$\n"
             f"יתרת חשבון דמו: ${float(acct.get('equity', 0)):,.0f}")
 
 
 def export_csv():
     import csv
-    cols = ["date", "symbol", "signal_time", "time", "gap_pct", "rvol", "risk_pct", "price",
+    cols = ["date", "source", "symbol", "signal_time", "time", "gap_pct", "rvol", "risk_pct", "price",
             "stop", "target", "qty", "entry_fill", "exit_fill", "pnl", "result", "headline", "err"]
     path = os.path.join(TRADES_DIR, "all_trades.csv")
     os.makedirs(TRADES_DIR, exist_ok=True)
@@ -443,14 +454,19 @@ def main():
         now = dt.datetime.now(NY)
         if now.date() != day:
             day = now.date()
-            alerted = {t["symbol"] for t in load_trades(day)}
+            traded = {t["symbol"] for t in load_trades(day)}
+            alerted = {t["symbol"] for t in load_trades(day) if t.get("source") != "watchlist"}
             pending = {}
             closed = reported = watched = False
         if not watched and now.weekday() < 5 and WATCHLIST_TIME <= now.time() < dt.time(9, 30):
             watched = True
             try:
                 if market_was_open(day):
-                    send_tg(watchlist_text(now))
+                    lv = []
+                    send_tg(watchlist_text(now, lv))
+                    if PAPER_TRADING:
+                        for t in lv:
+                            pending[t["symbol"] + ":w"] = t
             except Exception as e:
                 print("watchlist error:", e)
         if PAPER_TRADING and now.weekday() < 5:
@@ -470,13 +486,14 @@ def main():
         in_window = now < open_t + dt.timedelta(minutes=SIGNAL_WINDOW_MIN)
         try:
             # 1) בדיקת פריצות שממתינות (מסחר דמו)
-            for sym, t in list(pending.items()):
-                if not in_window:
-                    pending.pop(sym)
+            for key, t in list(pending.items()):
+                sym = t["symbol"]
+                if not in_window or sym in traded:
+                    pending.pop(key)
                     continue
                 lp = last_price(sym)
                 if lp >= t["price"]:
-                    pending.pop(sym)
+                    pending.pop(key)
                     if lp > t["price"] * 1.02:      # קפץ רחוק מעל נקודת הכניסה - לא רודפים
                         print("skip chase", sym, lp)
                         continue
@@ -485,9 +502,10 @@ def main():
                     if err:
                         t["err"] = err
                         print("paper order failed:", sym, err)
+                    traded.add(sym)
                     save_trade(str(day), t)
                 elif lp <= t["stop"]:                 # נשבר לפני פריצה - מבטלים
-                    pending.pop(sym)
+                    pending.pop(key)
             # 2) סיגנלים חדשים - רק בחלון הזמן
             if not in_window:
                 time.sleep(SCAN_EVERY_SEC)
@@ -523,7 +541,7 @@ def main():
                 target = entry + RR * risk
                 send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news)))
                 if PAPER_TRADING:
-                    pending[sym] = {"symbol": sym, "price": entry, "stop": stop, "target": target,
+                    pending[sym] = {"symbol": sym, "source": "signal", "price": entry, "stop": stop, "target": target,
                                     "signal_time": f"{now:%H:%M}", "gap_pct": round(pct, 1),
                                     "rvol": round(rv, 1), "risk_pct": round(risk / entry * 100, 2),
                                     "headline": (news[0].get("headline", "") if news else "")[:200]}
