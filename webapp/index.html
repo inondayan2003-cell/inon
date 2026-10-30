@@ -19,7 +19,7 @@
       <button class="icon-btn" id="refresh" aria-label="רענון">⟳</button>
     </header>
 
-    <section class="card verdict" id="verdictCard">
+    <section class="card verdict" id="verdictCard" hidden>
       <div class="verdict-label" id="verdict">טוען ניתוח…</div>
       <div class="gauge"><div class="gauge-mid"></div><div class="gauge-fill" id="gaugeFill"></div></div>
       <div class="gauge-scale"><span>שורט -100</span><span id="score">0</span><span>+100 לונג</span></div>
@@ -30,13 +30,18 @@
       <div id="tradePlan"></div>
     </section>
 
+    <section class="card" id="noTradeCard" hidden>
+      <h2>📡 שיטת הערוץ</h2>
+      <p class="muted" id="noTrade"></p>
+    </section>
+
     <section class="card" id="planCard" hidden>
       <h2 id="planTitle">תוכנית מסחר</h2>
       <div class="plan" id="plan"></div>
       <ul class="reasons" id="reasons"></ul>
     </section>
 
-    <section class="card">
+    <section class="card" hidden>
       <h2>יישור טווחי זמן</h2>
       <div class="tfs" id="tfs"></div>
     </section>

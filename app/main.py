@@ -72,7 +72,8 @@ def health():
 def get_analysis():
     if not service.snapshot:
         raise HTTPException(503, service.last_error or "הניתוח הראשון עוד רץ")
-    return {**service.snapshot, **service.positions(), "error": service.last_error}
+    return {**service.snapshot, **service.positions(), "error": service.last_error,
+            "channel_check": service.channel_check}
 
 
 @app.get("/api/candles")

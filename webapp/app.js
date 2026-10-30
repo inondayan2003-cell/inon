@@ -31,6 +31,14 @@ function planCells(p, dir) {
     <div class="tp"><span>יעד 2 · ${r(p.tp2)}</span><b>${fmt(p.tp2)}</b></div>`;
 }
 
+function channelCells(t) {
+  const d = t.direction, n = (x) => Math.round(x).toLocaleString("en-US");
+  return `
+    <div><span>${d === 1 ? "🟢 BUY" : "🔴 SELL"}</span><b>${n(t.entry)}-${n(t.far)}</b></div>
+    <div class="sl"><span>SL (${n(Math.abs(t.entry - t.sl))}$)</span><b>${n(t.stop ?? t.sl)}</b></div>
+    ${(t.tps || []).map((x, i) => `<div class="tp"><span>TP${i + 1} · +${n(Math.abs(x - t.entry))}$${(t.hits || 0) > i ? " ✓" : ""}</span><b>${n(x)}</b></div>`).join("")}`;
+}
+
 function renderAnalysis(a) {
   last = a;
   $("symbol").textContent = a.symbol;
@@ -61,20 +69,18 @@ function renderAnalysis(a) {
   $("tradeCard").hidden = !trades.length && !pend;
   const blocks = trades.map((t) => `
     <h2>${METHOD[t.method] || ""}${(a.alert_methods || []).includes(t.method) ? "" : " (מעקב בלבד, בלי התראות)"} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
-    <div class="plan">${planCells(t, t.direction)}</div>`);
+    <div class="plan">${t.method === "channel_fade" ? channelCells(t) : planCells(t, t.direction)}</div>`);
   if (pend) blocks.push(`
     <h2>${METHOD[pend.method] || "💧"} · הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
-    <p class="muted" style="margin-bottom:8px">${pend.note} (${fmt(pend.level)})</p>
-    <div class="plan">${planCells(pend, pend.direction)}</div>`);
+    <p class="muted" style="margin-bottom:8px">${pend.note}${pend.level ? ` (${fmt(pend.level)})` : ""}</p>
+    <div class="plan">${pend.method === "channel_fade" ? channelCells(pend) : planCells(pend, pend.direction)}</div>`);
   $("tradePlan").innerHTML = blocks.join('<div style="height:12px"></div>');
 
-  const dir = a.direction || a.lean;
-  $("planCard").hidden = !a.plan;
-  if (a.plan) {
-    $("planTitle").textContent = "📈 תמונת מגמה - לניתוח בלבד (לא סיגנל)";
-    $("plan").innerHTML = planCells(a.plan, dir);
-    $("reasons").innerHTML = a.reasons.map((r) => `<li>${r}</li>`).join("");
-  }
+  $("noTradeCard").hidden = !!(trades.length || pend);
+  const c = a.channel_check;
+  $("noTrade").textContent = c ? `אין סיגנל פתוח. בדיקה אחרונה ${ilTime(c.t)} (חלון ${c.window}): ${c.reason}`
+    : "אין סיגנל פתוח. חלונות: 09:15-10:30 · 14:00-16:15 · 17:15-19:45 (שני-שישי)";
+
 
   $("tfs").innerHTML = a.timeframes.map((x) => {
     const w = Math.min(Math.abs(x.score), 100) / 2;
