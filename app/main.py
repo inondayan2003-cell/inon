@@ -61,6 +61,14 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Gold Analyzer", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """טלגרם שומר את קבצי המיני-אפ במטמון; בלי זה רואים גרסה ישנה אחרי עדכון."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
 @app.get("/health")
 def health():
     snap = service.snapshot or {}
