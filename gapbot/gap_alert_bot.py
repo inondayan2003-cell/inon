@@ -237,6 +237,27 @@ def closed_today_text(now):
     return f"🔒 השוק בארה\"ב סגור היום ({why}).{when}"
 
 
+LAST_WATCH = {"time": None, "items": []}   # הרשימה האחרונה שחושבה (למיני-אפ)
+
+
+def watchlist_items(now):
+    """מחשב את רשימת המעקב כרשימת מילונים עם רמות."""
+    items = []
+    for sym, pct, price, prev, n, hi, lo in build_watchlist(now):
+        level = px(hi + 0.01)
+        stop = lo if (level - lo) / level * 100 <= MAX_RISK_PCT else px(level * (1 - MAX_RISK_PCT / 100))
+        stop = min(stop, px(level * (1 - MIN_TARGET_PCT / RR / 100)))   # יעד של לפחות MIN_TARGET_PCT
+        target = px(level + RR * (level - stop))
+        h = (n or {}).get("headline", "")
+        items.append({"symbol": sym, "gap_pct": round(pct, 1), "pre_price": price, "prev_close": prev,
+                      "price": level, "stop": stop, "target": target,
+                      "risk_pct": round((level - stop) / level * 100, 2),
+                      "headline": h[:200], "url": (n or {}).get("url", ""),
+                      "dilution": any(k in h.lower() for k in DILUTION)})
+    LAST_WATCH.update(time=now.isoformat(), items=items)
+    return items
+
+
 def watchlist_text(now, levels=None):
     closed = closed_today_text(now)
     if closed:
@@ -244,25 +265,21 @@ def watchlist_text(now, levels=None):
     if not (now.weekday() < 5 and dt.time(4, 0) <= now.time() < dt.time(9, 30)):
         return ("📋 רשימת מעקב זמינה רק בימי מסחר בין 11:00 לפתיחה (שעון ישראל).\n"
                 "עכשיו אין מסחר מוקדם, אז אין רמות אמיתיות לחשב.")
-    rows = build_watchlist(now)
+    items = watchlist_items(now)
     open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
-    if not rows:
+    if not items:
         return f"📋 רשימת מעקב להיום\nאין הבוקר מניות עם חדשה + עלייה של {MIN_GAP_PCT:.0f}%+ במסחר המוקדם."
     out = [f"📋 רשימת מעקב להיום (פתיחה ב-{open_il:%H:%M})\n"]
-    for i, (sym, pct, price, prev, n, hi, lo) in enumerate(rows, 1):
-        level = px(hi + 0.01)
-        stop = lo if (level - lo) / level * 100 <= MAX_RISK_PCT else px(level * (1 - MAX_RISK_PCT / 100))
-        stop = min(stop, px(level * (1 - MIN_TARGET_PCT / RR / 100)))   # יעד של לפחות MIN_TARGET_PCT
-        target = level + RR * (level - stop)
-        h = (n or {}).get("headline", "")
+    for i, it in enumerate(items, 1):
         if levels is not None:
-            levels.append({"symbol": sym, "price": level, "stop": stop, "target": target,
-                           "source": "watchlist", "signal_time": "pre", "gap_pct": round(pct, 1),
-                           "risk_pct": round((level - stop) / level * 100, 2), "headline": h[:200]})
-        flag = " 🚩דילול?" if any(k in h.lower() for k in DILUTION) else ""
-        out.append(f"{i}. {sym}  +{pct:.1f}%  (עכשיו ${price:.2f})\n"
-                   f"📰 {h[:120]}{flag}\n"
-                   f"🎯 פריצה מעל: ${level:.2f} | סטופ: ${stop:.2f} | יעד: ${target:.2f}\n")
+            levels.append({"symbol": it["symbol"], "price": it["price"], "stop": it["stop"],
+                           "target": it["target"], "source": "watchlist", "signal_time": "pre",
+                           "gap_pct": it["gap_pct"], "risk_pct": it["risk_pct"],
+                           "headline": it["headline"]})
+        flag = " 🚩דילול?" if it["dilution"] else ""
+        out.append(f"{i}. {it['symbol']}  +{it['gap_pct']:.1f}%  (עכשיו ${it['pre_price']:.2f})\n"
+                   f"📰 {it['headline'][:120]}{flag}\n"
+                   f"🎯 פריצה מעל: ${it['price']:.2f} | סטופ: ${it['stop']:.2f} | יעד: ${it['target']:.2f}\n")
     out.append("⚠️ לא הוראת קנייה - רמות להכנה. בבלינק עדיף Buy Stop/Limit ולא פקודת שוק לפתיחה.")
     return "\n".join(out)
 
@@ -482,7 +499,65 @@ def set_commands():
         print("setMyCommands error:", e)
 
 
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+EDITABLE = {  # שם: (סוג, מינימום, מקסימום)
+    "MIN_GAP_PCT": (float, 1, 200), "MAX_GAP_PCT": (float, 0, 1000),
+    "MIN_PRICE": (float, 0.1, 1000), "MAX_PRICE": (float, 0.5, 5000),
+    "MIN_TARGET_PCT": (float, 0, 100), "MAX_RISK_PCT": (float, 0.5, 50),
+    "RR": (float, 0.5, 20), "MIN_RVOL": (float, 0, 50),
+    "SIGNAL_WINDOW_MIN": (int, 5, 390), "WATCHLIST_SIZE": (int, 1, 20),
+    "REQUIRE_NEWS": (bool, None, None), "PAPER_TRADING": (bool, None, None),
+    "RISK_PER_TRADE": (float, 1, 100000), "MAX_POSITION": (float, 10, 1000000),
+}
+
+
+def get_settings():
+    g = globals()
+    return {k: g[k] for k in EDITABLE}
+
+
+def apply_settings(new, save=True):
+    g = globals()
+    for k, v in new.items():
+        if k not in EDITABLE:
+            continue
+        typ, lo, hi = EDITABLE[k]
+        v = (v in (True, "true", "1", 1)) if typ is bool else typ(v)
+        if lo is not None:
+            v = min(max(v, lo), hi)
+        g[k] = v
+    if save:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(get_settings(), f, indent=1)
+    return get_settings()
+
+
+def load_settings():
+    try:
+        with open(SETTINGS_FILE) as f:
+            apply_settings(json.load(f), save=False)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print("settings load error:", e)
+
+
+def start_webapp():
+    try:
+        import sys
+        import webapp
+        url = webapp.start(sys.modules[__name__])
+        if url:
+            requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/setChatMenuButton", timeout=15,
+                          json={"chat_id": int(TG_CHAT_ID), "menu_button": {
+                              "type": "web_app", "text": "📊 אפליקציה", "web_app": {"url": url}}})
+    except Exception as e:
+        print("webapp error:", e)
+
+
 def main():
+    load_settings()
+    start_webapp()
     set_commands()
     threading.Thread(target=command_listener, daemon=True).start()
     day = None

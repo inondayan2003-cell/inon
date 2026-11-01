@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Gap Desk</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0F1720;        /* רקע - כחול-לילה של שולחן מסחר */
+    --panel: #17212C;
+    --line: #243241;
+    --text: #E8EDF2;
+    --muted: #8696A7;
+    --up: #2FBF71;
+    --down: #E5484D;
+    --wait: #E0A93B;
+    --pre: #3E7BD6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--text); }
+  body {
+    font-family: "Rubik", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+    padding: 16px 16px 96px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--pre); outline-offset: 2px; }
+
+  /* ---------- שעון ---------- */
+  .clock { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 4px 12px; }
+  .clock .ny { font-size: 44px; font-weight: 700; letter-spacing: -1px; line-height: 1; direction: ltr; text-align: right; }
+  .clock .ny small { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-inline-start: 6px; }
+  .clock .il { color: var(--muted); font-size: 14px; direction: ltr; text-align: left; }
+  .status { margin-top: 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .status .state { font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .state.open .dot { background: var(--up); box-shadow: 0 0 0 4px rgb(47 191 113 / .18); }
+  .state.pre .dot { background: var(--pre); }
+  .status .cd { color: var(--muted); font-size: 14px; }
+  .status .cd b { color: var(--text); font-weight: 500; direction: ltr; display: inline-block; }
+
+  /* ציר יום המסחר - הדבר שזוכרים מהמסך */
+  .session { margin-top: 14px; direction: ltr; }
+  .track { position: relative; height: 10px; border-radius: 5px; overflow: hidden; display: flex; background: var(--panel); }
+  .seg-pre { background: rgb(62 123 214 / .45); }
+  .seg-reg { background: rgb(47 191 113 / .55); }
+  .seg-aft { background: rgb(134 150 167 / .3); }
+  .now { position: absolute; top: -4px; width: 2px; height: 18px; background: var(--text); border-radius: 1px; transition: left 1s linear; }
+  .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; position: relative; height: 14px; }
+  .ticks span { position: absolute; transform: translateX(-50%); }
+  .session.closed .track { opacity: .35; }
+
+  /* ---------- לשוניות ---------- */
+  nav { position: fixed; inset: auto 0 0 0; display: flex; background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 5; }
+  nav button { flex: 1; background: none; border: 0; padding: 14px 0; color: var(--muted); font-weight: 500; }
+  nav button[aria-selected="true"] { color: var(--text); box-shadow: inset 0 2px 0 var(--up); }
+  section[hidden] { display: none; }
+  h2 { font-size: 20px; font-weight: 700; margin: 28px 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+  /* ---------- רשימת מעקב ---------- */
+  .row { padding: 14px 0; border-top: 1px solid var(--line); }
+  .row:last-child { border-bottom: 1px solid var(--line); }
+  .row-head { display: flex; align-items: baseline; gap: 10px; }
+  .sym { font-size: 20px; font-weight: 700; direction: ltr; }
+  .gap { color: var(--up); font-weight: 500; direction: ltr; }
+  .badge { margin-inline-start: auto; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--panel); color: var(--muted); white-space: nowrap; }
+  .badge.broke, .badge.target { background: rgb(47 191 113 / .16); color: var(--up); }
+  .badge.stopped { background: rgb(229 72 77 / .16); color: var(--down); }
+  .badge.waiting { background: rgb(224 169 59 / .14); color: var(--wait); }
+  .news { margin: 6px 0 10px; font-size: 13px; color: var(--muted); direction: ltr; text-align: left; }
+  .news a { color: inherit; text-decoration-color: var(--line); }
+  .flag { color: var(--down); font-weight: 500; }
+
+  /* סולם: סטופ ← פריצה ← יעד, עם המחיר החי */
+  .ladder { direction: ltr; position: relative; height: 34px; margin: 4px 0 2px; }
+  .ladder .bar { position: absolute; top: 12px; height: 6px; left: 0; right: 0; border-radius: 3px;
+    background: linear-gradient(to right, rgb(229 72 77 / .55) 0 var(--lvl), rgb(47 191 113 / .55) var(--lvl) 100%); }
+  .ladder .lvl { position: absolute; top: 6px; width: 2px; height: 18px; background: var(--text); left: var(--lvl); }
+  .ladder .px { position: absolute; top: 8px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--text); border: 3px solid var(--ink); left: var(--px); transition: left .6s ease; }
+  .levels { direction: ltr; display: flex; justify-content: space-between; font-size: 13px; }
+  .levels div { display: flex; flex-direction: column; }
+  .levels div:nth-child(2) { align-items: center; }
+  .levels div:last-child { align-items: flex-end; }
+  .levels span { color: var(--muted); font-size: 11px; }
+  .levels b { font-weight: 500; }
+
+  .empty { padding: 28px 0; color: var(--muted); }
+  .empty p { margin: 0 0 6px; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; align-items: center; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; font-weight: 500; }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--up); border-color: var(--up); color: #06210F; }
+  .btn[disabled] { opacity: .5; }
+  .stamp { color: var(--muted); font-size: 12px; }
+
+  /* ---------- הגדרות ---------- */
+  fieldset { border: 0; padding: 0; margin: 22px 0 0; }
+  legend { font-weight: 700; font-size: 16px; padding: 0; margin-bottom: 4px; }
+  .field { display: grid; grid-template-columns: 1fr 104px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .field label { display: block; }
+  .field small { display: block; color: var(--muted); font-size: 12px; }
+  .field input[type=number] { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; direction: ltr; text-align: center; }
+  .switch { justify-self: end; position: relative; width: 48px; height: 28px; }
+  .switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; }
+  .switch i { position: absolute; inset: 0; border-radius: 14px; background: var(--line); transition: background .2s; pointer-events: none; }
+  .switch i::after { content: ""; position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--text); transition: transform .2s; }
+  .switch input:checked + i { background: var(--up); }
+  .switch input:checked + i::after { transform: translateX(-20px); }
+  .switch input:focus-visible + i { outline: 2px solid var(--pre); outline-offset: 2px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+  .toast { position: fixed; left: 16px; right: 16px; bottom: 76px; background: var(--text); color: var(--ink); padding: 12px 14px; border-radius: 10px; font-weight: 500; transform: translateY(20px); opacity: 0; transition: .25s; pointer-events: none; z-index: 9; }
+  .toast.show { transform: none; opacity: 1; }
+  .toast.err { background: var(--down); color: #fff; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="clock">
+    <div class="ny" id="ny">--:--:--<small>ניו יורק</small></div>
+    <div class="il" id="il">ישראל --:--</div>
+  </div>
+  <div class="status">
+    <div class="state" id="state"><span class="dot"></span><span id="stateText">טוען…</span></div>
+    <div class="cd" id="cd"></div>
+  </div>
+  <div class="session" id="session" aria-hidden="true">
+    <div class="track">
+      <div class="seg-pre" style="flex: 5.5"></div>
+      <div class="seg-reg" style="flex: 6.5"></div>
+      <div class="seg-aft" style="flex: 4"></div>
+      <div class="now" id="nowMark"></div>
+    </div>
+    <div class="ticks">
+      <span style="left: 0%; transform: none">04:00</span>
+      <span style="left: 34.4%">09:30</span>
+      <span style="left: 75%">16:00</span>
+      <span style="left: 100%; transform: translateX(-100%)">20:00</span>
+    </div>
+  </div>
+</header>
+
+<section id="tab-watch">
+  <h2>רשימת מעקב</h2>
+  <p class="sub" id="watchSub">מניות עם חדשה שעולות במסחר המוקדם. המחיר החי מתעדכן כל 30 שניות.</p>
+  <div id="watchList"></div>
+  <div class="actions">
+    <button class="btn" id="refreshBtn" type="button">חשב רשימה מחדש</button>
+    <span class="stamp" id="watchStamp"></span>
+  </div>
+</section>
+
+<section id="tab-settings" hidden>
+  <h2>הגדרות</h2>
+  <p class="sub">השינויים נכנסים לתוקף מיד, בלי לעדכן את השרת.</p>
+  <form id="settingsForm"></form>
+  <p class="note">שינוי הגדרות באמצע תקופת הבדיקה מקשה להשוות תוצאות. עדיף לשנות פעם אחת ולתת לזה לרוץ.</p>
+  <div class="actions"><button class="btn primary" id="saveBtn" type="button" disabled>שמור הגדרות</button></div>
+</section>
+
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="watch" type="button">רשימת מעקב</button>
+  <button role="tab" aria-selected="false" data-tab="settings" type="button">הגדרות</button>
+</nav>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0F1720'); tg.setBackgroundColor('#0F1720'); } catch (e) {} }
+const INIT = tg ? tg.initData : '';
+const $ = id => document.getElementById(id);
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'X-Init-Data': INIT, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'השרת לא הגיב');
+  return j;
+}
+
+function toast(msg, err) {
+  const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = 'toast', 2600);
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(err ? 'error' : 'success');
+}
+
+/* ---------- שעון ומצב השוק ---------- */
+let clock = null, offset = 0;
+const fmt = (tz, opt) => new Intl.DateTimeFormat('en-GB', Object.assign({ timeZone: tz, hour12: false }, opt));
+const fNY = fmt('America/New_York', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const fIL = fmt('Asia/Jerusalem', { hour: '2-digit', minute: '2-digit' });
+const fNYparts = fmt('America/New_York', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fILday = new Intl.DateTimeFormat('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: false });
+
+function nyParts(d) {
+  const p = Object.fromEntries(fNYparts.formatToParts(d).map(x => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, min: (+p.hour % 24) * 60 + +p.minute };
+}
+function dur(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+}
+
+function tick() {
+  const now = new Date(Date.now() + offset);
+  $('ny').firstChild.nodeValue = fNY.format(now);
+  $('il').textContent = 'ישראל ' + fIL.format(now);
+  const { date, min } = nyParts(now);
+  const pct = Math.min(100, Math.max(0, (min - 240) / (960) * 100));
+  $('nowMark').style.left = `calc(${pct}% - 1px)`;
+  $('nowMark').style.display = (min < 240 || min > 1200) ? 'none' : '';
+
+  if (!clock || !clock.next_open) return;
+  const nextOpen = new Date(clock.next_open), nextClose = new Date(clock.next_close);
+  const openToday = nyParts(nextOpen).date === date;
+  const st = $('state'), cd = $('cd');
+  let cls = '', text, cdText = '';
+  if (clock.is_open) {
+    cls = 'open'; text = 'השוק פתוח';
+    cdText = `נסגר בעוד <b>${dur(nextClose - now)}</b>`;
+  } else if (openToday && min >= 240) {
+    cls = 'pre'; text = 'מסחר מוקדם';
+    cdText = `נפתח בעוד <b>${dur(nextOpen - now)}</b>`;
+  } else {
+    text = 'השוק סגור';
+    cdText = openToday || nextOpen - now < 20 * 3600e3
+      ? `נפתח בעוד <b>${dur(nextOpen - now)}</b>`
+      : `נפתח ב${fILday.format(nextOpen)}`;
+  }
+  st.className = 'state ' + cls; $('stateText').textContent = text; cd.innerHTML = cdText;
+  $('session').classList.toggle('closed', !clock.is_open && !(openToday));
+}
+
+async function loadState() {
+  try {
+    const s = await api('/api/state');
+    offset = s.server_now * 1000 - Date.now();
+    clock = s.clock;
+    if ($('saveBtn').disabled) { settings = s.settings; renderSettings(); }  // לא לדרוס עריכה שלא נשמרה
+  } catch (e) { $('stateText').textContent = e.message; }
+}
+
+/* ---------- רשימת מעקב ---------- */
+const STATUS = {
+  waiting: 'מתחת לפריצה', broke: 'פרצה', target: 'הגיעה ליעד', stopped: 'נגעה בסטופ', unknown: 'אין מחיר חי'
+};
+const money = v => v == null ? '–' : '$' + (+v).toFixed(v < 1 ? 4 : 2);
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function renderWatch(w) {
+  const list = $('watchList');
+  if (!w.items || !w.items.length) {
+    list.innerHTML = `<div class="empty"><p>אין כרגע מניות ברשימה.</p>
+      <p>הרשימה נבנית אוטומטית שעה לפני הפתיחה. במסחר המוקדם אפשר גם ללחוץ על "חשב רשימה מחדש".</p></div>`;
+  } else {
+    list.innerHTML = w.items.map(i => {
+      const lo = i.stop, hi = i.target, span = hi - lo || 1;
+      const lvl = ((i.price - lo) / span * 100).toFixed(1);
+      const p = i.last == null ? null : Math.min(100, Math.max(0, (i.last - lo) / span * 100)).toFixed(1);
+      return `<article class="row">
+        <div class="row-head">
+          <span class="sym">${esc(i.symbol)}</span>
+          <span class="gap">+${i.gap_pct}%</span>
+          <span class="badge ${i.status}">${STATUS[i.status] || ''} ${i.last != null ? money(i.last) : ''}</span>
+        </div>
+        <div class="news">${i.dilution ? '<span class="flag">חשד לדילול · </span>' : ''}${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.headline)}</a>` : esc(i.headline)}</div>
+        <div class="ladder" style="--lvl:${lvl}%;${p != null ? `--px:${p}%` : ''}">
+          <div class="bar"></div><div class="lvl"></div>${p != null ? '<div class="px"></div>' : ''}
+        </div>
+        <div class="levels">
+          <div><span>סטופ</span><b>${money(i.stop)}</b></div>
+          <div><span>פריצה מעל</span><b>${money(i.price)}</b></div>
+          <div><span>יעד</span><b>${money(i.target)}</b></div>
+        </div>
+      </article>`;
+    }).join('');
+    list.querySelectorAll('.news a').forEach(a => a.addEventListener('click', e => {
+      if (tg) { e.preventDefault(); tg.openLink(a.href); }
+    }));
+  }
+  $('watchStamp').textContent = w.time ? 'חושבה ב-' + fIL.format(new Date(w.time)) + ' (שעון ישראל)' : '';
+}
+
+async function loadWatch() {
+  try { renderWatch(await api('/api/watchlist')); }
+  catch (e) { $('watchList').innerHTML = `<div class="empty"><p>${esc(e.message)}</p></div>`; }
+}
+
+$('refreshBtn').addEventListener('click', async () => {
+  const b = $('refreshBtn'); b.disabled = true; b.textContent = 'מחשב…';
+  try {
+    const r = await api('/api/watchlist/refresh', {});
+    renderWatch(r);
+    r.error ? toast(r.error, true) : toast('הרשימה חושבה מחדש');
+  } catch (e) { toast(e.message, true); }
+  b.disabled = false; b.textContent = 'חשב רשימה מחדש';
+});
+
+/* ---------- הגדרות ---------- */
+let settings = null;
+const FIELDS = [
+  ['בחירת מניות', [
+    ['MIN_GAP_PCT', 'עלייה מינימלית', 'מסגירת אתמול, ב-%'],
+    ['MAX_GAP_PCT', 'תקרת עלייה', 'ב-%. 0 = בלי תקרה'],
+    ['MIN_PRICE', 'מחיר מינימלי', 'דולר'],
+    ['MAX_PRICE', 'מחיר מקסימלי', 'דולר'],
+    ['MIN_RVOL', 'ווליום יחסי מינימלי', 'פי כמה מהממוצע'],
+    ['REQUIRE_NEWS', 'רק מניות עם חדשות', 'חדשה אמיתית מאז הסגירה'],
+    ['WATCHLIST_SIZE', 'מניות ברשימת המעקב', 'מקסימום'],
+  ]],
+  ['העסקה', [
+    ['MIN_TARGET_PCT', 'יעד מינימלי', 'ב-%. יעד קטן יותר לא נשלח'],
+    ['MAX_RISK_PCT', 'סטופ מקסימלי', 'ב-%. סטופ רחוק יותר לא נשלח'],
+    ['RR', 'יחס סיכוי:סיכון', 'היעד = פי X מהסיכון'],
+    ['SIGNAL_WINDOW_MIN', 'חלון סיגנלים', 'דקות מהפתיחה'],
+  ]],
+  ['מסחר דמו', [
+    ['PAPER_TRADING', 'מסחר דמו פעיל', 'הבוט מבצע כל סיגנל ב-Alpaca'],
+    ['RISK_PER_TRADE', 'סיכון לעסקה', 'דולר'],
+    ['MAX_POSITION', 'פוזיציה מקסימלית', 'דולר'],
+  ]],
+];
+
+function renderSettings() {
+  if (!settings) return;
+  $('settingsForm').innerHTML = FIELDS.map(([title, fields]) => `<fieldset><legend>${title}</legend>${
+    fields.map(([k, label, hint]) => {
+      const v = settings[k], id = 'f_' + k;
+      const input = typeof v === 'boolean'
+        ? `<span class="switch"><input type="checkbox" id="${id}" data-k="${k}" ${v ? 'checked' : ''}><i></i></span>`
+        : `<input type="number" inputmode="decimal" step="any" id="${id}" data-k="${k}" value="${v}">`;
+      return `<div class="field"><div><label for="${id}">${label}</label><small>${hint}</small></div>${input}</div>`;
+    }).join('')}</fieldset>`).join('');
+  $('settingsForm').querySelectorAll('input').forEach(i => i.addEventListener('input', () => setDirty(true)));
+  setDirty(false);
+}
+
+function setDirty(d) {
+  $('saveBtn').disabled = !d;
+  if (!tg) return;
+  const mb = tg.MainButton;
+  if (d && !$('tab-settings').hidden) { mb.setParams({ text: 'שמור הגדרות', color: '#2FBF71', text_color: '#06210F' }); mb.show(); }
+  else mb.hide();
+}
+
+async function save() {
+  const body = {};
+  $('settingsForm').querySelectorAll('input').forEach(i => {
+    body[i.dataset.k] = i.type === 'checkbox' ? i.checked : +i.value;
+  });
+  try {
+    const r = await api('/api/settings', body);
+    settings = r.settings; renderSettings(); toast('ההגדרות נשמרו');
+  } catch (e) { toast(e.message, true); }
+}
+$('saveBtn').addEventListener('click', save);
+if (tg) tg.MainButton.onClick(save);
+
+/* ---------- לשוניות ---------- */
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
+  $('tab-watch').hidden = b.dataset.tab !== 'watch';
+  $('tab-settings').hidden = b.dataset.tab !== 'settings';
+  setDirty(!$('saveBtn').disabled);
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+}));
+
+/* ---------- התחלה ---------- */
+if (!INIT) {
+  document.body.innerHTML = '<div class="empty" style="padding:40px 0"><p>פתח את האפליקציה מתוך הבוט בטלגרם.</p></div>';
+} else {
+  loadState().then(tick); loadWatch();
+  setInterval(tick, 1000);
+  setInterval(loadWatch, 30000);
+  setInterval(loadState, 300000);
+}
+</script>
+</body>
+</html>
