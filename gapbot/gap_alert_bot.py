@@ -213,13 +213,19 @@ def build_watchlist(now):
             bars = r.json().get("bars") or []
         except Exception:
             bars = []
+        if not bars:               # אין מסחר מוקדם היום - אין רמות אמיתיות
+            row.append(None)
+            continue
         hi = max([b["h"] for b in bars] + [price])
         lo = min([b["l"] for b in bars] + [price])
         row += [hi, lo]
-    return rows
+    return [r for r in rows if r[-1] is not None]
 
 
 def watchlist_text(now, levels=None):
+    if not (now.weekday() < 5 and dt.time(4, 0) <= now.time() < dt.time(9, 30)):
+        return ("📋 רשימת מעקב זמינה רק בימי מסחר בין 11:00 לפתיחה (שעון ישראל).\n"
+                "עכשיו אין מסחר מוקדם, אז אין רמות אמיתיות לחשב.")
     rows = build_watchlist(now)
     open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
     if not rows:
