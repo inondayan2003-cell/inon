@@ -222,7 +222,25 @@ def build_watchlist(now):
     return [r for r in rows if r[-1] is not None]
 
 
+def closed_today_text(now):
+    """אם השוק בארה"ב סגור היום - מחזיר הודעה עם מועד הפתיחה הבא, אחרת None."""
+    if now.weekday() < 5 and market_was_open(now.date()):
+        return None
+    why = "סוף שבוע" if now.weekday() >= 5 else "חג בארה\"ב"
+    try:
+        nxt = requests.get(f"{TRADE}/v2/clock", headers=HDR, timeout=15).json()["next_open"]
+        nxt = dt.datetime.fromisoformat(nxt.replace("Z", "+00:00")).astimezone(ZoneInfo("Asia/Jerusalem"))
+        days = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+        when = f"\nהפתיחה הבאה: יום {days[nxt.weekday()]} {nxt:%d/%m} ב-{nxt:%H:%M} (שעון ישראל)"
+    except Exception:
+        when = ""
+    return f"🔒 השוק בארה\"ב סגור היום ({why}).{when}"
+
+
 def watchlist_text(now, levels=None):
+    closed = closed_today_text(now)
+    if closed:
+        return closed
     if not (now.weekday() < 5 and dt.time(4, 0) <= now.time() < dt.time(9, 30)):
         return ("📋 רשימת מעקב זמינה רק בימי מסחר בין 11:00 לפתיחה (שעון ישראל).\n"
                 "עכשיו אין מסחר מוקדם, אז אין רמות אמיתיות לחשב.")
@@ -481,7 +499,9 @@ def main():
         if not watched and now.weekday() < 5 and WATCHLIST_TIME <= now.time() < dt.time(9, 30):
             watched = True
             try:
-                if market_was_open(day):
+                if not market_was_open(day):
+                    send_tg(closed_today_text(now))
+                else:
                     lv = []
                     send_tg(watchlist_text(now, lv))
                     if PAPER_TRADING:
