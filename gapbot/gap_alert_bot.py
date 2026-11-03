@@ -38,6 +38,7 @@ SIGNAL_WINDOW_MIN = 90  # סיגנלים רק ב-X הדקות הראשונות �
 MIN_RVOL = 2.0          # ווליום יחסי מינימלי (היום מול ממוצע 20 יום, לפי השעה)
 WATCHLIST_TIME = dt.time(8, 30)  # רשימת מעקב לפני הפתיחה (שעון ניו יורק)
 WATCHLIST_SIZE = 5
+ENTRY_LIMIT_PCT = 1.5    # תקרת מחיר בכניסה בדמו (%) מעל רמת הפריצה
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
 
@@ -47,11 +48,53 @@ TRADE = "https://paper-api.alpaca.markets"
 HDR = {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 
+_CAL = {}
+
+
+def session(day):
+    """(פתיחה, סגירה) של יום המסחר לפי Alpaca - כולל חגים וימים מקוצרים. None אם סגור."""
+    if day not in _CAL:
+        try:
+            r = requests.get(f"{TRADE}/v2/calendar", headers=HDR, timeout=15,
+                             params={"start": str(day), "end": str(day)})
+            j = r.json() if r.ok else None
+            if j:
+                o = dt.datetime.combine(day, dt.time.fromisoformat(j[0]["open"]), NY)
+                c = dt.datetime.combine(day, dt.time.fromisoformat(j[0]["close"]), NY)
+                _CAL[day] = (o, c)
+            elif r.ok:
+                _CAL[day] = None
+            else:
+                return (dt.datetime.combine(day, dt.time(9, 30), NY),
+                        dt.datetime.combine(day, dt.time(16, 0), NY)) if day.weekday() < 5 else None
+        except Exception:
+            return (dt.datetime.combine(day, dt.time(9, 30), NY),
+                    dt.datetime.combine(day, dt.time(16, 0), NY)) if day.weekday() < 5 else None
+    return _CAL[day]
+
+
 def market_open(now):
-    if now.weekday() >= 5:
-        return False
-    t = now.time()
-    return dt.time(9, 30) <= t <= dt.time(16, 0)
+    ses = session(now.date())
+    return bool(ses) and ses[0] <= now <= ses[1]
+
+
+# ---------- בריאות הבוט (/status) ----------
+HEALTH = {"started": None, "last_scan": None, "scans": 0, "errors": 0, "last_error": "",
+          "signals": 0}
+
+
+def note_error(where, e):
+    HEALTH["errors"] += 1
+    HEALTH["last_error"] = f"{dt.datetime.now(NY):%H:%M} {where}: {str(e)[:150]}"
+    print("error", where, e)
+
+
+def version():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")) as f:
+            return f.read().strip()[:8]
+    except Exception:
+        return "?"
 
 
 def get_gainers():
@@ -317,15 +360,43 @@ def save_trade(day, t):
         json.dump(trades, f, ensure_ascii=False, indent=1)
 
 
+def state_file(day):
+    os.makedirs(TRADES_DIR, exist_ok=True)
+    return os.path.join(TRADES_DIR, f"state-{day}.json")
+
+
+def save_state(day, alerted, pending):
+    try:
+        with open(state_file(day), "w") as f:
+            json.dump({"alerted": sorted(alerted), "pending": pending, "watch": LAST_WATCH},
+                      f, ensure_ascii=False)
+    except Exception as e:
+        note_error("save_state", e)
+
+
+def load_state(day):
+    try:
+        with open(state_file(day)) as f:
+            j = json.load(f)
+        if j.get("watch"):
+            LAST_WATCH.update(j["watch"])
+        return set(j.get("alerted", [])), j.get("pending", {})
+    except Exception:
+        return set(), {}
+
+
 def px(x):
     return round(x, 2) if x >= 1 else round(x, 4)
 
 
 def place_bracket(sym, price, stop, target):
+    if price <= stop:
+        return None, "המחיר מתחת לסטופ"
     qty = math.floor(min(RISK_PER_TRADE / (price - stop), MAX_POSITION / price))
     if qty < 1:
         return None, "כמות קטנה מ-1"
-    order = {"symbol": sym, "qty": str(qty), "side": "buy", "type": "market",
+    order = {"symbol": sym, "qty": str(qty), "side": "buy", "type": "limit",
+             "limit_price": str(px(price * (1 + ENTRY_LIMIT_PCT / 100))),   # תקרה כמו Stop Limit בבלינק
              "time_in_force": "day", "order_class": "bracket",
              "take_profit": {"limit_price": str(px(target))},
              "stop_loss": {"stop_price": str(px(stop))}}
@@ -350,9 +421,7 @@ def close_all():
 
 
 def market_was_open(day):
-    r = requests.get(f"{TRADE}/v2/calendar", headers=HDR, timeout=15,
-                     params={"start": str(day), "end": str(day)})
-    return bool(r.ok and r.json())
+    return bool(session(day))
 
 
 def daily_report(day):
@@ -460,8 +529,41 @@ def demo_signal():
     return build_signal(sym, pct, price, stop, now, demo=True, news=nt) + f"\n{src}"
 
 
+def status_text():
+    now = dt.datetime.now(NY)
+    ses = session(now.date())
+    try:
+        pos = requests.get(f"{TRADE}/v2/positions", headers=HDR, timeout=15).json()
+        pos_txt = ", ".join(f"{p['symbol']} ({float(p['unrealized_pl']):+.0f}$)" for p in pos) or "אין"
+    except Exception as e:
+        pos_txt = f"לא זמין ({e})"
+    try:
+        ok = requests.get(f"{DATA}/v1beta1/screener/stocks/movers", headers=HDR,
+                          params={"top": 1}, timeout=15).ok
+    except Exception:
+        ok = False
+    il = ZoneInfo("Asia/Jerusalem")
+    last = HEALTH["last_scan"]
+    return (f"🩺 מצב הבוט (גרסה {version()})\n"
+            f"פועל מאז: {HEALTH['started'].astimezone(il):%d/%m %H:%M}\n"
+            f"Alpaca: {'✅' if ok else '❌'}\n"
+            f"שוק היום: {f'{ses[0].astimezone(il):%H:%M}-{ses[1].astimezone(il):%H:%M}' if ses else 'סגור'}\n"
+            f"סריקה אחרונה: " + (f"{last.astimezone(il):%H:%M:%S} ({HEALTH['scans']} היום)" if last else "עוד לא היום") + "\n"
+            f"סיגנלים היום: {HEALTH['signals']}\n"
+            f"פריצות שממתינות בדמו: {HEALTH.get('pending', 0)}\n"
+            f"פוזיציות פתוחות בדמו: {pos_txt}\n"
+            f"שגיאות: {HEALTH['errors']}" + (f"\nאחרונה: {HEALTH['last_error']}" if HEALTH['last_error'] else ""))
+
+
 def command_listener():
     offset = None
+    try:  # מדלג על פקודות ישנות שנשלחו כשהבוט היה כבוי
+        r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                         params={"offset": -1}, timeout=15).json().get("result", [])
+        if r:
+            offset = r[-1]["update_id"] + 1
+    except Exception:
+        pass
     while True:
         try:
             r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
@@ -476,6 +578,8 @@ def command_listener():
                     send_tg(demo_signal())
                 elif text.startswith("/watch"):
                     send_tg(watchlist_text(dt.datetime.now(NY)))
+                elif text.startswith("/status"):
+                    send_tg(status_text())
                 elif text.startswith("/export"):
                     export_csv()
                 elif text.startswith("/report"):
@@ -484,9 +588,10 @@ def command_listener():
                     send_tg("פקודות:\n/test - סיגנל דמו לבדיקה שהכל עובד\n"
                             "/report - דוח מסחר הדמו של היום\n"
                             "/watch - רשימת מעקב (מניות עם חדשות שעולות)\n"
-                            "/export - קובץ אקסל עם כל עסקאות הדמו")
+                            "/export - קובץ אקסל עם כל עסקאות הדמו\n"
+                            "/status - מצב הבוט ובדיקת תקלות")
         except Exception as e:
-            print("listener error:", e)
+            note_error("telegram", e)
             time.sleep(5)
 
 
@@ -495,6 +600,7 @@ def set_commands():
             {"command": "watch", "description": "רשימת מעקב - מניות עם חדשות שעולות"},
             {"command": "report", "description": "דוח מסחר הדמו של היום"},
             {"command": "export", "description": "קובץ אקסל עם כל עסקאות הדמו"},
+            {"command": "status", "description": "מצב הבוט ובדיקת תקלות"},
             {"command": "help", "description": "רשימת הפקודות"}]
     try:
         requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/setMyCommands",
@@ -561,24 +667,35 @@ def start_webapp():
 
 def main():
     load_settings()
+    HEALTH["started"] = dt.datetime.now(NY)
     start_webapp()
     set_commands()
     threading.Thread(target=command_listener, daemon=True).start()
     day = None
     closed = reported = watched = False
-    send_tg("✅ הבוט פועל - סורק גאפים בפתיחת המסחר")
+    rejected = {}   # מניה -> זמן: נפסלה לאחרונה, לא בודקים שוב 5 דק' (חוסך קריאות ל-API)
+    send_tg(f"✅ הבוט פועל (גרסה {version()})")
     while True:
         now = dt.datetime.now(NY)
         if now.date() != day:
             day = now.date()
             traded = {t["symbol"] for t in load_trades(day)}
-            alerted = {t["symbol"] for t in load_trades(day) if t.get("source") != "watchlist"}
-            pending = {}
-            closed = reported = watched = False
+            alerted, pending = load_state(day)          # שורד הפעלה מחדש
+            alerted |= {t["symbol"] for t in load_trades(day) if t.get("source") != "watchlist"}
+            if not os.path.exists(state_file(day)):
+                LAST_WATCH.update(time=None, items=[])
+            closed = reported = False
+            watched = str(LAST_WATCH.get("time") or "").startswith(str(day))
+            rejected = {}
+            HEALTH.update(scans=0, signals=0, errors=0, last_error="")
+        ses = session(day)
+        HEALTH["pending"] = len(pending)
+
+        # רשימת מעקב - שעה לפני הפתיחה
         if not watched and now.weekday() < 5 and WATCHLIST_TIME <= now.time() < dt.time(9, 30):
             watched = True
             try:
-                if not market_was_open(day):
+                if not ses:
                     send_tg(closed_today_text(now))
                 else:
                     lv = []
@@ -586,50 +703,69 @@ def main():
                     if PAPER_TRADING:
                         for t in lv:
                             pending[t["symbol"] + ":w"] = t
+                    save_state(day, alerted, pending)
             except Exception as e:
-                print("watchlist error:", e)
-        if PAPER_TRADING and now.weekday() < 5:
+                note_error("watchlist", e)
+
+        # סוף יום: סגירת פוזיציות ודוח (לפי שעת הסגירה האמיתית, כולל ימים מקוצרים)
+        if PAPER_TRADING and ses:
+            eod_close = ses[1] - dt.timedelta(minutes=5)
             try:
-                if not closed and now.time() >= EOD_CLOSE:
+                if not closed and now >= eod_close:
                     closed = close_all()  # אם לא הצליח - ינסה שוב בסיבוב הבא
-                if not reported and now.time() >= EOD_REPORT:
+                    pending = {}
+                    save_state(day, alerted, pending)
+                if not reported and now >= ses[1] + dt.timedelta(minutes=5):
                     reported = True
-                    if market_was_open(day):
-                        send_tg(daily_report(day))
+                    send_tg(daily_report(day))
             except Exception as e:
-                print("eod error:", e)
-        if not market_open(now) or now.time() >= EOD_CLOSE:
+                note_error("eod", e)
+
+        if not ses or not (ses[0] <= now < ses[1] - dt.timedelta(minutes=5)):
             time.sleep(60)
             continue
-        open_t = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        in_window = now < open_t + dt.timedelta(minutes=SIGNAL_WINDOW_MIN)
-        try:
-            # 1) בדיקת פריצות שממתינות (מסחר דמו)
-            for key, t in list(pending.items()):
-                sym = t["symbol"]
-                if not in_window or sym in traded:
-                    pending.pop(key)
-                    continue
+        in_window = now < ses[0] + dt.timedelta(minutes=SIGNAL_WINDOW_MIN)
+        HEALTH["last_scan"] = now
+        HEALTH["scans"] += 1
+
+        # 1) פריצות שממתינות (מסחר דמו) - כל מניה בנפרד, שגיאה באחת לא עוצרת את השאר
+        for key, t in list(pending.items()):
+            sym = t["symbol"]
+            if not in_window or sym in traded:
+                pending.pop(key)
+                continue
+            try:
                 lp = last_price(sym)
-                if lp >= t["price"]:
-                    pending.pop(key)
-                    if lp > t["price"] * 1.02:      # קפץ רחוק מעל נקודת הכניסה - לא רודפים
-                        print("skip chase", sym, lp)
-                        continue
-                    qty, err = place_bracket(sym, lp, t["stop"], t["target"])
+            except Exception as e:
+                note_error(f"price {sym}", e)
+                continue
+            if lp >= t["price"]:
+                pending.pop(key)
+                if lp > t["price"] * 1.02:      # קפץ רחוק מעל נקודת הכניסה - לא רודפים
+                    t.update(qty=0, err=f"רץ מעל הפריצה (${lp:.2f}) - לא נכנס", time=f"{now:%H:%M}")
+                else:
+                    try:
+                        qty, err = place_bracket(sym, max(lp, t["price"]), t["stop"], t["target"])
+                    except Exception as e:
+                        qty, err = None, str(e)[:150]
                     t.update(qty=qty or 0, fill=lp, time=f"{now:%H:%M}")
                     if err:
                         t["err"] = err
-                        print("paper order failed:", sym, err)
-                    traded.add(sym)
-                    save_trade(str(day), t)
-                elif lp <= t["stop"]:                 # נשבר לפני פריצה - מבטלים
-                    pending.pop(key)
-            # 2) סיגנלים חדשים - רק בחלון הזמן
-            if not in_window:
-                time.sleep(SCAN_EVERY_SEC)
-                continue
-            for g in get_gainers():
+                        note_error(f"order {sym}", err)
+                traded.add(sym)
+                save_trade(str(day), t)
+            elif lp <= t["stop"]:                 # נשבר לפני פריצה - מבטלים
+                pending.pop(key)
+        save_state(day, alerted, pending)
+
+        # 2) סיגנלים חדשים - רק בחלון הזמן
+        if in_window:
+            try:
+                gainers = get_gainers()
+            except Exception as e:
+                note_error("movers", e)
+                gainers = []
+            for g in gainers:
                 sym, pct, price = g["symbol"], g["percent_change"], g["price"]
                 if sym in alerted or pct < MIN_GAP_PCT:
                     continue
@@ -637,35 +773,45 @@ def main():
                     continue
                 if not (MIN_PRICE <= price <= MAX_PRICE):
                     continue
-                bars = bars_today(sym, now)
-                b = last_closed_bar(bars)
-                if not b:
+                if time.time() - rejected.get(sym, 0) < 300:
                     continue
-                entry, stop = px(b["h"] + 0.01), b["l"]
-                if price > entry * 1.02:              # כבר פרץ ורחוק - לא רודפים
-                    continue
-                entry = max(entry, px(price))
-                risk = entry - stop
-                if risk <= 0 or risk / entry * 100 > MAX_RISK_PCT:
-                    continue
-                if RR * risk / entry * 100 < MIN_TARGET_PCT:
-                    continue
-                rv = rvol(sym, now, bars)
-                if rv < MIN_RVOL:
-                    continue
-                news = news_since_last_close(sym, now)
-                if REQUIRE_NEWS and not news:
+                try:
+                    bars = bars_today(sym, now)
+                    if len(bars) < 2:                     # צריך לפחות נר 5 דק' אחד שנסגר
+                        continue
+                    b = bars[-2]
+                    entry, stop = px(b["h"] + 0.01), b["l"]
+                    if price > entry * 1.02:              # כבר פרץ ורחוק - לא רודפים
+                        rejected[sym] = time.time()
+                        continue
+                    entry = max(entry, px(price))
+                    risk = entry - stop
+                    if risk <= 0 or risk / entry * 100 > MAX_RISK_PCT or RR * risk / entry * 100 < MIN_TARGET_PCT:
+                        rejected[sym] = time.time()
+                        continue
+                    rv = rvol(sym, now, bars)
+                    if rv < MIN_RVOL:
+                        rejected[sym] = time.time()
+                        continue
+                    news = news_since_last_close(sym, now)
+                    if REQUIRE_NEWS and not news:
+                        rejected[sym] = time.time() + 600     # חדשות לא משתנות מהר - 15 דק'
+                        continue
+                except Exception as e:
+                    note_error(f"scan {sym}", e)
+                    if "429" in str(e):                      # עומס על Alpaca - עוצרים את הסיבוב
+                        break
                     continue
                 alerted.add(sym)
+                HEALTH["signals"] += 1
                 target = entry + RR * risk
                 send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news)))
-                if PAPER_TRADING:
+                if PAPER_TRADING and sym not in traded:
                     pending[sym] = {"symbol": sym, "source": "signal", "price": entry, "stop": stop, "target": target,
                                     "signal_time": f"{now:%H:%M}", "gap_pct": round(pct, 1),
                                     "rvol": round(rv, 1), "risk_pct": round(risk / entry * 100, 2),
                                     "headline": (news[0].get("headline", "") if news else "")[:200]}
-        except Exception as e:
-            print("error:", e)
+                save_state(day, alerted, pending)
         time.sleep(SCAN_EVERY_SEC)
 
 

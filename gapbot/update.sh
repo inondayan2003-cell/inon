@@ -10,6 +10,7 @@ echo "== מעדכן את השרת $IP..."
 ssh -o StrictHostKeyChecking=no -i ~/.ssh/gapbot ubuntu@"$IP" "set -e
 for f in gap_alert_bot.py webapp.py index.html; do sudo curl -sfL https://raw.githubusercontent.com/inondayan2003-cell/inon/$REF/gapbot/\$f -o /opt/gapbot/\$f; done
 sudo sed -i 's|YOUR_ALPACA_KEY_ID|$AK|; s|YOUR_ALPACA_SECRET|$AS|; s|YOUR_TELEGRAM_BOT_TOKEN|$TT|; s|YOUR_CHAT_ID|$TC|' /opt/gapbot/gap_alert_bot.py
+echo $REF | sudo tee /opt/gapbot/VERSION >/dev/null
 sudo systemctl restart gapbot
 sleep 3; systemctl is-active gapbot"
 echo "✅ עודכן. שלח /test לבוט בטלגרם."
