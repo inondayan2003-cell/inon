@@ -120,6 +120,7 @@ ROUTINE = [
     r"\bshareholder (letter|update)\b",
     r"\blaw firm\b|\bclass action\b|\binvestigation (on behalf|of)\b|\bshareholder alert\b",
     r"\bdowngrades?\b|\bdowngraded\b",
+    r"\bcontinued listing\b|\blisting (standard|rule|requirement)|\bdelist|\bdeficiency\b|\bnon-?compliance\b",
     r"\b(lowers|cuts|reduces|adjusts?|maintains|reiterates)\b.*\bprice target\b",
     r"\banalysts? (adjust|weigh|react|see)\b|\bearnings call transcript\b|\btranscript\b",
     r"\b(stocks?|shares?) (moving|trading) (higher|lower|in)\b|\bmid-day movers\b|\bpremarket movers\b",
