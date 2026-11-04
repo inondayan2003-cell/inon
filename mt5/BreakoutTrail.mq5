@@ -3,15 +3,17 @@
 //|  Gold breakout EA:                                               |
 //|  - Buy Stop above price and Sell Stop below price, both always   |
 //|    following the price at a fixed distance.                      |
-//|  - A fast move (breakout) hits one of them -> the other one is   |
-//|    cancelled (OCO).                                              |
+//|  - A fast move (breakout) hits one of them.                      |
+//|  - Reverse mode (default): the opposite order keeps following    |
+//|    the price; if it fills, the old trade is closed (flip).       |
+//|    Without reverse mode the opposite order is cancelled (OCO).   |
 //|  - Initial SL, optional break-even, then trailing stop.          |
 //|                                                                  |
 //|  All distances are in PRICE units. For XAUUSD 1.0 = $1 move      |
-//|  (e.g. 2350.00 -> 2351.00).                                      |
+//|  (e.g. 2350.00 -> 2351.00). Defaults are an AGGRESSIVE M1 scalp. |
 //+------------------------------------------------------------------+
 #property copyright "inon"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Trailing Buy Stop / Sell Stop breakout with trailing stop (XAUUSD)"
 
 #include <Trade\Trade.mqh>
@@ -29,31 +31,36 @@ input ENUM_TIMEFRAMES InpATRTf       = PERIOD_M5; // ATR timeframe
 input int             InpATRPeriod   = 14;        // ATR period
 input double          InpDistATR     = 0.5;       // Distance = ATR x this
 input double          InpSLATR       = 1.0;       // Stop loss = ATR x this
-input double          InpDistance    = 3.0;       // Fixed distance of pending orders from price
-input double          InpStopLoss    = 5.0;       // Fixed initial stop loss
+input double          InpDistance    = 0.30;      // Fixed distance of pending orders from price
+input double          InpStopLoss    = 0.60;      // Fixed initial stop loss
 input double          InpTakeProfit  = 0.0;       // Take profit (0 = none, trailing only)
+
+//--- Reverse mode (like the video)
+input group "=== Reverse mode ==="
+input bool   InpReverseMode    = true;   // Keep the opposite stop order while in a trade
+input bool   InpCloseOnReverse = true;   // When the opposite order fills, close the old trade (flip)
 
 //--- Order following
 input group "=== Pending orders following the price ==="
-input double InpStep           = 0.30;   // Move orders only if target changed by at least this
-input int    InpModifyMs       = 1000;   // Minimum time between modifications (ms)
+input double InpStep           = 0.05;   // Move orders only if target changed by at least this
+input int    InpModifyMs       = 200;    // Minimum time between modifications (ms)
 
 //--- Trailing
 input group "=== Break-even & trailing stop ==="
-input double InpBreakEven      = 2.0;    // Move SL to entry after this profit (0 = off)
-input double InpBELock         = 0.20;   // Profit locked at break-even
-input double InpTrailStart     = 3.0;    // Start trailing after this profit
-input double InpTrailDist      = 2.0;    // Trailing distance from price (0 = off)
-input double InpTrailStep      = 0.50;   // Move SL only in steps of at least this
+input double InpBreakEven      = 0.15;   // Move SL to entry after this profit (0 = off)
+input double InpBELock         = 0.05;   // Profit locked at break-even
+input double InpTrailStart     = 0.20;   // Start trailing after this profit
+input double InpTrailDist      = 0.15;   // Trailing distance from price (0 = off)
+input double InpTrailStep      = 0.05;   // Move SL only in steps of at least this
 
 //--- Filters
 input group "=== Filters ==="
-input double InpMaxSpread      = 0.50;   // Max spread allowed (price units)
-input bool   InpUseSession     = true;   // Trade only between hours (server time)
-input int    InpStartHour      = 8;      // Session start hour (server time)
-input int    InpEndHour        = 20;     // Session end hour (server time)
-input int    InpCooldownMin    = 5;      // Minutes to wait after a trade closes
-input int    InpMaxTradesDay   = 10;     // Max entries per day (0 = unlimited)
+input double InpMaxSpread      = 0.35;   // Max spread allowed (price units)
+input bool   InpUseSession     = false;  // Trade only between hours (server time)
+input int    InpStartHour      = 1;      // Session start hour (server time)
+input int    InpEndHour        = 23;     // Session end hour (server time)
+input int    InpCooldownSec    = 0;      // Seconds to wait after a trade closes
+input int    InpMaxTradesDay   = 200;    // Max entries per day (0 = unlimited)
 
 //--- General
 input group "=== General ==="
@@ -131,19 +138,22 @@ void OnTick()
       lastCloseTime = TimeCurrent();       // trade closed -> start cooldown
    prevPositions = positions;
 
-   if(positions > 0)
+   bool hasLong = false, hasShort = false;
+   if(positions > 0) GetPositionSides(hasLong, hasShort);
+
+   if(positions > 0 && !InpReverseMode)
    {
       DeleteAllPendings();                 // OCO: no pending orders while in a trade
       ShowStatus(t, "In trade - trailing");
       return;
    }
 
-   //--- 2. Filters
+   //--- 2. Filters (cooldown only matters when flat)
    string reason = "";
-   if(!CanTrade(t, reason))
+   if(!CanTrade(t, reason, positions == 0))
    {
       DeleteAllPendings();
-      ShowStatus(t, reason);
+      ShowStatus(t, (positions > 0) ? "In trade - " + reason : reason);
       return;
    }
 
@@ -156,8 +166,20 @@ void OnTick()
    }
 
    //--- 4. Place / move pending orders around the price
-   TrackPendings(t, dist, slDist);
-   ShowStatus(t, StringFormat("Waiting for breakout (distance %.2f, SL %.2f)", dist, slDist));
+   if(positions == 0)
+   {
+      TrackPendings(t, dist, slDist, true, true);
+      ShowStatus(t, StringFormat("Waiting for breakout (distance %.2f, SL %.2f)", dist, slDist));
+   }
+   else
+   {
+      // Reverse mode: keep only the order in the opposite direction
+      bool allowBuy  = hasShort && !hasLong;
+      bool allowSell = hasLong && !hasShort;
+      TrackPendings(t, dist, slDist, allowBuy, allowSell);
+      ShowStatus(t, hasLong ? "In BUY - trailing, Sell Stop ready to flip"
+                            : "In SELL - trailing, Buy Stop ready to flip");
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -176,7 +198,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(entry == DEAL_ENTRY_IN)
    {
       tradesToday++;
-      DeleteAllPendings();
+      if(!InpReverseMode)
+      {
+         DeleteAllPendings();
+      }
+      else if(InpCloseOnReverse)
+      {
+         // Flip: the new trade replaces the old one in the other direction
+         long dealType = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+         if(dealType == DEAL_TYPE_BUY)  ClosePositions(POSITION_TYPE_SELL);
+         if(dealType == DEAL_TYPE_SELL) ClosePositions(POSITION_TYPE_BUY);
+      }
    }
    else if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY)
    {
@@ -187,10 +219,14 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 //+------------------------------------------------------------------+
 //| Pending orders                                                    |
 //+------------------------------------------------------------------+
-void TrackPendings(const MqlTick &t, double dist, double slDist)
+void TrackPendings(const MqlTick &t, double dist, double slDist, bool allowBuy, bool allowSell)
 {
    ulong buyT = 0, sellT = 0;
    FindPendings(buyT, sellT);
+
+   // Remove orders for a side that is not allowed right now
+   if(!allowBuy && buyT != 0)   { trade.OrderDelete(buyT);  buyT = 0; }
+   if(!allowSell && sellT != 0) { trade.OrderDelete(sellT); sellT = 0; }
 
    double lots      = CalcLots(slDist);
    double buyPrice  = NormPrice(t.ask + dist);
@@ -204,7 +240,11 @@ void TrackPendings(const MqlTick &t, double dist, double slDist)
    bool   canModify = (GetTickCount64() - lastModifyMs) >= (ulong)InpModifyMs;
 
    //--- Buy Stop
-   if(buyT == 0)
+   if(!allowBuy)
+   {
+      // nothing
+   }
+   else if(buyT == 0)
    {
       if(!trade.BuyStop(lots, buyPrice, _Symbol, buySL, buyTP, ORDER_TIME_GTC, 0, InpComment))
          Print("BuyStop failed: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
@@ -221,7 +261,11 @@ void TrackPendings(const MqlTick &t, double dist, double slDist)
    }
 
    //--- Sell Stop
-   if(sellT == 0)
+   if(!allowSell)
+   {
+      // nothing
+   }
+   else if(sellT == 0)
    {
       if(!trade.SellStop(lots, sellPrice, _Symbol, sellSL, sellTP, ORDER_TIME_GTC, 0, InpComment))
          Print("SellStop failed: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
@@ -345,6 +389,34 @@ int ManagePositions(const MqlTick &t)
    return count;
 }
 
+void GetPositionSides(bool &hasLong, bool &hasShort)
+{
+   hasLong = false; hasShort = false;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) hasLong = true;
+      else hasShort = true;
+   }
+}
+
+void ClosePositions(ENUM_POSITION_TYPE side)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      if(PositionGetInteger(POSITION_TYPE) != side) continue;
+      if(!trade.PositionClose(ticket))
+         Print("Flip close failed: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+   }
+}
+
 int CountPositions()
 {
    int count = 0;
@@ -361,7 +433,7 @@ int CountPositions()
 //+------------------------------------------------------------------+
 //| Filters                                                           |
 //+------------------------------------------------------------------+
-bool CanTrade(const MqlTick &t, string &reason)
+bool CanTrade(const MqlTick &t, string &reason, bool checkCooldown)
 {
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
    { reason = "Algo trading is disabled (press Algo Trading button)"; return false; }
@@ -372,7 +444,7 @@ bool CanTrade(const MqlTick &t, string &reason)
    if(InpUseSession && !InSession())
    { reason = "Outside trading hours"; return false; }
 
-   if(InpCooldownMin > 0 && TimeCurrent() - lastCloseTime < InpCooldownMin * 60)
+   if(checkCooldown && InpCooldownSec > 0 && TimeCurrent() - lastCloseTime < InpCooldownSec)
    { reason = "Cooldown after last trade"; return false; }
 
    if(InpMaxTradesDay > 0 && tradesToday >= InpMaxTradesDay)
