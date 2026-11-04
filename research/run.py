@@ -69,6 +69,7 @@ def main():
     ap.add_argument("--check", action="store_true", help="בדיקת חוק 4 עם יציאות שונות")
     ap.add_argument("--delay", action="store_true", help="פתיחה: כמה מהרווח בדקות הראשונות")
     ap.add_argument("--crule", action="store_true", help="הכלל של Cryptonew84 על 2018 עד היום")
+    ap.add_argument("--daily", action="store_true", help="כיוון יומי לזהב: כללים על נרות יומיים, 2018 עד היום")
     ap.add_argument("--clone", action="store_true", help="Cryptonew84: 105 הסיגנלים מול נתוני דקה + הקלון")
     ap.add_argument("--channel", default="", help="ערוץ טלגרם ציבורי לבדיקת הסיגנלים שלו")
     ap.add_argument("--pair", default="XAUUSD", help="נכס ב-HistData (למשל NSXUSD = נאסד\"ק 100)")
@@ -106,6 +107,12 @@ def main():
         full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
         full = full[~full.index.duplicated()].sort_index()
         print(channel_rule.report2(full, a.cost), flush=True)
+        return
+    if a.daily:
+        from research import daily_bias
+        full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
+        full = full[~full.index.duplicated()].sort_index()
+        print(daily_bias.report(full, a.cost), flush=True)
         return
     if a.clone:
         from research import cryptonew84
