@@ -75,7 +75,14 @@ def fetch_minutes(start: dt.date, end: dt.date, cache: Path, pair: str = "XAUUSD
             if f.exists() and done:
                 frames.append(pd.read_parquet(f))
                 continue
-            df = _download(client, pair, p)
+            try:
+                df = _download(client, pair, p)
+            except (httpx.HTTPError, zipfile.BadZipFile, StopIteration) as e:
+                if done:
+                    raise
+                # החודש הנוכחי: בתחילת החודש HistData עוד לא מפרסם קובץ תקין. ממשיכים בלעדיו
+                print(f"  {p}: עוד אין קובץ ({type(e).__name__}), ממשיכים בלי החודש הנוכחי", flush=True)
+                df = None
             if df is None or df.empty:
                 print(f"  {p}: אין נתונים", flush=True)
                 continue
