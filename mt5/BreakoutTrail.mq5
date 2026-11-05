@@ -29,7 +29,7 @@
 //|  All distances are in PRICE units. For XAUUSD 1.0 = $1 move.     |
 //+------------------------------------------------------------------+
 #property copyright "inon"
-#property version   "2.00"
+#property version   "2.01"
 #property description "Gold breakout scalper: trailing entries, reverse mode, spread protection, daily risk limits"
 
 #include <Trade\Trade.mqh>
@@ -412,7 +412,7 @@ void TrackPendings(const MqlTick &t, double dist, double slDist, bool allowBuy, 
    double sellTP    = (InpTakeProfit > 0) ? NormPrice(sellPrice - InpTakeProfit) : 0.0;
 
    double freeze    = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL) * _Point;
-   bool   canModify = (GetTickCount64() - lastModifyMs) >= (ulong)InpModifyMs;
+   bool   canModify = ((ulong)t.time_msc - lastModifyMs) >= (ulong)InpModifyMs;
 
    //--- Buy Stop
    if(allowBuy)
@@ -429,7 +429,7 @@ void TrackPendings(const MqlTick &t, double dist, double slDist, bool allowBuy, 
          if(MathAbs(cur - buyPrice) >= InpStep && !frozen)
          {
             if(trade.OrderModify(buyT, buyPrice, buySL, buyTP, ORDER_TIME_GTC, 0))
-               lastModifyMs = GetTickCount64();
+               lastModifyMs = (ulong)t.time_msc;
          }
       }
    }
@@ -449,7 +449,7 @@ void TrackPendings(const MqlTick &t, double dist, double slDist, bool allowBuy, 
          if(MathAbs(cur - sellPrice) >= InpStep && !frozen)
          {
             if(trade.OrderModify(sellT, sellPrice, sellSL, sellTP, ORDER_TIME_GTC, 0))
-               lastModifyMs = GetTickCount64();
+               lastModifyMs = (ulong)t.time_msc;
          }
       }
    }
@@ -520,7 +520,7 @@ void TrackVirtual(const MqlTick &t, double dist, double slDist, bool allowBuy, b
    }
 
    //--- follow the price
-   bool canUpdate = (GetTickCount64() - lastVirtualMs) >= (ulong)InpModifyMs;
+   bool canUpdate = ((ulong)t.time_msc - lastVirtualMs) >= (ulong)InpModifyMs;
    bool updated   = false;
 
    if(allowBuy)
@@ -535,7 +535,7 @@ void TrackVirtual(const MqlTick &t, double dist, double slDist, bool allowBuy, b
       if(vSell == 0.0) vSell = target;
       else if(canUpdate && MathAbs(vSell - target) >= InpStep) { vSell = target; updated = true; }
    }
-   if(updated) lastVirtualMs = GetTickCount64();
+   if(updated) lastVirtualMs = (ulong)t.time_msc;
 
    DrawVirtual();
 }
@@ -1056,7 +1056,7 @@ void ShowPanel(const MqlTick &t)
    string mode     = (InpEntryMode == ENTRY_STOP_ORDERS) ? "Stop orders" : "Virtual (mid)";
    if(InpReverseMode) mode += " + Reverse";
 
-   Comment(StringFormat("BreakoutTrail v2.00 | %s\n%s\n"
+   Comment(StringFormat("BreakoutTrail v2.01 | %s\n%s\n"
                         "Spread %.2f (avg %.2f) | Distance %.2f | SL %.2f\n"
                         "Today P/L: %.2f | Entries %d | Wins %d / Losses %d (%.0f%%) | Avg slippage %.3f",
                         mode, gState,
