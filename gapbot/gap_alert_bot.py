@@ -166,13 +166,16 @@ ROUTINE = [
     r"\bcontinued listing\b|\blisting (standard|rule|requirement)|\bdelist|\bdeficiency\b|\bnon-?compliance\b",
     r"\b(lowers|cuts|reduces|adjusts?|maintains|reiterates)\b.*\bprice target\b",
     r"\banalysts? (adjust|weigh|react|see)\b|\bearnings call transcript\b|\btranscript\b",
-    r"\b(stocks?|shares?) (moving|trading) (higher|lower|in)\b|\bmid-day movers\b|\bpremarket movers\b",
+    r"\b(stocks?|shares?) (are )?(moving|trading|jumping|soaring|falling|sliding)\b|\bmovers\b|\bwhy .* (shares|stock) (is|are)\b",
+    r"\breverse (stock )?split\b",
 ]
 ROUTINE_RE = [re.compile(x, re.I) for x in ROUTINE]
 
 
 def meaningful(news):
-    return [n for n in news if not any(r.search(n.get("headline", "")) for r in ROUTINE_RE)]
+    # כתבות שמזכירות הרבה מניות (סיכומי שוק) אינן חדשה על החברה עצמה
+    return [n for n in news if len(n.get("symbols") or []) <= 3
+            and not any(r.search(n.get("headline", "")) for r in ROUTINE_RE)]
 
 
 def news_since_last_close(symbol, now):
