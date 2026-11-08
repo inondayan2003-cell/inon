@@ -8,6 +8,7 @@ from .analysis import Analysis, analyze
 from .config import Settings
 from .data import DataFeed
 from .messages import event_message
+from . import portfolio
 from .regime import daily_regime, lookup
 from .storage import Store
 from .strategy import Strategy
@@ -73,6 +74,8 @@ class GoldService:
         for ev in events:
             if "trade" in ev:
                 self.store.save_trade(ev["trade"])
+            if ev["type"] == "closed" and ev["trade"].get("method") in self.cfg.alert_methods:
+                portfolio.record(self.store, ev["trade"])
             if event_method(ev) not in self.cfg.alert_methods:
                 continue  # שיטה במעקב בלבד: נשמרת בהיסטוריה, בלי התראה
             text = event_message(ev, self.snapshot)

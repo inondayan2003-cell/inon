@@ -7,8 +7,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
+import pandas as pd
 from pydantic import BaseModel
 
+from . import portfolio
 from .analysis import TIMEFRAMES
 from .auth import validate_init_data
 from .bot import Bot
@@ -44,6 +46,17 @@ async def send_backtest_once():
         store.put("backtest_sent", BACKTEST_ID)
 
 
+async def daily_portfolio_report():
+    """כל ערב (שני-שישי, 23:45 שעון ישראל): דוח תיק הדמו לכל המנויים."""
+    while True:
+        now = pd.Timestamp.now(tz="Asia/Jerusalem")
+        day = now.date().isoformat()
+        if now.weekday() < 5 and (now.hour, now.minute) >= (23, 45) and store.get("portfolio_report_day") != day:
+            await bot.broadcast(portfolio.report(store, day, service.positions()["open_trades"]), with_button=False)
+            store.put("portfolio_report_day", day)
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     tasks = [asyncio.create_task(service.run())]
@@ -51,6 +64,7 @@ async def lifespan(_: FastAPI):
         service.notify = bot.broadcast
         tasks.append(asyncio.create_task(bot.run()))
         tasks.append(asyncio.create_task(send_backtest_once()))
+        tasks.append(asyncio.create_task(daily_portfolio_report()))
     else:
         log.warning("BOT_TOKEN לא הוגדר - הבוט לא פעיל, רק ה-API")
     yield

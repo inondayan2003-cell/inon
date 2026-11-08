@@ -7,9 +7,11 @@ import pandas as pd
 
 from .backtest import backtest_report
 from .config import Settings
+from . import portfolio
 from .messages import channel_message, status_message
 from .signals import parse_signal, report as signals_report
 from .storage import Store
+from .strategy import Strategy
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +23,7 @@ HELP = (
     "🔁 <b>ניהול:</b> שליש בכל יעד. אחרי TP1 להזיז את ה-SL לכניסה.\n"
     "🔔 אחרי כל סיגנל תקבל עדכון: כניסה, כל TP, וסגירה.\n\n"
     "/status - מצב השוק עכשיו\n"
+    "/demo - תיק הדמו: יתרה ועסקאות (דוח אוטומטי כל ערב ב-23:45)\n"
     "/test - דוגמה לסיגנל (בדיקה שהבוט מחובר)\n"
     "/backtest - בדיקה היסטורית על 6 החודשים האחרונים\n"
     "/signals - בדיקת סיגנלים שהעברת מקבוצה (Forward של ההודעות לכאן)\n"
@@ -76,6 +79,7 @@ class Bot:
             {"command": "alerts_on", "description": "הפעלת התראות לונג/שורט"},
             {"command": "alerts_off", "description": "השתקת התראות"},
             {"command": "app", "description": "פתיחת האפליקציה"},
+            {"command": "demo", "description": "תיק הדמו: יתרה ועסקאות"},
             {"command": "test", "description": "דוגמה לסיגנל (בדיקת חיבור)"},
             {"command": "backtest", "description": "בדיקה היסטורית של השיטה"},
             {"command": "signals", "description": "בדיקת סיגנלים שהועברו מקבוצה"},
@@ -167,6 +171,21 @@ class Bot:
                 text_out = await asyncio.to_thread(signals_report, sigs, self.cfg.td_symbol, self.cfg.twelvedata_api_key)
             for i in range(0, len(text_out), 3800):
                 await self.send(chat_id, text_out[i:i + 3800])
+        elif cmd == "/demo":
+            args = text.split()[1:]
+            try:
+                nums = [float(x.replace(",", "").replace("$", "").replace("%", "")) for x in args[:2]]
+            except ValueError:
+                nums = None
+            if nums is None or (nums and not (100 <= nums[0] <= 10_000_000)) or (len(nums) > 1 and not 0.1 <= nums[1] <= 10):
+                await self.send(chat_id, "שימוש: /demo · או /demo 10000 (התחלה מחדש עם 10,000$) · או /demo 10000 2 (סיכון 2% לעסקה)")
+            elif nums:
+                portfolio.reset(self.store, nums[0], nums[1] if len(nums) > 1 else portfolio.RISK_PCT)
+                await self.send(chat_id, f"💼 תיק הדמו התחיל מחדש: {nums[0]:,.0f}$, סיכון "
+                                         f"{nums[1] if len(nums) > 1 else portfolio.RISK_PCT:g}% לעסקה.")
+            else:
+                open_trades = Strategy(self.cfg, self.store.get("strategy", {})).open_trades
+                await self.send(chat_id, portfolio.report(self.store, open_trades=open_trades))
         elif cmd == "/test":
             snap = self.get_snapshot()
             price = round(snap["price"]) if snap else 4000
