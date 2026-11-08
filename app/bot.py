@@ -173,12 +173,33 @@ class Bot:
                 await self.send(chat_id, text_out[i:i + 3800])
         elif cmd == "/demo":
             args = text.split()[1:]
+            sub = args[0].lower() if args else ""
+            if sub in ("replay", "all", "הכל", "list", "רשימה"):
+                rest = args[1:]
+                try:
+                    bal = float(rest[0].replace(",", "").replace("$", "")) if rest else portfolio.START
+                    risk = float(rest[1].replace("%", "")) if len(rest) > 1 else portfolio.RISK_PCT
+                except ValueError:
+                    bal, risk = portfolio.START, portfolio.RISK_PCT
+                if sub in ("replay", "all", "הכל"):
+                    portfolio.replay(self.store, bal, risk)
+                open_trades = Strategy(self.cfg, self.store.get("strategy", {})).open_trades
+                chunk = ""
+                for line in portfolio.history(self.store).split("\n"):   # הודעה בטלגרם עד ~4,000 תווים
+                    if len(chunk) + len(line) > 3800:
+                        await self.send(chat_id, chunk)
+                        chunk = ""
+                    chunk += line + "\n"
+                await self.send(chat_id, chunk)
+                await self.send(chat_id, portfolio.report(self.store, open_trades=open_trades))
+                return
             try:
                 nums = [float(x.replace(",", "").replace("$", "").replace("%", "")) for x in args[:2]]
             except ValueError:
                 nums = None
             if nums is None or (nums and not (100 <= nums[0] <= 10_000_000)) or (len(nums) > 1 and not 0.1 <= nums[1] <= 10):
-                await self.send(chat_id, "שימוש: /demo · או /demo 10000 (התחלה מחדש עם 10,000$) · או /demo 10000 2 (סיכון 2% לעסקה)")
+                await self.send(chat_id, "שימוש: /demo · /demo 10000 (התחלה מחדש) · /demo 10000 2 (סיכון 2%) · "
+                                         "/demo replay 10000 (כל העסקאות שכבר נשלחו, על 10,000$) · /demo list (רשימת העסקאות)")
             elif nums:
                 portfolio.reset(self.store, nums[0], nums[1] if len(nums) > 1 else portfolio.RISK_PCT)
                 await self.send(chat_id, f"💼 תיק הדמו התחיל מחדש: {nums[0]:,.0f}$, סיכון "

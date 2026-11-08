@@ -28,6 +28,33 @@ def reset(store: Store, balance: float, risk_pct: float = RISK_PCT) -> dict:
     return p
 
 
+def replay(store: Store, balance: float, risk_pct: float = RISK_PCT, method: str = "channel_fade") -> dict:
+    """מתחיל תיק חדש ומריץ עליו לפי הסדר את כל העסקאות שהבוט כבר סגר."""
+    done = [t for t in store.trades(10_000) if t.get("method") == method and t.get("result_r") is not None
+            and t.get("closed_at")]
+    done.sort(key=lambda t: t["closed_at"])
+    p = reset(store, balance, risk_pct)
+    if done:
+        p["since"] = min(t["opened_at"] for t in done)
+        store.put(KEY, p)
+    for t in done:
+        record(store, t)
+    return get(store)
+
+
+def history(store: Store) -> str:
+    """כל העסקאות בתיק, אחת בשורה, עם היתרה אחרי כל אחת."""
+    p = get(store)
+    if not p["ledger"]:
+        return "אין עדיין עסקאות סגורות בתיק."
+    il = lambda t: pd.Timestamp(t).tz_convert(IL)
+    lines = [f"📜 <b>כל העסקאות ({len(p['ledger'])})</b> · התחלה {p['start']:,.0f}$", ""]
+    for x in p["ledger"]:
+        lines.append(f"{il(x['opened_at']):%d/%m %H:%M} · {'BUY' if x['direction'] == 1 else 'SELL'} {x['entry']:.0f} · "
+                     f"{STATUS.get(x['status'], x['status'])} · <b>{_money(x['pnl'])}</b> → {x['balance']:,.0f}$")
+    return "\n".join(lines)
+
+
 def record(store: Store, trade: dict) -> dict | None:
     """עסקה שנסגרה: מחשבים לוטים ורווח ומעדכנים את היתרה. מחזיר את השורה שנרשמה."""
     if trade.get("result_r") is None or not trade.get("entry") or trade.get("entry") == trade.get("sl"):
