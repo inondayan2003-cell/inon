@@ -179,14 +179,23 @@
     if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true };
     if (path === "/api/services") return Object.entries(SERVICES).map(([key, label]) => ({ key, label }));
 
+    if (path === "/api/me/avatar") {
+      const u = registered(headers);
+      u.avatar_url = method === "POST" ? await blobToDataUrl(body.get("photo")) : null;
+      saveOrFail();
+      return u;
+    }
     if (path === "/api/me") {
       const ident = who(headers);
       if (method === "GET") return db.users[ident.uid] || fail(404, "not_registered");
-      const name = String(JSON.parse(body).name || "").trim();
+      const data = JSON.parse(body);
+      const name = String(data.name || "").trim();
       if (name.length < 2) fail(422, "צריך לכתוב שם");
       const isEmail = ident.contact.includes("@");
       db.users[ident.uid] = {
-        uid: ident.uid, name, email: isEmail ? ident.contact : null, phone: isEmail ? null : ident.contact,
+        avatar_url: null, ...db.users[ident.uid],
+        uid: ident.uid, name, city: String(data.city || "").trim(),
+        email: isEmail ? ident.contact : null, phone: isEmail ? null : ident.contact,
         provider: ident.uid.startsWith("google") ? "google" : ident.uid.startsWith("email") ? "email" : "dev",
       };
       saveOrFail();
@@ -308,10 +317,4 @@
     window.NAILS_NAV.go(a.getAttribute("href"));
   });
 
-  // Preview starts near Tel Aviv so sample businesses show up right away.
-  try {
-    if (!localStorage.getItem("nails.loc")) {
-      localStorage.setItem("nails.loc", JSON.stringify({ lat: 32.0853, lng: 34.7818, label: "תל אביב" }));
-    }
-  } catch { /* storage blocked */ }
 })();

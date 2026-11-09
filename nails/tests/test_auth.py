@@ -111,3 +111,47 @@ def test_config_env_overrides_file(client, monkeypatch):
     monkeypatch.setenv("FIREBASE_AUTH_DOMAIN", "")
     fb = client.get("/api/config").json()["firebase"]
     assert (fb["projectId"], fb["apiKey"]) == ("nails-test", "public-key")
+
+
+# ---------- profile: city and picture ----------
+
+from .conftest import JPEG, auth as auth_header  # noqa: E402
+
+
+def test_register_with_city(client):
+    h = auth_header("maya", "maya@example.com")
+    r = client.post("/api/me", json={"name": "מאיה", "city": "חיפה"}, headers=h).json()
+    assert (r["name"], r["city"], r["avatar_url"]) == ("מאיה", "חיפה", None)
+    r = client.post("/api/me", json={"name": "מאיה לוי", "city": ""}, headers=h).json()
+    assert (r["name"], r["city"]) == ("מאיה לוי", "")
+
+
+def test_avatar_upload_replace_remove(client, tmp_path):
+    r = client.post("/api/me/avatar", files={"photo": ("a.jpg", JPEG, "image/jpeg")})
+    first = r.json()["avatar_url"]
+    assert r.status_code == 200 and first.startswith("/uploads/")
+    assert client.get(first).content == JPEG
+    second = client.post("/api/me/avatar", files={"photo": ("b.jpg", JPEG, "image/jpeg")}).json()["avatar_url"]
+    assert second != first and client.get(first).status_code == 404   # old picture deleted
+    assert client.get("/api/me").json()["avatar_url"] == second
+    assert client.delete("/api/me/avatar").json()["avatar_url"] is None
+    assert client.get(second).status_code == 404
+
+
+def test_avatar_must_be_image(client):
+    r = client.post("/api/me/avatar", files={"photo": ("a.txt", b"hello", "text/plain")})
+    assert r.status_code == 415
+
+
+def test_old_users_table_gets_new_columns(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setenv("NAILS_DATA", str(tmp_path))
+    conn = sqlite3.connect(tmp_path / "nails.db")
+    conn.execute("CREATE TABLE users (uid TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, phone TEXT,"
+                 " provider TEXT NOT NULL, created_at TEXT, last_login TEXT)")
+    conn.close()
+    from app import db
+    db.init()
+    with db.connect() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(users)")}
+    assert {"city", "avatar"} <= cols

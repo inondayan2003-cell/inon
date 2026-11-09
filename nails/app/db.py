@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT,
     phone TEXT,
     provider TEXT NOT NULL,       -- google / apple / email / phone
+    city TEXT NOT NULL DEFAULT '',
+    avatar TEXT NOT NULL DEFAULT '',     -- photo filename in uploads/, '' = initials
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_login TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -67,3 +69,15 @@ def init() -> None:
     os.makedirs(uploads_dir(), exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _add_missing_columns(conn, "users", {
+            "city": "TEXT NOT NULL DEFAULT ''",
+            "avatar": "TEXT NOT NULL DEFAULT ''",
+        })
+
+
+def _add_missing_columns(conn, table: str, columns: dict[str, str]) -> None:
+    """Upgrade databases created by older versions."""
+    have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for name, ddl in columns.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")

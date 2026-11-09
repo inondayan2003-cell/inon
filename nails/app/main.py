@@ -68,7 +68,13 @@ def current_user(ident: auth.Identity = Depends(identity)) -> dict:
 
 
 def _user_out(row) -> dict:
-    return {k: row[k] for k in ("uid", "name", "email", "phone", "provider")}
+    out = {k: row[k] for k in ("uid", "name", "email", "phone", "provider", "city")}
+    out["avatar_url"] = f"/uploads/{row['avatar']}" if row["avatar"] else None
+    return out
+
+
+def _get_user(conn, uid: str) -> dict:
+    return _user_out(conn.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone())
 
 
 @app.get("/api/config")
@@ -89,21 +95,43 @@ def me(ident: auth.Identity = Depends(identity)):
 
 class RegisterIn(BaseModel):
     name: str = Field(min_length=2, max_length=60)
+    city: str = Field("", max_length=40)
 
 
 @app.post("/api/me")
 def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
-    """Create the account on first sign-in (or update the name)."""
+    """Create the account on first sign-in (or update name and city)."""
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO users (uid, name, email, phone, provider) VALUES (?, ?, ?, ?, ?)"
-            " ON CONFLICT(uid) DO UPDATE SET name = excluded.name,"
+            "INSERT INTO users (uid, name, email, phone, provider, city) VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(uid) DO UPDATE SET name = excluded.name, city = excluded.city,"
             " email = COALESCE(excluded.email, users.email),"
             " phone = COALESCE(excluded.phone, users.phone), last_login = datetime('now')",
-            (ident.uid, body.name.strip(), ident.email, ident.phone, ident.provider),
+            (ident.uid, body.name.strip(), ident.email, ident.phone, ident.provider, body.city.strip()),
         )
-        row = conn.execute("SELECT * FROM users WHERE uid = ?", (ident.uid,)).fetchone()
-    return _user_out(row)
+        return _get_user(conn, ident.uid)
+
+
+@app.post("/api/me/avatar")
+async def set_avatar(photo: UploadFile = File(...), user: dict = Depends(current_user)):
+    """Profile picture (replaces the previous one)."""
+    [name] = await _save_photos([photo])
+    with db.connect() as conn:
+        conn.execute("UPDATE users SET avatar = ? WHERE uid = ?", (name, user["uid"]))
+        out = _get_user(conn, user["uid"])
+    if user["avatar"]:
+        _delete_files([user["avatar"]])
+    return out
+
+
+@app.delete("/api/me/avatar")
+def remove_avatar(user: dict = Depends(current_user)):
+    with db.connect() as conn:
+        conn.execute("UPDATE users SET avatar = '' WHERE uid = ?", (user["uid"],))
+        out = _get_user(conn, user["uid"])
+    if user["avatar"]:
+        _delete_files([user["avatar"]])
+    return out
 
 
 # ---------- helpers ----------

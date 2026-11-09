@@ -402,6 +402,8 @@ function pageTitle(title, backHref) {
 }
 
 const initials = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const avatarInner = (p) => (p?.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="">` : esc(initials(p?.name)));
+const cityOptions = () => `<datalist id="cities">${CITIES.map(([c]) => `<option value="${esc(c)}">`).join("")}</datalist>`;
 
 /* ================= sign-up / sign-in screens ================= */
 
@@ -550,6 +552,9 @@ function renderWelcome() {
       <form id="name-form" novalidate>
         <label class="field"><span>שם מלא</span>
           <input type="text" name="name" required minlength="2" maxlength="60" autocomplete="name" value="${esc(session.user?.name)}"></label>
+        <label class="field"><span>עיר מגורים (לא חובה)</span>
+          <input type="text" name="city" maxlength="40" list="cities" autocomplete="address-level2"></label>
+        ${cityOptions()}
         <p class="error hidden" id="auth-err"></p>
         <button class="btn block">סיום הרשמה</button>
       </form>
@@ -558,11 +563,12 @@ function renderWelcome() {
   $("#name-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = String(e.target.name.value).trim();
+    const city = String(e.target.city.value).trim();
     const err = $("#auth-err");
     if (name.length < 2) { err.textContent = "צריך לכתוב שם"; err.classList.remove("hidden"); return; }
     try {
       session.profile = await api("/api/me", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, city }),
       });
       toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
       nav.go("#/");
@@ -574,11 +580,17 @@ function renderWelcome() {
 /* ================= home ================= */
 
 function renderHome() {
+  // No location yet: start from the city in her profile.
+  const home = CITIES.find(([c]) => c === session.profile?.city);
+  if (!state.loc && home) {
+    state.loc = { lat: home[1], lng: home[2], label: home[0] };
+    store.set("nails.loc", state.loc);
+  }
   const loc = state.loc;
   const first = (session.profile?.name || "").split(" ")[0];
   view.innerHTML = `
     <div class="top">
-      <a class="avatar" href="#/profile" aria-label="פרופיל">${esc(initials(session.profile?.name))}</a>
+      <a class="avatar" href="#/profile" aria-label="פרופיל">${avatarInner(session.profile)}</a>
       <div><h1>שלום, ${esc(first)}</h1><p>איפה עושים ציפורניים היום?</p></div>
       <div class="spacer"></div>
       <a class="icon-btn" href="#/favorites" aria-label="מועדפים">${ICON.heart}</a>
@@ -1042,9 +1054,16 @@ async function renderProfile() {
   const via = { google: "גוגל", apple: "אפל", email: "אימייל", phone: "מספר טלפון", dev: "חשבון לדוגמה" }[p.provider] || "";
   view.innerHTML = `
     <div class="profile-head">
-      <div class="avatar big">${esc(initials(p.name))}</div>
-      <div><h1>${esc(p.name)}</h1><p dir="ltr">${esc(p.email || p.phone || "")}</p>
-      <small>מחוברת דרך ${via}</small></div>
+      <div class="avatar-wrap">
+        <div class="avatar big" id="avatar">${avatarInner(p)}</div>
+        <button class="avatar-cam" id="avatar-btn" aria-label="החלפת תמונת פרופיל">${ICON.camera}</button>
+        <input type="file" id="avatar-file" accept="image/*" hidden>
+      </div>
+      <div class="grow">
+        <h1>${esc(p.name)}</h1>
+        ${p.city ? `<p>${ICON.pin}${esc(p.city)}</p>` : '<p><a class="link" href="#/edit-profile">+ הוספת עיר</a></p>'}
+        <small>מחוברת דרך ${via}</small>
+      </div>
     </div>
 
     <div class="section-head"><h3>העסקים שלי</h3></div>
@@ -1054,9 +1073,24 @@ async function renderProfile() {
     <div class="section-head" style="margin-top:26px"><h3>החשבון שלי</h3></div>
     <div class="panel" style="padding:0">
       <a class="list-item" href="#/favorites"><div class="step">${ICON.heart}</div><div class="grow"><b>מועדפים</b></div>${ICON.chevron}</a>
-      <a class="list-item" href="#/edit-name"><div class="step">${ICON.user}</div><div class="grow"><b>עריכת שם</b></div>${ICON.chevron}</a>
+      <a class="list-item" href="#/edit-profile"><div class="step">${ICON.user}</div><div class="grow"><b>עריכת פרופיל</b></div>${ICON.chevron}</a>
     </div>
     <button class="btn logout block" id="logout">${ICON.logout} התנתקות</button>`;
+
+  $("#avatar-btn").addEventListener("click", () => $("#avatar-file").click());
+  $("#avatar-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const { blob } = await resizeImage(file, 512, 0.85);
+      const body = new FormData();
+      body.append("photo", blob, "avatar.jpg");
+      session.profile = await api("/api/me/avatar", { method: "POST", body });
+      $("#avatar").innerHTML = avatarInner(session.profile);
+      toast("תמונת הפרופיל עודכנה ✓");
+    } catch (ex) { toast(ex.message); }
+  });
 
   $("#logout").addEventListener("click", async () => {
     await Auth.signOut();
@@ -1080,25 +1114,72 @@ async function renderProfile() {
   }
 }
 
-function renderEditName() {
+function renderEditProfile() {
+  const p = session.profile;
   view.innerHTML = `
-    ${pageTitle("עריכת שם", "#/profile")}
-    <form id="name-form" class="panel" novalidate>
+    ${pageTitle("עריכת פרופיל", "#/profile")}
+    <form id="profile-form" class="panel" novalidate>
+      <div class="avatar-edit">
+        <div class="avatar big" id="avatar">${avatarInner(p)}</div>
+        <div class="avatar-actions">
+          <button type="button" class="btn outline" id="avatar-btn">${ICON.camera} ${p.avatar_url ? "החלפת תמונה" : "הוספת תמונה"}</button>
+          ${p.avatar_url ? '<button type="button" class="link" id="avatar-remove">הסרת התמונה</button>' : ""}
+        </div>
+        <input type="file" id="avatar-file" accept="image/*" hidden>
+      </div>
       <label class="field"><span>שם מלא</span>
-        <input type="text" name="name" required minlength="2" maxlength="60" value="${esc(session.profile.name)}"></label>
+        <input type="text" name="name" required minlength="2" maxlength="60" value="${esc(p.name)}"></label>
+      <label class="field"><span>עיר מגורים</span>
+        <input type="text" name="city" maxlength="40" list="cities" value="${esc(p.city)}"></label>
+      ${cityOptions()}
+      <p class="note" style="text-align:start;margin-top:-4px">כשלא משתפים מיקום, החיפוש יתחיל מהעיר הזאת</p>
       <p class="error hidden" id="err"></p>
       <button class="btn block">שמירה</button>
     </form>`;
-  $("#name-form").addEventListener("submit", async (e) => {
+  const err = $("#err");
+  const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+
+  $("#avatar-btn").addEventListener("click", () => $("#avatar-file").click());
+  $("#avatar-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const { blob } = await resizeImage(file, 512, 0.85);
+      const body = new FormData();
+      body.append("photo", blob, "avatar.jpg");
+      session.profile = await api("/api/me/avatar", { method: "POST", body });
+      toast("תמונת הפרופיל עודכנה ✓");
+      renderEditProfile();
+    } catch (ex) { showErr(ex.message); }
+  });
+  $("#avatar-remove")?.addEventListener("click", async () => {
+    try {
+      session.profile = await api("/api/me/avatar", { method: "DELETE" });
+      toast("התמונה הוסרה");
+      renderEditProfile();
+    } catch (ex) { showErr(ex.message); }
+  });
+
+  $("#profile-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = String(e.target.name.value).trim();
+    const city = String(e.target.city.value).trim();
+    if (name.length < 2) return showErr("צריך לכתוב שם");
     try {
+      const before = session.profile.city;
       session.profile = await api("/api/me", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, city }),
       });
-      toast("השם עודכן ✓");
+      // A new home city becomes the search location, unless she is using GPS.
+      const home = CITIES.find(([c]) => c === city);
+      if (home && city !== before && state.loc?.label !== "המיקום שלי") {
+        state.loc = { lat: home[1], lng: home[2], label: home[0] };
+        store.set("nails.loc", state.loc);
+      }
+      toast("הפרופיל נשמר ✓");
       nav.go("#/profile");
-    } catch (ex) { const el = $("#err"); el.textContent = ex.message; el.classList.remove("hidden"); }
+    } catch (ex) { showErr(ex.message); }
   });
 }
 
@@ -1261,7 +1342,7 @@ function route() {
   }
 
   document.body.classList.toggle("signed-out", !session.profile);
-  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-name": "profile" }[page || ""];
+  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-profile": "profile" }[page || ""];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   window.scrollTo(0, 0);
 
@@ -1275,7 +1356,7 @@ function route() {
     case "favorites": return renderFavorites();
     case "add": return renderAdd();
     case "profile": return renderProfile();
-    case "edit-name": return renderEditName();
+    case "edit-profile": return renderEditProfile();
     case "manage": return renderManage(Number(parts[1]), params.has("new"));
     default: nav.replace("#/");
   }
