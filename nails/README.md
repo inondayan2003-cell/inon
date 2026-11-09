@@ -57,6 +57,10 @@ NAILS_DEV_AUTH=1 uvicorn app.main:app --reload
 
 בדיקות: `pytest`
 
+### תצוגה מקדימה בלי שרת
+
+`python demo/build.py` בונה קובץ HTML אחד (`demo/nails-preview.html`) שרץ כולו בדפדפן: `demo/mock-api.js` עונה במקום השרת, עם עסקים לדוגמה, והנתונים נשמרים רק בדפדפן. משמש להצגת האפליקציה לפני שהיא עולה לשרת אמיתי.
+
 ## מבנה
 
 ```

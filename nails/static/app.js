@@ -3,6 +3,15 @@
 /* ================= helpers ================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
+
+// Screen navigation lives in the URL hash ("#/b/12"). The preview build provides its own router.
+const nav = window.NAILS_NAV || {
+  get hash() { return location.hash; },
+  go(h) { location.hash = h; },          // new history entry
+  replace(h) { location.replace(h); },    // no history entry, triggers routing
+  silent(h) { history.replaceState(null, "", h); },  // change address only
+  listen(fn) { window.addEventListener("hashchange", fn); },
+};
 const view = $("#view");
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -210,7 +219,7 @@ function devAuth() {
 }
 
 let Auth = null;
-const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"] };  // user = signed in, profile = registered
+const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"], preview: false };  // user = signed in, profile = registered
 
 /* ================= API ================= */
 
@@ -226,7 +235,7 @@ async function api(path, opts = {}) {
   }
   if (res.status === 403 && data.detail === "not_registered") {
     session.profile = null;
-    location.hash = "#/welcome";
+    nav.go("#/welcome");
   }
   if (!res.ok) {
     const d = data.detail;
@@ -407,7 +416,9 @@ function renderAuth(mode, prefill = {}) {
         <h1>${signup ? "ברוכה הבאה ל-Nails" : "שמחים לראות אותך שוב"}</h1>
         <p>${signup ? "הרשמי כדי למצוא מניקוריסטיות קרובות אלייך" : "התחברי לחשבון שלך"}</p>
       </div>
-      ${session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד SMS לדוגמה: 123456" : ""}</p>` : ""}
+      ${session.preview
+        ? '<p class="dev-note">תצוגה מקדימה: הכניסה כאן לדוגמה בלבד, והכל נשמר רק בטלפון שלך</p>'
+        : session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד SMS לדוגמה: 123456" : ""}</p>` : ""}
       ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
 
       <div class="auth-buttons">
@@ -446,7 +457,7 @@ function renderAuth(mode, prefill = {}) {
 
   $("#google")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.google()));
   $("#apple")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.apple()));
-  $("#phone-btn")?.addEventListener("click", () => { location.hash = `#/phone?from=${mode}`; });
+  $("#phone-btn")?.addEventListener("click", () => { nav.go(`#/phone?from=${mode}`); });
 
   $("#email-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -462,7 +473,7 @@ function renderAuth(mode, prefill = {}) {
         const ae = authError(ex);
         if (ae.code === "exists") {
           // Already registered -> send her to the sign-in page with the email filled in.
-          history.replaceState(null, "", "#/login");
+          nav.silent("#/login");
           renderAuth("login", { email, notice: "כבר יש לך חשבון עם המייל הזה. התחברי עם הסיסמה שלך." });
           return;
         }
@@ -554,7 +565,7 @@ function renderWelcome() {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
       });
       toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
-      location.hash = "#/";
+      nav.go("#/");
     } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
   });
   $("#other-account").addEventListener("click", () => Auth.signOut());
@@ -652,7 +663,7 @@ async function tryAutoLocate() {
     const p = await getPosition();
     state.loc = { ...p, label: "המיקום שלי" };
     store.set("nails.loc", state.loc);
-    if (location.hash === "" || location.hash === "#/") renderHome();
+    if (nav.hash === "" || nav.hash === "#/") renderHome();
   } catch { /* user can pick a city */ }
 }
 
@@ -827,7 +838,16 @@ const MAX_PHOTOS = 12;
 
 function locationMap(el, initial, onPick) {
   if (!window.L) {
-    el.innerHTML = '<p class="note" style="padding:16px">המפה לא נטענה. השתמשי בכפתור "אני בעסק עכשיו".</p>';
+    // No map (offline / blocked): choose the city instead.
+    el.classList.add("map-fallback");
+    el.innerHTML = `<label class="field"><span>המפה לא נטענה. בחרי את העיר של העסק:</span>
+      <select class="city-pick"><option value="">בחירת עיר</option>
+      ${CITIES.map(([c], i) => `<option value="${i}">${esc(c)}</option>`).join("")}</select></label>`;
+    el.querySelector(".city-pick").addEventListener("change", (e) => {
+      if (e.target.value === "") return;
+      const [, lat, lng] = CITIES[Number(e.target.value)];
+      onPick({ lat, lng });
+    });
     return { set: (lat, lng) => onPick({ lat, lng }) };
   }
   const start = initial || state.loc || { lat: 32.0853, lng: 34.7818 };
@@ -1006,7 +1026,7 @@ function renderAdd() {
     btn.textContent = "מעלה...";
     try {
       const res = await api("/api/businesses", { method: "POST", body });
-      location.hash = `#/manage/${res.id}?new=1`;
+      nav.go(`#/manage/${res.id}?new=1`);
     } catch (ex) {
       fail(ex.message);
       btn.disabled = false;
@@ -1077,7 +1097,7 @@ function renderEditName() {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
       });
       toast("השם עודכן ✓");
-      location.hash = "#/profile";
+      nav.go("#/profile");
     } catch (ex) { const el = $("#err"); el.textContent = ex.message; el.classList.remove("hidden"); }
   });
 }
@@ -1203,12 +1223,18 @@ async function renderManage(id, isNew) {
   });
   drawPhotos();
 
-  $("#delete").addEventListener("click", async () => {
-    if (!confirm("למחוק את העסק לצמיתות? אי אפשר לבטל את זה.")) return;
+  let armed = false;
+  $("#delete").addEventListener("click", async (e) => {
+    if (!armed) {
+      armed = true;
+      e.currentTarget.textContent = "בטוחה? לחצי שוב כדי למחוק לצמיתות";
+      e.currentTarget.classList.add("armed");
+      return;
+    }
     try {
       await api(`/api/businesses/${id}`, { method: "DELETE" });
       toast("העסק נמחק");
-      location.hash = "#/profile";
+      nav.go("#/profile");
     } catch (ex) { toast(ex.message); }
   });
 }
@@ -1219,7 +1245,7 @@ const AUTH_PAGES = new Set(["signup", "login", "phone"]);
 const isAuthPageEnabled = (page) => page !== "phone" || session.methods.includes("phone");
 
 function route() {
-  const hash = location.hash || "#/";
+  const hash = nav.hash || "#/";
   const [path, query] = hash.slice(1).split("?");
   const parts = path.split("/").filter(Boolean);
   const page = parts[0];
@@ -1227,11 +1253,11 @@ function route() {
 
   // Guards: not signed in -> sign-up; signed in but no name yet -> welcome.
   if (!session.user) {
-    if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) { location.replace("#/signup"); return; }
+    if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) { nav.replace("#/signup"); return; }
   } else if (!session.profile) {
-    if (page !== "welcome") { location.replace("#/welcome"); return; }
+    if (page !== "welcome") { nav.replace("#/welcome"); return; }
   } else if (AUTH_PAGES.has(page) || page === "welcome") {
-    location.replace("#/"); return;
+    nav.replace("#/"); return;
   }
 
   document.body.classList.toggle("signed-out", !session.profile);
@@ -1251,13 +1277,13 @@ function route() {
     case "profile": return renderProfile();
     case "edit-name": return renderEditName();
     case "manage": return renderManage(Number(parts[1]), params.has("new"));
-    default: location.hash = "#/";
+    default: nav.replace("#/");
   }
 }
 
 async function onAuthChange(user) {
   const wasSignedIn = !!session.user;
-  const fromSignup = /^#\/(signup|phone\?from=signup)/.test(location.hash);
+  const fromSignup = /^#\/(signup|phone\?from=signup)/.test(nav.hash);
   session.user = user;
   session.profile = null;
   if (user) {
@@ -1269,7 +1295,7 @@ async function onAuthChange(user) {
       if (err.status !== 404) toast(err.message);
     }
   } else if (wasSignedIn) {
-    history.replaceState(null, "", "#/login");
+    nav.silent("#/login");
   }
   route();
 }
@@ -1280,6 +1306,7 @@ async function onAuthChange(user) {
   try { cfg = await api("/api/config"); } catch { /* offline */ }
 
   if (Array.isArray(cfg.methods) && cfg.methods.length) session.methods = cfg.methods;
+  session.preview = !!cfg.preview;
   if (cfg.dev_auth) {           // local development: fake accounts
     session.mode = "dev";
     Auth = devAuth();
@@ -1290,7 +1317,7 @@ async function onAuthChange(user) {
     view.innerHTML = empty(ICON.close, "ההתחברות עוד לא הוגדרה", "צריך להגדיר Firebase בשרת (ראו README).");
     return;
   }
-  window.addEventListener("hashchange", route);
+  nav.listen(route);
   Auth.onChange(onAuthChange);
   try { await Auth.ready; } catch {
     document.body.classList.add("signed-out");
