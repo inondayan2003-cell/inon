@@ -1,44 +1,44 @@
 # 💅 Nails
 
-An app for finding nail salons close to you.
+אפליקציה למציאת מניקוריסטיות קרובות אלייך.
 
-- **Business owner:** uploads her salon with a name, phone, city, location on a map, the treatments she offers, a **price range** (from ___ to ___ ₪) and **at least 5 photos** of her work.
-- **Customer:** chooses a radius (2 / 5 / 10 / 25 / 50 km) from her location, or picks a city, filters by treatment and by budget (up to 100 / 150 / 250 / 400 ₪), and sees the closest salons first, with the price range on every card.
-- **WhatsApp button:** opens a chat with the business and a ready-made message: "היי! הגעתי אלייך דרך אפליקציית Nails 💅"
-  Every press is counted, so the business owner can see how many enquiries came through the app.
+- **בעלת עסק** מעלה את העסק שלה: שם, טלפון, עיר, מיקום על המפה, הטיפולים שהיא עושה, **טווח מחירים** (החל מ-___ עד ___ ₪) ו**לפחות 5 תמונות** של עבודות.
+- **לקוחה** בוחרת רדיוס (2 / 5 / 10 / 25 / 50 ק"מ) מהמיקום שלה או בוחרת עיר, מסננת לפי טיפול ולפי תקציב (עד 100 / 150 / 250 / 400 ₪), ורואה את העסקים מהקרוב לרחוק, עם טווח המחירים על כל כרטיס.
+- **כפתור וואטסאפ** פותח שיחה עם העסק עם הודעה מוכנה: "היי! הגעתי אלייך דרך אפליקציית Nails 💅"
+  כל לחיצה נספרת, כך שבעלת העסק רואה כמה פניות הגיעו מהאפליקציה.
 
-## What's in the app
+## מה יש באפליקציה
 
-| Screen | What it does |
+| מסך | מה עושים בו |
 |------|-----|
-| Home | Search, radius, treatment filter, salons sorted by distance |
-| Business page | Photo gallery, distance, treatments, WhatsApp / call / Waze navigation |
-| Add business (+) | Form: details → location (GPS or map tap) → photos (5–12) |
-| My business | Statistics (views, WhatsApp enquiries), edit details, photos, delete |
-| Favourites | Businesses saved with the heart button (stored on the device) |
+| בית | חיפוש, רדיוס, סינון לפי טיפול ותקציב, עסקים לפי מרחק |
+| עמוד עסק | גלריית תמונות, מרחק, טווח מחירים, טיפולים, וואטסאפ / חיוג / ניווט ב-Waze |
+| הוספת עסק (+) | טופס: פרטים ומחירים ← מיקום (GPS או לחיצה על המפה) ← תמונות (5–12) |
+| העסק שלי | סטטיסטיקות (צפיות, פניות בוואטסאפ), עריכת פרטים, תמונות ומחיקה |
+| מועדפים | עסקים ששמרת עם הלב (נשמר במכשיר) |
 
-The owner can manage her business without signing up: she gets a **private management link** (saved on the device it was created on, and can be copied to another phone).
+בעלת העסק מנהלת את העסק בלי הרשמה: היא מקבלת **קישור פרטי לניהול**. הקישור נשמר במכשיר שבו העסק נוצר, ואפשר להעתיק אותו לטלפון אחר.
 
-## Running locally
+## הרצה מקומית
 
 ```bash
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload
-# open http://localhost:8000
+# לפתוח את http://localhost:8000
 ```
 
-Demo data (optional): `pip install pillow && python scripts/seed_demo.py`
+נתוני דוגמה (לא חובה): `pip install pillow && python scripts/seed_demo.py`
 
-Tests: `pytest`
+בדיקות: `pytest`
 
-## Structure
+## מבנה
 
 ```
-app/main.py     server (FastAPI): search, add, edit, WhatsApp
-app/geo.py      distance calculation, phone formatting
-app/db.py       database (SQLite) + photos folder
-static/         the app itself (HTML/CSS/JS), RTL, built for phones
-tests/          tests
+app/main.py     השרת (FastAPI): חיפוש, הוספה, עריכה, וואטסאפ
+app/geo.py      חישוב מרחק, עיצוב מספר טלפון
+app/db.py       מסד הנתונים (SQLite) ותיקיית התמונות
+static/         האפליקציה עצמה (HTML/CSS/JS), מימין לשמאל, מותאמת לטלפון
+tests/          בדיקות
 ```
 
-Data is saved in `data/` (configurable with `NAILS_DATA`).
+הנתונים נשמרים בתיקייה `data/` (אפשר לשנות עם `NAILS_DATA`).
