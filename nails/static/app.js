@@ -210,7 +210,7 @@ function devAuth() {
 }
 
 let Auth = null;
-const session = { user: null, profile: null, mode: "firebase" };  // user = signed in, profile = registered
+const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"] };  // user = signed in, profile = registered
 
 /* ================= API ================= */
 
@@ -398,6 +398,7 @@ const initials = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w)
 
 function renderAuth(mode, prefill = {}) {
   const signup = mode === "signup";
+  const has = (m) => session.methods.includes(m);
   const verb = signup ? "הרשמה" : "התחברות";
   view.innerHTML = `
     <div class="auth">
@@ -406,16 +407,16 @@ function renderAuth(mode, prefill = {}) {
         <h1>${signup ? "ברוכה הבאה ל-Nails" : "שמחים לראות אותך שוב"}</h1>
         <p>${signup ? "הרשמי כדי למצוא מניקוריסטיות קרובות אלייך" : "התחברי לחשבון שלך"}</p>
       </div>
-      ${session.mode === "dev" ? '<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד. קוד SMS לדוגמה: 123456</p>' : ""}
+      ${session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד SMS לדוגמה: 123456" : ""}</p>` : ""}
       ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
 
       <div class="auth-buttons">
-        <button class="btn social" id="google">${ICON.google}<span>${verb} עם Google</span></button>
-        <button class="btn social apple" id="apple">${ICON.apple}<span>${verb} עם Apple</span></button>
-        <button class="btn social" id="phone-btn">${ICON.phone}<span>${verb} עם מספר טלפון</span></button>
+        ${has("google") ? `<button class="btn social" id="google">${ICON.google}<span>${verb} עם Google</span></button>` : ""}
+        ${has("apple") ? `<button class="btn social apple" id="apple">${ICON.apple}<span>${verb} עם Apple</span></button>` : ""}
+        ${has("phone") ? `<button class="btn social" id="phone-btn">${ICON.phone}<span>${verb} עם מספר טלפון</span></button>` : ""}
       </div>
 
-      <div class="divider"><span>או עם אימייל</span></div>
+      ${has("email") ? `${session.methods.length > 1 ? '<div class="divider"><span>או עם אימייל</span></div>' : ""}
 
       <form id="email-form" novalidate>
         <label class="field"><span>אימייל</span>
@@ -425,7 +426,7 @@ function renderAuth(mode, prefill = {}) {
         ${signup ? "" : '<button type="button" class="link" id="forgot">שכחתי סיסמה</button>'}
         <p class="error hidden" id="auth-err"></p>
         <button class="btn block" id="email-submit">${verb}</button>
-      </form>
+      </form>` : '<p class="error hidden" id="auth-err"></p>'}
 
       <p class="switch-mode">${signup
         ? 'כבר יש לך חשבון? <a href="#/login">להתחברות</a>'
@@ -443,11 +444,11 @@ function renderAuth(mode, prefill = {}) {
     } finally { btn.disabled = false; }
   };
 
-  $("#google").addEventListener("click", (e) => busy(e.currentTarget, () => Auth.google()));
-  $("#apple").addEventListener("click", (e) => busy(e.currentTarget, () => Auth.apple()));
-  $("#phone-btn").addEventListener("click", () => { location.hash = `#/phone?from=${mode}`; });
+  $("#google")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.google()));
+  $("#apple")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.apple()));
+  $("#phone-btn")?.addEventListener("click", () => { location.hash = `#/phone?from=${mode}`; });
 
-  $("#email-form").addEventListener("submit", (e) => {
+  $("#email-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const email = String(fd.get("email")).trim();
@@ -1215,6 +1216,7 @@ async function renderManage(id, isNew) {
 /* ================= router ================= */
 
 const AUTH_PAGES = new Set(["signup", "login", "phone"]);
+const isAuthPageEnabled = (page) => page !== "phone" || session.methods.includes("phone");
 
 function route() {
   const hash = location.hash || "#/";
@@ -1225,7 +1227,7 @@ function route() {
 
   // Guards: not signed in -> sign-up; signed in but no name yet -> welcome.
   if (!session.user) {
-    if (!AUTH_PAGES.has(page)) { location.replace("#/signup"); return; }
+    if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) { location.replace("#/signup"); return; }
   } else if (!session.profile) {
     if (page !== "welcome") { location.replace("#/welcome"); return; }
   } else if (AUTH_PAGES.has(page) || page === "welcome") {
@@ -1277,6 +1279,7 @@ async function onAuthChange(user) {
   let cfg = { firebase: null, dev_auth: false };
   try { cfg = await api("/api/config"); } catch { /* offline */ }
 
+  if (Array.isArray(cfg.methods) && cfg.methods.length) session.methods = cfg.methods;
   if (cfg.firebase) {
     Auth = firebaseAuth(cfg.firebase);
   } else if (cfg.dev_auth) {

@@ -60,8 +60,24 @@ def firebase(monkeypatch):
 def test_firebase_token_accepted(firebase):
     ident = auth_mod.verify(firebase())
     assert (ident.uid, ident.provider, ident.email, ident.name) == ("uid-123", "google", "noa@gmail.com", "Noa")
-    assert auth_mod.verify(firebase(firebase={"sign_in_provider": "apple.com"})).provider == "apple"
-    assert auth_mod.verify(firebase(firebase={"sign_in_provider": "phone"}, phone_number="+972501234567")).phone == "+972501234567"
+    assert auth_mod.verify(firebase(firebase={"sign_in_provider": "password"})).provider == "email"
+
+
+def test_only_enabled_methods_accepted(firebase, monkeypatch):
+    apple = firebase(firebase={"sign_in_provider": "apple.com"})
+    phone = firebase(firebase={"sign_in_provider": "phone"}, phone_number="+972501234567")
+    for token in (apple, phone):  # off by default (they cost money)
+        with pytest.raises(auth_mod.AuthError):
+            auth_mod.verify(token)
+    monkeypatch.setenv("NAILS_SIGNIN_METHODS", "google,email,apple,phone")
+    assert auth_mod.verify(apple).provider == "apple"
+    assert auth_mod.verify(phone).phone == "+972501234567"
+
+
+def test_config_lists_methods(client, monkeypatch):
+    assert client.get("/api/config").json()["methods"] == ["google", "email"]
+    monkeypatch.setenv("NAILS_SIGNIN_METHODS", "email, phone")
+    assert client.get("/api/config").json()["methods"] == ["email", "phone"]
 
 
 @pytest.mark.parametrize("over", [

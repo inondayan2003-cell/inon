@@ -6,6 +6,9 @@ in the browser and gives the app an ID token. The server only checks that token.
 Settings (environment variables):
   FIREBASE_PROJECT_ID, FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_APP_ID
       Firebase project config (these are public values, not secrets).
+  NAILS_SIGNIN_METHODS=google,email
+      Which sign-in methods the app offers (google, email, apple, phone).
+      Default: google,email (both free). apple and phone cost money, so they are off.
   NAILS_DEV_AUTH=1
       Local development only: accept fake "dev:<id>:<email>" tokens so the app can be
       tried without a Firebase project. NEVER enable this on a real server.
@@ -50,6 +53,15 @@ def project_id() -> str:
     return os.environ.get("FIREBASE_PROJECT_ID", "")
 
 
+ALL_METHODS = ("google", "email", "apple", "phone")
+
+
+def enabled_methods() -> list[str]:
+    raw = os.environ.get("NAILS_SIGNIN_METHODS", "google,email")
+    wanted = {m.strip().lower() for m in raw.split(",")}
+    return [m for m in ALL_METHODS if m in wanted]
+
+
 def dev_auth_enabled() -> bool:
     return os.environ.get("NAILS_DEV_AUTH") == "1"
 
@@ -64,7 +76,7 @@ def client_config() -> dict:
             "projectId": project_id(),
             "appId": os.environ.get("FIREBASE_APP_ID", ""),
         }
-    return {"firebase": firebase, "dev_auth": dev_auth_enabled()}
+    return {"firebase": firebase, "dev_auth": dev_auth_enabled(), "methods": enabled_methods()}
 
 
 # ---------- Google signing keys (cached) ----------
@@ -145,4 +157,7 @@ def verify(token: str) -> Identity:
         if not dev_auth_enabled():
             raise AuthError("dev sign-in is disabled")
         return _verify_dev(token)
-    return _verify_firebase(token)
+    ident = _verify_firebase(token)
+    if ident.provider not in enabled_methods():
+        raise AuthError("sign-in method is not enabled")
+    return ident
