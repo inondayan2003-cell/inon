@@ -98,9 +98,16 @@ def test_firebase_token_with_unknown_key_rejected(firebase):
         auth_mod.verify(token)
 
 
-def test_config_exposes_firebase_settings(client, monkeypatch):
+def test_config_reads_project_file(client):
+    fb = client.get("/api/config").json()["firebase"]
+    assert fb["projectId"] == "nails-cb7e0"
+    assert fb["authDomain"] == "nails-cb7e0.firebaseapp.com"
+    assert fb["apiKey"] and fb["appId"]
+
+
+def test_config_env_overrides_file(client, monkeypatch):
     monkeypatch.setenv("FIREBASE_PROJECT_ID", "nails-test")
     monkeypatch.setenv("FIREBASE_API_KEY", "public-key")
-    cfg = client.get("/api/config").json()
-    assert cfg["firebase"]["projectId"] == "nails-test"
-    assert cfg["firebase"]["authDomain"] == "nails-test.firebaseapp.com"
+    monkeypatch.setenv("FIREBASE_AUTH_DOMAIN", "")
+    fb = client.get("/api/config").json()["firebase"]
+    assert (fb["projectId"], fb["apiKey"]) == ("nails-test", "public-key")

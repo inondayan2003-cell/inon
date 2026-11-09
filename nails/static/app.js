@@ -1280,11 +1280,11 @@ async function onAuthChange(user) {
   try { cfg = await api("/api/config"); } catch { /* offline */ }
 
   if (Array.isArray(cfg.methods) && cfg.methods.length) session.methods = cfg.methods;
-  if (cfg.firebase) {
-    Auth = firebaseAuth(cfg.firebase);
-  } else if (cfg.dev_auth) {
+  if (cfg.dev_auth) {           // local development: fake accounts
     session.mode = "dev";
     Auth = devAuth();
+  } else if (cfg.firebase) {
+    Auth = firebaseAuth(cfg.firebase);
   } else {
     document.body.classList.add("signed-out");
     view.innerHTML = empty(ICON.close, "ההתחברות עוד לא הוגדרה", "צריך להגדיר Firebase בשרת (ראו README).");

@@ -31,8 +31,8 @@
    - **Email/Password**: מפעילים ושומרים.
    - (Phone ו-Apple לא צריך להפעיל. הם עולים כסף ולכן כבויים באפליקציה.)
 3. **Authentication → Settings → Authorized domains**: מוסיפים את הדומיין שבו האפליקציה תרוץ.
-4. **Project settings → General → Your apps**: מוסיפים אפליקציית Web ומעתיקים את הערכים למשתני הסביבה של השרת (ראו `.env.example`):
-   `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_APP_ID`.
+4. **Project settings → General → Your apps**: מוסיפים אפליקציית Web. הערכים שלה שמורים בקובץ `firebase-config.json` (פרויקט `nails-cb7e0`).
+   אפשר לדרוס אותם במשתני סביבה: `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_APP_ID`.
 
 הערכים האלה ציבוריים (לא סודות). השרת בודק כל בקשה מול המפתחות של Google, כך שאי אפשר לזייף משתמשת.
 

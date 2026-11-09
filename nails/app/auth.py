@@ -3,9 +3,11 @@
 Firebase handles all sign-in methods (Google, Apple, email + password, phone SMS)
 in the browser and gives the app an ID token. The server only checks that token.
 
-Settings (environment variables):
+Settings:
+  firebase-config.json (next to README)
+      The Firebase web-app config (public values, not secrets).
   FIREBASE_PROJECT_ID, FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_APP_ID
-      Firebase project config (these are public values, not secrets).
+      Optional environment variables that override the file.
   NAILS_SIGNIN_METHODS=google,email
       Which sign-in methods the app offers (google, email, apple, phone).
       Default: google,email (both free). apple and phone cost money, so they are off.
@@ -13,10 +15,12 @@ Settings (environment variables):
       Local development only: accept fake "dev:<id>:<email>" tokens so the app can be
       tried without a Firebase project. NEVER enable this on a real server.
 """
+import json
 import os
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import jwt
@@ -49,8 +53,30 @@ class Identity:
     name: str | None = None
 
 
+CONFIG_FILE = Path(__file__).resolve().parent.parent / "firebase-config.json"
+
+
+def _file_config() -> dict:
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def firebase_config() -> dict:
+    """File values, overridden by environment variables."""
+    cfg = _file_config()
+    for key, env in (("projectId", "FIREBASE_PROJECT_ID"), ("apiKey", "FIREBASE_API_KEY"),
+                     ("authDomain", "FIREBASE_AUTH_DOMAIN"), ("appId", "FIREBASE_APP_ID")):
+        if os.environ.get(env):
+            cfg[key] = os.environ[env]
+    if cfg.get("projectId") and not cfg.get("authDomain"):
+        cfg["authDomain"] = f"{cfg['projectId']}.firebaseapp.com"
+    return cfg
+
+
 def project_id() -> str:
-    return os.environ.get("FIREBASE_PROJECT_ID", "")
+    return firebase_config().get("projectId", "")
 
 
 ALL_METHODS = ("google", "email", "apple", "phone")
@@ -68,14 +94,10 @@ def dev_auth_enabled() -> bool:
 
 def client_config() -> dict:
     """What the browser needs to start sign-in."""
+    cfg = firebase_config()
     firebase = None
-    if project_id() and os.environ.get("FIREBASE_API_KEY"):
-        firebase = {
-            "apiKey": os.environ["FIREBASE_API_KEY"],
-            "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN", f"{project_id()}.firebaseapp.com"),
-            "projectId": project_id(),
-            "appId": os.environ.get("FIREBASE_APP_ID", ""),
-        }
+    if cfg.get("projectId") and cfg.get("apiKey"):
+        firebase = {k: cfg.get(k, "") for k in ("apiKey", "authDomain", "projectId", "appId")}
     return {"firebase": firebase, "dev_auth": dev_auth_enabled(), "methods": enabled_methods()}
 
 
