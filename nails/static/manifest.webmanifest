@@ -1,0 +1,11 @@
+{
+  "name": "Nails",
+  "short_name": "Nails",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffafb",
+  "theme_color": "#b03a64",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
