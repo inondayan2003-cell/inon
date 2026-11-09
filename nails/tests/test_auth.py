@@ -155,3 +155,29 @@ def test_old_users_table_gets_new_columns(tmp_path, monkeypatch):
     with db.connect() as c:
         cols = {r["name"] for r in c.execute("PRAGMA table_info(users)")}
     assert {"city", "avatar"} <= cols
+
+
+# ---------- delete account ----------
+
+from .conftest import make_business, register  # noqa: E402
+
+
+def test_delete_account_removes_everything(client):
+    client.post("/api/me/avatar", files={"photo": ("a.jpg", JPEG, "image/jpeg")})
+    bid = make_business(client).json()["id"]
+    other = register(client, "noa")
+    make_business(client, name="של נועה", headers=other)
+    photo_url = client.get(f"/api/businesses/{bid}").json()["photos"][0]["url"]
+    avatar_url = client.get("/api/me").json()["avatar_url"]
+
+    assert client.delete("/api/me").status_code == 204
+    assert client.get("/api/me").status_code == 404                  # must register again
+    assert client.get(photo_url).status_code == 404 and client.get(avatar_url).status_code == 404
+    names = [b["name"] for b in client.get("/api/businesses", headers=other).json()]
+    assert names == ["של נועה"]                                      # other people's data untouched
+
+
+def test_config_has_contact_details(client, monkeypatch):
+    assert client.get("/api/config").json()["support_email"] == ""
+    monkeypatch.setenv("NAILS_SUPPORT_EMAIL", "help@nails.example")
+    assert client.get("/api/config").json()["support_email"] == "help@nails.example"

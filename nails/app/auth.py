@@ -98,7 +98,12 @@ def client_config() -> dict:
     firebase = None
     if cfg.get("projectId") and cfg.get("apiKey"):
         firebase = {k: cfg.get(k, "") for k in ("apiKey", "authDomain", "projectId", "appId")}
-    return {"firebase": firebase, "dev_auth": dev_auth_enabled(), "methods": enabled_methods()}
+    return {
+        "firebase": firebase, "dev_auth": dev_auth_enabled(), "methods": enabled_methods(),
+        # Shown on the contact page; empty until the owner sets them.
+        "support_email": os.environ.get("NAILS_SUPPORT_EMAIL", ""),
+        "support_phone": os.environ.get("NAILS_SUPPORT_PHONE", ""),
+    }
 
 
 # ---------- Google signing keys (cached) ----------

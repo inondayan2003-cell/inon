@@ -176,7 +176,7 @@
     const q = url.searchParams;
     let m;
 
-    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true };
+    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "" };
     if (path === "/api/services") return Object.entries(SERVICES).map(([key, label]) => ({ key, label }));
 
     if (path === "/api/me/avatar") {
@@ -188,6 +188,12 @@
     if (path === "/api/me") {
       const ident = who(headers);
       if (method === "GET") return db.users[ident.uid] || fail(404, "not_registered");
+      if (method === "DELETE") {
+        db.businesses = db.businesses.filter((b) => b.owner !== ident.uid);
+        delete db.users[ident.uid];
+        save();
+        return null;
+      }
       const data = JSON.parse(body);
       const name = String(data.name || "").trim();
       if (name.length < 2) fail(422, "צריך לכתוב שם");

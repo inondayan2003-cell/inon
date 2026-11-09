@@ -15,7 +15,7 @@ out = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "demo" / "nails-preview
 
 index = (STATIC / "index.html").read_text()
 css = (STATIC / "style.css").read_text()
-app = (STATIC / "app.js").read_text()
+app = (STATIC / "content.js").read_text() + "\n" + (STATIC / "app.js").read_text()
 mock = (ROOT / "demo" / "mock-api.js").read_text()
 
 # Page body: everything between <body> and the first <script>.

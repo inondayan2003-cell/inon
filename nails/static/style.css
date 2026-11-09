@@ -383,3 +383,34 @@ input[type=email]:focus, input[type=password]:focus, input[type=number]:focus, i
 .avatar-edit { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .avatar-actions { display: grid; gap: 4px; justify-items: start; }
 .avatar-actions .btn { padding: 10px 18px; }
+
+/* ---------- menus (profile / settings) ---------- */
+.panel.menu { padding: 0; }
+.settings-label { margin: 18px 4px 8px; }
+.delete-link { display: block; text-align: center; color: var(--danger); opacity: .75; font-size: .92rem; margin: 18px 0 6px; }
+.btn.small { padding: 8px 14px; font-size: .88rem; flex: none; }
+.btn.danger-solid { background: var(--danger); color: #fff; }
+.btn.danger-solid.armed { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 25%, transparent); }
+input.readonly { opacity: .7; cursor: default; }
+.pw-wrap { position: relative; display: block; }
+.pw-eye { position: absolute; top: 50%; transform: translateY(-50%); inset-inline-end: 10px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; }
+
+/* ---------- information pages ---------- */
+.doc { line-height: 1.7; }
+.doc section { margin: 22px 0; }
+.doc h3 { margin: 0 0 8px; font-size: 1.12rem; color: var(--primary); }
+.doc h3::after { content: ""; display: block; width: 36px; height: 2px; margin-top: 6px; background: var(--gold); }
+.doc p { margin: 0 0 10px; }
+.doc a { color: var(--primary); text-decoration: underline; }
+.doc-head { display: flex; align-items: center; gap: 14px; padding: 16px; margin-bottom: 18px; border-radius: 18px; background: var(--gold-soft); border: 1px solid var(--border); }
+.doc-head b { display: block; font-size: 1.05rem; }
+.doc-head small { color: var(--muted); }
+.info-hero { padding: 22px 18px; border-radius: 22px; margin-bottom: 8px; background: linear-gradient(135deg, var(--primary-soft), var(--gold-soft)); }
+.info-hero h2 { margin: 12px 0 8px; font-size: 1.6rem; line-height: 1.25; text-wrap: balance; }
+.info-hero .lead { font-weight: 700; color: var(--primary); margin-bottom: 6px; }
+.info-hero p { margin: 0; }
+.warn-box { display: flex; gap: 12px; padding: 16px; border-radius: 16px; background: #fdecef; border: 1px solid #f3c2cb; color: var(--text); margin-bottom: 8px; }
+.warn-box svg { color: var(--danger); flex: none; }
+.warn-box p { margin: 4px 0 0; }
+@media (prefers-color-scheme: dark) { .warn-box { background: #3a1f25; border-color: #5a2d36; } }
+.pw-wrap input { padding-left: 44px; }

@@ -112,6 +112,20 @@ def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
         return _get_user(conn, ident.uid)
 
 
+@app.delete("/api/me", status_code=204)
+def delete_account(user: dict = Depends(current_user)):
+    """Delete the account with everything it owns: businesses, their photos, the profile picture."""
+    with db.connect() as conn:
+        files = [r["filename"] for r in conn.execute(
+            "SELECT p.filename FROM photos p JOIN businesses b ON b.id = p.business_id"
+            " WHERE b.owner_uid = ?", (user["uid"],))]
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM businesses WHERE owner_uid = ?", (user["uid"],))  # photos cascade
+        conn.execute("DELETE FROM users WHERE uid = ?", (user["uid"],))
+        conn.execute("COMMIT")
+    _delete_files(files + ([user["avatar"]] if user["avatar"] else []))
+
+
 @app.post("/api/me/avatar")
 async def set_avatar(photo: UploadFile = File(...), user: dict = Depends(current_user)):
     """Profile picture (replaces the previous one)."""

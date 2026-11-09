@@ -34,6 +34,16 @@ const ICON = {
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   logout: '<svg viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+  mail: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  access: '<svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="1.8"/><path d="M5 8.5 12 10l7-1.5M12 10v4.5l-3.5 6.5M12 14.5l3.5 6.5"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></svg>',
+  alert: '<svg viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+  eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>',
   google: '<svg viewBox="0 0 24 24" class="brand"><path fill="#4285F4" stroke="none" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h6a5 5 0 0 1-2.2 3.3v2.7h3.5c2-1.9 3.3-4.7 3.3-8z"/><path fill="#34A853" stroke="none" d="M12 23c3 0 5.5-1 7.3-2.7l-3.5-2.7c-1 .7-2.3 1.1-3.8 1.1-2.9 0-5.4-2-6.3-4.7H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" stroke="none" d="M5.7 14a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" stroke="none" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.1 7l3.6 2.8C6.6 7.3 9.1 5.4 12 5.4z"/></svg>',
   apple: '<svg viewBox="0 0 24 24" class="brand"><path fill="currentColor" stroke="none" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9a4.8 4.8 0 0 0-3.8-2c-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9a5 5 0 0 0-4.2 2.6c-1.8 3.1-.5 7.7 1.3 10.2.8 1.2 1.8 2.6 3.1 2.6 1.3-.1 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5a10 10 0 0 0 1.4-2.8 4.3 4.3 0 0 1-2.3-4.2zM13.9 5c.7-.8 1.2-2 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>',
@@ -105,6 +115,7 @@ const AUTH_MESSAGES = {
   "auth/cancelled-popup-request": ["cancel", ""],
   "auth/network-request-failed": ["bad", "אין חיבור לאינטרנט"],
   "auth/operation-not-allowed": ["bad", "שיטת ההתחברות הזאת עוד לא הופעלה"],
+  "auth/requires-recent-login": ["relogin", "מטעמי אבטחה צריך להתחבר מחדש, ואז לנסות שוב"],
 };
 
 function authError(e) {
@@ -168,6 +179,8 @@ function firebaseAuth(cfg) {
       return { confirm: wrap((code) => confirmation.confirm(code)) };
     }),
     signOut: wrap(() => F.signOut(auth)),
+    changePassword: wrap((pw) => F.updatePassword(auth.currentUser, pw)),
+    deleteAccount: wrap(() => auth.currentUser.delete()),
   };
 }
 
@@ -215,11 +228,24 @@ function devAuth() {
       };
     },
     async signOut() { store.set("nails.dev.session", null); emit(); },
+    async changePassword(pw) {
+      if (pw.length < 6) throw new AuthError("bad", "הסיסמה חלשה מדי (לפחות 6 תווים)");
+      const s = store.get("nails.dev.session", null);
+      store.set("nails.dev.accounts", { ...accounts(), [s.contact]: pw });
+    },
+    async deleteAccount() {
+      const s = store.get("nails.dev.session", null);
+      const a = accounts();
+      delete a[s?.contact];
+      store.set("nails.dev.accounts", a);
+      store.set("nails.dev.session", null);
+      emit();
+    },
   };
 }
 
 let Auth = null;
-const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"], preview: false };  // user = signed in, profile = registered
+const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"], preview: false, config: {} };  // user = signed in, profile = registered
 
 /* ================= API ================= */
 
@@ -1071,11 +1097,21 @@ async function renderProfile() {
     <a class="btn outline block" href="#/add">${ICON.plus} הוספת עסק</a>
 
     <div class="section-head" style="margin-top:26px"><h3>החשבון שלי</h3></div>
-    <div class="panel" style="padding:0">
-      <a class="list-item" href="#/favorites"><div class="step">${ICON.heart}</div><div class="grow"><b>מועדפים</b></div>${ICON.chevron}</a>
-      <a class="list-item" href="#/edit-profile"><div class="step">${ICON.user}</div><div class="grow"><b>עריכת פרופיל</b></div>${ICON.chevron}</a>
-    </div>
-    <button class="btn logout block" id="logout">${ICON.logout} התנתקות</button>`;
+    ${menu([
+      ["#/edit-profile", ICON.user, "עריכת פרופיל"],
+      ["#/favorites", ICON.heart, "מועדפים"],
+      ["#/settings", ICON.gear, "הגדרות"],
+    ])}
+
+    <div class="section-head" style="margin-top:26px"><h3>מידע ותמיכה</h3></div>
+    ${menu([
+      ["#/about", ICON.info, "אודות"],
+      ["#/contact", ICON.mail, "יצירת קשר"],
+      ["#/terms", ICON.doc, "תנאי שימוש"],
+      ["#/privacy", ICON.lock, "מדיניות פרטיות"],
+    ])}
+    <button class="btn logout block" id="logout">${ICON.logout} התנתקות</button>
+    <a class="delete-link" href="#/delete-account">מחיקת חשבון</a>`;
 
   $("#avatar-btn").addEventListener("click", () => $("#avatar-file").click());
   $("#avatar-file").addEventListener("change", async (e) => {
@@ -1129,15 +1165,49 @@ function renderEditProfile() {
       </div>
       <label class="field"><span>שם מלא</span>
         <input type="text" name="name" required minlength="2" maxlength="60" value="${esc(p.name)}"></label>
+      ${p.email || p.phone ? `<label class="field"><span>${p.email ? "אימייל" : "טלפון"}</span>
+        <input type="text" value="${esc(p.email || p.phone)}" dir="ltr" readonly class="readonly"></label>
+        <p class="note" style="text-align:start;margin-top:-6px">לא ניתן לשנות את ${p.email ? "כתובת האימייל" : "מספר הטלפון"} מהאפליקציה. לשינוי יש לפנות לתמיכה.</p>` : ""}
       <label class="field"><span>עיר מגורים</span>
         <input type="text" name="city" maxlength="40" list="cities" value="${esc(p.city)}"></label>
       ${cityOptions()}
       <p class="note" style="text-align:start;margin-top:-4px">כשלא משתפים מיקום, החיפוש יתחיל מהעיר הזאת</p>
       <p class="error hidden" id="err"></p>
-      <button class="btn block">שמירה</button>
-    </form>`;
+      <button class="btn block">שמירת פרטים</button>
+    </form>
+    ${usesPassword() ? `
+    <form id="pw-form" class="panel" novalidate>
+      <div class="panel-head"><div class="step">${ICON.lock}</div><div><h2>שינוי סיסמה</h2></div></div>
+      <label class="field"><span>סיסמה חדשה</span>
+        <span class="pw-wrap"><input type="password" name="pw" minlength="6" autocomplete="new-password" placeholder="לפחות 6 תווים" dir="ltr">
+        <button type="button" class="pw-eye" aria-label="הצגת הסיסמה">${ICON.eye}</button></span></label>
+      <label class="field"><span>אימות סיסמה</span>
+        <input type="password" name="pw2" minlength="6" autocomplete="new-password" placeholder="הקלידי שוב את הסיסמה" dir="ltr"></label>
+      <p class="error hidden" id="pw-err"></p>
+      <button class="btn outline block">עדכון סיסמה</button>
+    </form>` : ""}`;
   const err = $("#err");
   const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+
+  $("#pw-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pwErr = $("#pw-err");
+    const fail = (m) => { pwErr.textContent = m; pwErr.classList.remove("hidden"); };
+    pwErr.classList.add("hidden");
+    const pw = e.target.pw.value, pw2 = e.target.pw2.value;
+    if (pw.length < 6) return fail("הסיסמה צריכה להיות לפחות 6 תווים");
+    if (pw !== pw2) return fail("שתי הסיסמאות לא זהות");
+    try {
+      await Auth.changePassword(pw);
+      e.target.reset();
+      toast("הסיסמה עודכנה ✓");
+    } catch (ex) { fail(authError(ex).message); }
+  });
+  $(".pw-eye")?.addEventListener("click", () => {
+    const f = $("#pw-form");
+    const show = f.pw.type === "password";
+    f.pw.type = f.pw2.type = show ? "text" : "password";
+  });
 
   $("#avatar-btn").addEventListener("click", () => $("#avatar-file").click());
   $("#avatar-file").addEventListener("change", async (e) => {
@@ -1182,6 +1252,132 @@ function renderEditProfile() {
     } catch (ex) { showErr(ex.message); }
   });
 }
+
+/* ================= settings & information pages ================= */
+
+const menu = (items) => `<div class="panel menu">${items.map(([href, icon, label, cls = ""]) =>
+  `<a class="list-item ${cls}" href="${href}"><div class="step">${icon}</div><div class="grow"><b>${label}</b></div>${ICON.chevron}</a>`).join("")}</div>`;
+
+const usesPassword = () => session.profile?.provider === "email"
+  || (session.mode === "dev" && String(session.profile?.uid || "").startsWith("email-"));
+
+const supportEmail = () => session.config.support_email || "";
+const emailText = () => supportEmail()
+  ? `<a href="mailto:${esc(supportEmail())}" dir="ltr">${esc(supportEmail())}</a>`
+  : '<span class="muted">כתובת המייל תתעדכן בקרוב</span>';
+
+// **bold** inside page texts
+const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace("{EMAIL}", emailText());
+
+function renderSettings() {
+  view.innerHTML = `
+    ${pageTitle("הגדרות", "#/profile")}
+    <div class="label-sm settings-label">החשבון</div>
+    ${menu([
+      ["#/edit-profile", ICON.user, "עריכת פרופיל"],
+      ["#/privacy", ICON.lock, "מדיניות פרטיות"],
+      ["#/terms", ICON.doc, "תנאי שימוש"],
+      ["#/accessibility", ICON.access, "הצהרת נגישות"],
+    ])}
+    <div class="label-sm settings-label">תמיכה</div>
+    ${menu([["#/contact", ICON.mail, "יצירת קשר עם התמיכה"]])}
+    <a class="btn logout block" href="#/delete-account">${ICON.trash} מחיקת חשבון</a>`;
+}
+
+function renderInfoPage(key) {
+  const page = PAGES[key];
+  const back = key === "accessibility" ? "#/settings" : "#/profile";
+  const head = page.hero
+    ? `<div class="info-hero"><div class="logo">💅</div><h2>${esc(page.hero.title)}</h2>
+        <p class="lead">${esc(page.hero.lead)}</p><p>${esc(page.hero.sub)}</p></div>`
+    : `<div class="doc-head"><div class="step">${key === "accessibility" ? ICON.access : key === "privacy" ? ICON.lock : ICON.doc}</div>
+        <div><b>${esc(page.title)} של Nails</b><small>עודכן לאחרונה: ${UPDATED}</small></div></div>
+        ${page.intro ? `<p>${rich(page.intro)}</p>` : ""}`;
+  const numbered = !page.hero;
+  view.innerHTML = `
+    ${pageTitle(esc(page.title), back)}
+    <article class="doc">
+      ${head}
+      ${page.sections.map(([title, paras], i) => `
+        <section>
+          <h3>${numbered ? `${i + 1}. ` : ""}${esc(title)}</h3>
+          ${paras.map((t) => `<p>${rich(t)}</p>`).join("")}
+        </section>`).join("")}
+      ${key === "accessibility" ? '<a class="btn block" href="#/contact">פנייה בנושא נגישות</a>' : ""}
+    </article>`;
+}
+
+function renderContact() {
+  const email = supportEmail();
+  const phone = session.config.support_phone || "";
+  const reportHref = email
+    ? `mailto:${email}?subject=${encodeURIComponent("דיווח על עסק ב-Nails")}&body=${encodeURIComponent("שם העסק / קישור:\nמה הבעיה:\n")}`
+    : "";
+  view.innerHTML = `
+    ${pageTitle("יצירת קשר", "#/profile")}
+    <div class="doc-head contact-hero"><div class="step">${ICON.mail}</div>
+      <div><b>אנחנו כאן בשבילך</b><small>יש לך שאלה, נתקלת בבעיה או רוצה להציע משהו? נשמח לעזור.</small></div></div>
+
+    <div class="panel menu">
+      <div class="list-item"><div class="step">${ICON.mail}</div><div class="grow"><b>אימייל תמיכה</b><br>
+        ${email ? `<small dir="ltr">${esc(email)}</small>` : '<small>יתעדכן בקרוב</small>'}</div>
+        ${email ? `<a class="btn outline small" href="mailto:${esc(email)}">שליחת מייל</a>` : ""}</div>
+      ${phone ? `<div class="list-item"><div class="step">${ICON.phone}</div><div class="grow"><b>שירות לקוחות</b><br>
+        <small dir="ltr">${esc(phone)}</small></div><a class="btn outline small" href="tel:${esc(phone)}">שיחה</a></div>` : ""}
+      <div class="list-item"><div class="step">${ICON.clock}</div><div class="grow"><b>זמן מענה</b><br>
+        <small>בדרך כלל עד 48 שעות בימי עבודה</small></div></div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><div class="step">${ICON.flag}</div><div><h2>דיווח על עסק</h2>
+        <p>עסק עם פרטים לא נכונים, תמונות שאינן שלו או התנהגות פוגענית? ספרי לנו ונבדוק.</p></div></div>
+      ${reportHref ? `<a class="btn outline block" href="${esc(reportHref)}">דיווח במייל</a>`
+        : '<p class="note">אפשרות הדיווח תיפתח כשתתעדכן כתובת המייל.</p>'}
+    </section>`;
+}
+
+function renderDeleteAccount() {
+  view.innerHTML = `
+    ${pageTitle("מחיקת חשבון", "#/settings")}
+    <div class="warn-box">${ICON.alert}<div><b>לפני שמוחקים את החשבון</b>
+      <p>מחיקת החשבון היא פעולה סופית. אחרי שהיא מסתיימת אי אפשר לשחזר את החשבון.</p></div></div>
+    <article class="doc">
+      <section><h3>מה נמחק</h3>
+        <p>החשבון ופרטי הפרופיל שלך, תמונת הפרופיל, וכל העסקים שפרסמת עם כל התמונות שלהם. העסקים יפסיקו להופיע בחיפוש מיד.</p></section>
+      <section><h3>לפני שממשיכים</h3>
+        <p>אם יש לך עסק פעיל ואת רק רוצה להפסיק לקבל פניות, אפשר לערוך אותו או למחוק רק אותו מתוך "העסקים שלי".</p></section>
+      <section><h3>איך מוחקים</h3>
+        <p>לוחצים על הכפתור למטה, ואז מאשרים פעם נוספת.</p>
+        <p>זקוקה לעזרה? ${emailText()}</p></section>
+    </article>
+    <p class="error hidden" id="del-err"></p>
+    <button class="btn danger-solid block" id="del-btn">${ICON.trash} מחיקת החשבון</button>`;
+
+  let armed = false;
+  $("#del-btn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const err = $("#del-err");
+    if (!armed) {
+      armed = true;
+      btn.innerHTML = `${ICON.trash} בטוחה? לחצי שוב כדי למחוק לצמיתות`;
+      btn.classList.add("armed");
+      return;
+    }
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try {
+      await api("/api/me", { method: "DELETE" });
+      try { await Auth.deleteAccount(); } catch { await Auth.signOut().catch(() => {}); }
+      store.set("nails.favs", []);
+      toast("החשבון נמחק");
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  });
+}
+
 
 async function renderManage(id, isNew) {
   view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<div class="skeleton" style="aspect-ratio:2/1"></div>`;
@@ -1342,7 +1538,9 @@ function route() {
   }
 
   document.body.classList.toggle("signed-out", !session.profile);
-  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-profile": "profile" }[page || ""];
+  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-profile": "profile",
+    settings: "profile", about: "profile", contact: "profile", terms: "profile", privacy: "profile",
+    accessibility: "profile", "delete-account": "profile" }[page || ""];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   window.scrollTo(0, 0);
 
@@ -1357,6 +1555,10 @@ function route() {
     case "add": return renderAdd();
     case "profile": return renderProfile();
     case "edit-profile": return renderEditProfile();
+    case "settings": return renderSettings();
+    case "about": case "terms": case "privacy": case "accessibility": return renderInfoPage(page);
+    case "contact": return renderContact();
+    case "delete-account": return renderDeleteAccount();
     case "manage": return renderManage(Number(parts[1]), params.has("new"));
     default: nav.replace("#/");
   }
@@ -1388,6 +1590,7 @@ async function onAuthChange(user) {
 
   if (Array.isArray(cfg.methods) && cfg.methods.length) session.methods = cfg.methods;
   session.preview = !!cfg.preview;
+  session.config = cfg;
   if (cfg.dev_auth) {           // local development: fake accounts
     session.mode = "dev";
     Auth = devAuth();
