@@ -62,7 +62,7 @@ def test_whatsapp_link_and_lead_counting(client):
     assert client.post(f"/api/businesses/{bid}/lead", headers=customer).status_code == 204
     client.post(f"/api/businesses/{bid}/lead")  # owner's own clicks are not counted
     stats = client.get("/api/my/businesses").json()[0]["stats"]
-    assert stats == {"views": 1, "whatsapp_clicks": 1}
+    assert stats == {"views": 1, "whatsapp_clicks": 1, "saves": 0}
 
 
 def test_only_owner_can_edit(client):

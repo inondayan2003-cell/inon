@@ -268,6 +268,8 @@ def _delete_files(names: list[str], folder: str | None = None) -> None:
             pass
 
 
+NOW = "strftime('%Y-%m-%d %H:%M:%f', 'now')"  # millisecond timestamps, so order is exact
+
 # Every business row also carries whether its owner is verified.
 BIZ_SELECT = ("SELECT *, (SELECT verified FROM users u WHERE u.uid = businesses.owner_uid)"
               " AS owner_verified FROM businesses")
@@ -380,6 +382,8 @@ def get_business(business_id: int, lat: float | None = None, lng: float | None =
         row = _get_business(conn, business_id)
         if row["owner_uid"] != user["uid"]:
             conn.execute("UPDATE businesses SET views = views + 1 WHERE id = ?", (business_id,))
+        conn.execute(f"UPDATE favorites SET seen_at = {NOW} WHERE uid = ? AND business_id = ?",
+                     (user["uid"], business_id))
         dist = distance_km(lat, lng, row["lat"], row["lng"]) if lat is not None and lng is not None else None
         return _public(row, _photos(conn, business_id), dist)
 
@@ -407,7 +411,8 @@ def my_businesses(user: dict = Depends(current_user)):
         out = []
         for r in rows:
             b = _public(r, _photos(conn, r["id"]))
-            b["stats"] = {"views": r["views"], "whatsapp_clicks": r["whatsapp_clicks"]}
+            saves = conn.execute("SELECT COUNT(*) FROM favorites WHERE business_id = ?", (r["id"],)).fetchone()[0]
+            b["stats"] = {"views": r["views"], "whatsapp_clicks": r["whatsapp_clicks"], "saves": saves}
             out.append(b)
         return out
 
@@ -455,6 +460,7 @@ async def create_business(
                 "INSERT INTO photos (business_id, filename, position) VALUES (?, ?, ?)",
                 [(bid, n, i) for i, n in enumerate(saved)],
             )
+            conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (bid,))
             conn.execute("COMMIT")
     except BaseException:
         _delete_files(saved)
@@ -529,6 +535,7 @@ async def add_photos(business_id: int, photos: list[UploadFile] = File(...),
             "INSERT INTO photos (business_id, filename, position) VALUES (?, ?, ?)",
             [(business_id, n, count + i) for i, n in enumerate(saved)],
         )
+        conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (business_id,))
         return _photos(conn, business_id)
 
 
@@ -559,6 +566,49 @@ def delete_business(business_id: int, user: dict = Depends(current_user)):
             "SELECT filename FROM photos WHERE business_id = ?", (business_id,))]
         conn.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
     _delete_files(names)
+
+
+# ---------- favorites (saved businesses, kept in the account) ----------
+
+@app.get("/api/favorites/ids")
+def favorite_ids(user: dict = Depends(current_user)):
+    with db.connect() as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT business_id FROM favorites WHERE uid = ? ORDER BY created_at DESC, rowid DESC",
+            (user["uid"],))]
+
+
+@app.get("/api/favorites")
+def favorites(lat: float | None = None, lng: float | None = None, user: dict = Depends(current_user)):
+    """Saved businesses, newest first; `new_photos` = photos added since she last opened the page."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT b.*, f.seen_at FROM ({BIZ_SELECT}) b JOIN favorites f ON f.business_id = b.id"
+            " WHERE f.uid = ? ORDER BY f.created_at DESC, f.rowid DESC", (user["uid"],),
+        ).fetchall()
+        out = []
+        for r in rows:
+            dist = distance_km(lat, lng, r["lat"], r["lng"]) if lat is not None and lng is not None else None
+            b = _public(r, _photos(conn, r["id"]), dist)
+            b["new_photos"] = bool(r["photos_updated_at"]) and r["photos_updated_at"] > r["seen_at"]
+            out.append(b)
+        return out
+
+
+@app.put("/api/favorites/{business_id}", status_code=204)
+def add_favorite(business_id: int, user: dict = Depends(current_user)):
+    with db.connect() as conn:
+        _get_business(conn, business_id)
+        conn.execute(
+            f"INSERT OR IGNORE INTO favorites (uid, business_id, seen_at) VALUES (?, ?, {NOW})",
+            (user["uid"], business_id),
+        )
+
+
+@app.delete("/api/favorites/{business_id}", status_code=204)
+def remove_favorite(business_id: int, user: dict = Depends(current_user)):
+    with db.connect() as conn:
+        conn.execute("DELETE FROM favorites WHERE uid = ? AND business_id = ?", (user["uid"], business_id))
 
 
 # ---------- business owner verification ----------

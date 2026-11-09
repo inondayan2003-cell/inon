@@ -375,13 +375,36 @@ const state = {
   openNow: false,
   q: "",
 };
-const favs = () => store.get("nails.favs", []);
-const isFav = (id) => favs().includes(id);
+// Saved businesses live in the account (server); this is the local copy for the hearts.
+const savedIds = new Set();
+const isFav = (id) => savedIds.has(id);
 function toggleFav(id) {
-  const f = favs();
-  const next = f.includes(id) ? f.filter((x) => x !== id) : [...f, id];
-  store.set("nails.favs", next);
-  return next.includes(id);
+  const on = !savedIds.has(id);
+  if (on) savedIds.add(id); else savedIds.delete(id);
+  api(`/api/favorites/${id}`, { method: on ? "PUT" : "DELETE" }).catch((err) => {
+    if (on) savedIds.delete(id); else savedIds.add(id);   // undo
+    document.querySelectorAll(`[data-fav="${id}"]`).forEach((b) => b.classList.toggle("on", !on));
+    toast(err.message);
+  });
+  return on;
+}
+
+function setFavoritesDot(on) {
+  document.querySelector('.tabbar [data-tab="favorites"]')?.classList.toggle("has-new", on);
+}
+
+async function loadFavorites() {
+  savedIds.clear();
+  try {
+    (await api("/api/favorites/ids")).forEach((id) => savedIds.add(id));
+    // Hearts saved on this phone before favorites moved to the account.
+    const local = store.get("nails.favs", []).filter((id) => !savedIds.has(id));
+    for (const id of local) {
+      try { await api(`/api/favorites/${id}`, { method: "PUT" }); savedIds.add(id); } catch { /* deleted business */ }
+    }
+    store.set("nails.favs", []);
+    if (savedIds.size) setFavoritesDot((await api("/api/favorites")).some((b) => b.new_photos));
+  } catch { /* offline: hearts start empty */ }
 }
 
 /* ================= shared UI ================= */
@@ -395,6 +418,7 @@ function card(b) {
         ${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}
         ${dist ? `<span class="badge">${ICON.pin}${dist}</span>` : ""}
         <button class="heart ${isFav(b.id) ? "on" : ""}" data-fav="${b.id}" aria-label="מועדפים">${ICON.heart}</button>
+        ${b.new_photos ? '<span class="new-badge">תמונות חדשות</span>' : ""}
         <span class="count-badge">${b.photos.length} תמונות</span>
       </div>
       <div class="body">
@@ -600,6 +624,7 @@ function renderWelcome() {
       session.profile = await api("/api/me", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, city }),
       });
+      loadFavorites();
       toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
       nav.go("#/");
     } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
@@ -834,19 +859,24 @@ async function renderBusiness(id) {
 /* ================= favorites ================= */
 
 async function renderFavorites() {
-  const ids = favs();
-  view.innerHTML = `${pageTitle("המועדפים שלי", "#/")}<div id="fav-list"></div>`;
+  view.innerHTML = `${pageTitle("המועדפים שלי", "#/")}<div id="fav-list" class="grid">${'<div class="skeleton"></div>'.repeat(2)}</div>`;
   const box = $("#fav-list");
   const none = () => empty(ICON.heart, "אין עדיין עסקים במועדפים",
-    "לחצי על הלב כדי לשמור עסקים שאהבת.", '<a class="btn" href="#/">חיפוש עסקים</a>');
-  if (!ids.length) { box.innerHTML = none(); return; }
+    "לחצי על הלב כדי לשמור עסקים שאהבת. כשעסק ששמרת יעלה עבודות חדשות, נסמן לך את זה כאן.",
+    '<a class="btn" href="#/">חיפוש עסקים</a>');
   const params = state.loc ? `?lat=${state.loc.lat}&lng=${state.loc.lng}` : "";
-  const results = await Promise.all(ids.map((id) => api(`/api/businesses/${id}${params}`)
-    .catch((e) => (e.status === 404 ? null : undefined))));
-  store.set("nails.favs", ids.filter((id, i) => results[i] !== null));  // forget deleted businesses
-  const list = results.filter(Boolean);
-  if (!list.length) { box.innerHTML = none(); return; }
-  box.className = "grid";
+  let list;
+  try { list = await api(`/api/favorites${params}`); } catch (err) {
+    box.className = ""; box.innerHTML = `<p class="error">${esc(err.message)}</p>`; return;
+  }
+  if (!box.isConnected) return;
+  savedIds.clear();
+  list.forEach((b) => savedIds.add(b.id));
+  setFavoritesDot(list.some((b) => b.new_photos));
+  if (!list.length) { box.className = ""; box.innerHTML = none(); return; }
+  const fresh = list.filter((b) => b.new_photos).length;
+  box.insertAdjacentHTML("beforebegin", fresh
+    ? `<p class="fav-note">✨ ${fresh === 1 ? "עסק אחד העלה" : `${fresh} עסקים העלו`} תמונות חדשות מאז שביקרת</p>` : "");
   box.innerHTML = list.map(card).join("");
   bindFavButtons(box);
 }
@@ -1158,10 +1188,11 @@ async function renderProfile() {
     $(".profile-head h1").innerHTML = esc(fresh.name) + verifiedBadge(fresh.verified, true);
     if (list.length) {
       const sum = (k) => list.reduce((n, b) => n + b.stats[k], 0);
-      $("#my-stats").innerHTML = `<div class="panel stats three">
+      $("#my-stats").innerHTML = `<div class="panel stats four">
         <div><b>${list.length}</b><span>${list.length === 1 ? "עסק" : "עסקים"}</span></div>
         <div><b>${sum("views")}</b><span>צפיות</span></div>
-        <div><b>${sum("whatsapp_clicks")}</b><span>פניות בוואטסאפ</span></div></div>`;
+        <div><b>${sum("whatsapp_clicks")}</b><span>פניות</span></div>
+        <div><b>${sum("saves")}</b><span>שמרו</span></div></div>`;
     }
     box.innerHTML = list.length ? list.map((b) => `
       <a class="list-item" href="#/manage/${b.id}">
@@ -1404,7 +1435,7 @@ function renderDeleteAccount() {
     try {
       await api("/api/me", { method: "DELETE" });
       try { await Auth.deleteAccount(); } catch { await Auth.signOut().catch(() => {}); }
-      store.set("nails.favs", []);
+      savedIds.clear();
       toast("החשבון נמחק");
     } catch (ex) {
       err.textContent = ex.message;
@@ -1589,9 +1620,10 @@ async function renderManage(id, isNew) {
     ${isNew ? `<div class="loc-bar" style="display:block"><b>🎉 העסק שלך באוויר!</b><br>
       לקוחות באזור כבר יכולות למצוא אותך.</div>` : ""}
 
-    <div class="panel stats">
+    <div class="panel stats three">
       <div><b>${b.stats.views}</b><span>צפיות בעמוד</span></div>
       <div><b>${b.stats.whatsapp_clicks}</b><span>פניות בוואטסאפ</span></div>
+      <div><b>${b.stats.saves}</b><span>שמרו במועדפים</span></div>
     </div>
 
     <a class="btn outline block" href="#/b/${id}" style="margin-bottom:14px">צפייה בעמוד כמו שלקוחה רואה</a>
@@ -1764,6 +1796,7 @@ async function onAuthChange(user) {
   if (user) {
     try {
       session.profile = await api("/api/me");
+      loadFavorites();
       // Used "sign up" with an account that already exists -> she is simply signed in.
       if (fromSignup) toast("כבר יש לך חשבון, התחברת 👋");
     } catch (err) {

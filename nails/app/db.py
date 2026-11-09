@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS photos (
     position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS photos_business ON photos(business_id, position);
+CREATE TABLE IF NOT EXISTS favorites (
+    uid TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    seen_at TEXT NOT NULL DEFAULT '',    -- last time she opened the business page
+    PRIMARY KEY (uid, business_id)
+);
+CREATE INDEX IF NOT EXISTS favorites_business ON favorites(business_id);
 CREATE TABLE IF NOT EXISTS verifications (
     id INTEGER PRIMARY KEY,
     uid TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
@@ -90,6 +98,10 @@ def init() -> None:
             "city": "TEXT NOT NULL DEFAULT ''",
             "avatar": "TEXT NOT NULL DEFAULT ''",
             "verified": "INTEGER NOT NULL DEFAULT 0",
+        })
+        _add_missing_columns(conn, "businesses", {
+            # when photos were last added; '' for older rows (= nothing new)
+            "photos_updated_at": "TEXT NOT NULL DEFAULT ''",
         })
 
 

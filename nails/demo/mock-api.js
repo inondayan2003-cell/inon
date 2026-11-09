@@ -5,7 +5,7 @@
 "use strict";
 
 (function () {
-  const KEY = "nails.preview.db.v3";
+  const KEY = "nails.preview.db.v4";
   const TZ = "Asia/Jerusalem";
 
   const SERVICES = {
@@ -75,7 +75,7 @@
   function load() {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
     if (!db) {
-      db = { nextId: 1, nextPhoto: 1, nextVer: 1, users: {}, businesses: [], verifications: [] };
+      db = { nextId: 1, nextPhoto: 1, nextVer: 1, users: {}, businesses: [], verifications: [], favorites: [] };
       SAMPLES.forEach((s, n) => {
         const [name, phone, city, address, lat, lng, services, pmin, pmax, description, hours] = s;
         db.businesses.push({
@@ -246,6 +246,7 @@
       if (method === "DELETE") {
         db.businesses = db.businesses.filter((b) => b.owner !== ident.uid);
         db.verifications = db.verifications.filter((v) => v.uid !== ident.uid);
+        db.favorites = db.favorites.filter((f) => f.uid !== ident.uid);
         delete db.users[ident.uid];
         save();
         return null;
@@ -292,15 +293,34 @@
         address: (f.get("address") || "").trim(), description: (f.get("description") || "").trim(),
         services: (f.get("services") || "").split(",").filter(Boolean), price_min: pmin, price_max: pmax, hours,
         lat: Number(f.get("lat")), lng: Number(f.get("lng")), photos: await storePhotos(files),
-        views: 0, clicks: 0, created: Date.now(),
+        views: 0, clicks: 0, created: Date.now(), photos_updated_at: Date.now(),
       };
       db.businesses.push(b);
       try { saveOrFail(); } catch (e) { db.businesses.pop(); throw e; }
       return { id: b.id };
     }
+    if (path === "/api/favorites/ids") {
+      return db.favorites.filter((f) => f.uid === user.uid).sort((a, b) => b.created - a.created).map((f) => f.business_id);
+    }
+    if (path === "/api/favorites") {
+      const lat = q.get("lat"), lng = q.get("lng");
+      return db.favorites.filter((f) => f.uid === user.uid).sort((a, b) => b.created - a.created)
+        .map((f) => [f, db.businesses.find((x) => x.id === f.business_id)]).filter(([, b]) => b)
+        .map(([f, b]) => ({ ...pub(b, lat ? distanceKm(Number(lat), Number(lng), b.lat, b.lng) : null),
+          new_photos: (b.photos_updated_at || 0) > f.seen_at }));
+    }
+    if ((m = /^\/api\/favorites\/(\d+)$/.exec(path))) {
+      const id = Number(m[1]);
+      db.businesses.find((x) => x.id === id) || fail(404, "העסק לא נמצא");
+      db.favorites = db.favorites.filter((f) => !(f.uid === user.uid && f.business_id === id));
+      if (method === "PUT") db.favorites.push({ uid: user.uid, business_id: id, created: Date.now(), seen_at: Date.now() });
+      save();
+      return null;
+    }
     if (path === "/api/my/businesses") {
       return db.businesses.filter((b) => b.owner === user.uid)
-        .map((b) => ({ ...pub(b), stats: { views: b.views, whatsapp_clicks: b.clicks } }));
+        .map((b) => ({ ...pub(b), stats: { views: b.views, whatsapp_clicks: b.clicks,
+          saves: db.favorites.filter((f) => f.business_id === b.id).length } }));
     }
     if ((m = /^\/api\/businesses\/(\d+)\/lead$/.exec(path))) {
       const b = db.businesses.find((x) => x.id === Number(m[1])) || fail(404, "העסק לא נמצא");
@@ -313,6 +333,7 @@
         const files = body.getAll("photos");
         if (b.photos.length + files.length > 12) fail(422, "אפשר עד 12 תמונות לעסק");
         b.photos.push(...(await storePhotos(files)));
+        b.photos_updated_at = Date.now();
       } else {
         if (b.photos.length <= 5) fail(422, "חייבות להישאר לפחות 5 תמונות");
         b.photos = b.photos.filter((p) => p.id !== Number(m[2]));
@@ -324,12 +345,20 @@
       const id = Number(m[1]);
       if (method === "GET") {
         const b = db.businesses.find((x) => x.id === id) || fail(404, "העסק לא נמצא");
-        if (b.owner !== user.uid) { b.views++; save(); }
+        if (b.owner !== user.uid) b.views++;
+        const fav = db.favorites.find((f) => f.uid === user.uid && f.business_id === id);
+        if (fav) fav.seen_at = Date.now();
+        save();
         const lat = q.get("lat"), lng = q.get("lng");
         return pub(b, lat ? distanceKm(Number(lat), Number(lng), b.lat, b.lng) : null);
       }
       const b = owned(id, user);
-      if (method === "DELETE") { db.businesses = db.businesses.filter((x) => x !== b); save(); return null; }
+      if (method === "DELETE") {
+        db.businesses = db.businesses.filter((x) => x !== b);
+        db.favorites = db.favorites.filter((f) => f.business_id !== b.id);
+        save();
+        return null;
+      }
       const u = JSON.parse(body);
       if (u.phone != null) u.phone = normPhone(u.phone) || fail(422, "מספר טלפון לא תקין");
       if (u.price_min != null) checkPrices(u.price_min, u.price_max);
