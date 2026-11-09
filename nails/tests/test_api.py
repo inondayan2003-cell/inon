@@ -22,7 +22,7 @@ def test_requires_five_photos(client):
 def test_rejects_non_images(client):
     r = client.post("/api/businesses", data={
         "name": "x" * 3, "phone": "0501234567", "city": "חיפה",
-        "lat": "32.8", "lng": "35.0",
+        "price_min": "100", "price_max": "200", "lat": "32.8", "lng": "35.0",
     }, files=photos(5, data=b"not an image at all"))
     assert r.status_code == 415
 
@@ -99,3 +99,45 @@ def test_delete_business(client):
     bid = created["id"]
     assert client.delete(f"/api/businesses/{bid}", headers={"X-Edit-Token": created["token"]}).status_code == 204
     assert client.get(f"/api/businesses/{bid}").status_code == 404
+
+
+def test_price_range_required_and_validated(client):
+    r = client.post("/api/businesses", data={
+        "name": "בלי מחיר", "phone": "0501234567", "city": "חיפה", "lat": "32.8", "lng": "35.0",
+    }, files=photos(5))
+    assert r.status_code == 422
+    assert make_business(client, price_min="300", price_max="100").status_code == 422
+    assert make_business(client, price_min="0", price_max="100").status_code == 422
+
+
+def test_price_shown_and_filtered(client):
+    make_business(client, name="זול", price_min="60", price_max="150")
+    make_business(client, name="יקר", price_min="250", price_max="500")
+    all_ = client.get("/api/businesses").json()
+    assert {(b["name"], b["price_min"], b["price_max"]) for b in all_} == {("זול", 60, 150), ("יקר", 250, 500)}
+    cheap = client.get("/api/businesses", params={"max_price": 200}).json()
+    assert [b["name"] for b in cheap] == ["זול"]
+
+
+def test_owner_updates_prices(client):
+    created = make_business(client).json()
+    h = {"X-Edit-Token": created["token"]}
+    bid = created["id"]
+    assert client.patch(f"/api/businesses/{bid}", json={"price_min": 90}, headers=h).status_code == 422
+    r = client.patch(f"/api/businesses/{bid}", json={"price_min": 90, "price_max": 400}, headers=h)
+    assert (r.json()["price_min"], r.json()["price_max"]) == (90, 400)
+
+
+def test_old_database_gets_price_columns(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setenv("NAILS_DATA", str(tmp_path))
+    conn = sqlite3.connect(tmp_path / "nails.db")
+    conn.execute("CREATE TABLE businesses (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, city TEXT,"
+                 " address TEXT, description TEXT, services TEXT, lat REAL, lng REAL, token_hash TEXT,"
+                 " views INTEGER, whatsapp_clicks INTEGER, created_at TEXT)")
+    conn.close()
+    from app import db
+    db.init()
+    with db.connect() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(businesses)")}
+    assert {"price_min", "price_max"} <= cols

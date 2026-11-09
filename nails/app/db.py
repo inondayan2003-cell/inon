@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS businesses (
     address TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     services TEXT NOT NULL DEFAULT '',   -- comma separated service keys
+    price_min INTEGER NOT NULL DEFAULT 0,   -- price range in ILS
+    price_max INTEGER NOT NULL DEFAULT 0,
     lat REAL NOT NULL,
     lng REAL NOT NULL,
     token_hash TEXT NOT NULL,     -- owner's secret edit token (sha256)
@@ -54,3 +56,7 @@ def init() -> None:
     os.makedirs(uploads_dir(), exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(businesses)")}
+        for col in ("price_min", "price_max"):  # databases created before prices existed
+            if col not in cols:
+                conn.execute(f"ALTER TABLE businesses ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")

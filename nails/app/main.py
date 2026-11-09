@@ -22,6 +22,7 @@ MIN_PHOTOS = 5
 MAX_PHOTOS = 12
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 MAX_RADIUS_KM = 100
+MAX_PRICE = 5000
 
 SERVICES = {
     "gel": "לק ג'ל",
@@ -57,6 +58,13 @@ def _services(raw: str) -> list[str]:
     if bad:
         raise HTTPException(422, f"שירות לא מוכר: {', '.join(bad)}")
     return list(dict.fromkeys(keys))
+
+
+def _check_prices(price_min: int, price_max: int) -> None:
+    if not (0 < price_min <= MAX_PRICE and 0 < price_max <= MAX_PRICE):
+        raise HTTPException(422, f"המחירים צריכים להיות בין 1 ל-{MAX_PRICE} ₪")
+    if price_min > price_max:
+        raise HTTPException(422, "המחיר ההתחלתי גבוה מהמחיר המקסימלי")
 
 
 def _check_coords(lat: float, lng: float) -> None:
@@ -136,6 +144,8 @@ def _public(row, photos: list[dict], dist: float | None = None) -> dict:
         "address": row["address"],
         "description": row["description"],
         "services": [s for s in row["services"].split(",") if s],
+        "price_min": row["price_min"],
+        "price_max": row["price_max"],
         "lat": row["lat"],
         "lng": row["lng"],
         "photos": photos,
@@ -158,6 +168,7 @@ def search(
     radius_km: float = Query(10, gt=0, le=MAX_RADIUS_KM),
     service: str | None = None,
     q: str | None = Query(None, max_length=60),
+    max_price: int | None = Query(None, gt=0),
 ):
     sql = "SELECT * FROM businesses WHERE 1=1"
     args: list = []
@@ -172,6 +183,9 @@ def search(
             raise HTTPException(422, "שירות לא מוכר")
         sql += " AND (',' || services || ',') LIKE ?"
         args.append(f"%,{service},%")
+    if max_price is not None:  # the business's cheapest treatment fits the budget
+        sql += " AND price_min <= ?"
+        args.append(max_price)
     if q and q.strip():
         sql += " AND (name LIKE ? OR city LIKE ? OR description LIKE ?)"
         like = f"%{q.strip()}%"
@@ -223,6 +237,8 @@ async def create_business(
     address: str = Form("", max_length=100),
     description: str = Form("", max_length=600),
     services: str = Form(""),
+    price_min: int = Form(...),
+    price_max: int = Form(...),
     lat: float = Form(...),
     lng: float = Form(...),
     photos: list[UploadFile] = File(...),
@@ -232,6 +248,7 @@ async def create_business(
         raise HTTPException(422, "מספר טלפון לא תקין")
     _check_coords(lat, lng)
     service_keys = _services(services)
+    _check_prices(price_min, price_max)
     if not (MIN_PHOTOS <= len(photos) <= MAX_PHOTOS):
         raise HTTPException(422, f"צריך להעלות בין {MIN_PHOTOS} ל-{MAX_PHOTOS} תמונות")
 
@@ -242,9 +259,10 @@ async def create_business(
             conn.execute("BEGIN")
             cur = conn.execute(
                 "INSERT INTO businesses (name, phone, city, address, description, services,"
-                " lat, lng, token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " price_min, price_max, lat, lng, token_hash)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (name.strip(), norm, city.strip(), address.strip(), description.strip(),
-                 ",".join(service_keys), lat, lng, _hash(token)),
+                 ",".join(service_keys), price_min, price_max, lat, lng, _hash(token)),
             )
             bid = cur.lastrowid
             conn.executemany(
@@ -265,6 +283,8 @@ class BusinessUpdate(BaseModel):
     address: str | None = Field(None, max_length=100)
     description: str | None = Field(None, max_length=600)
     services: list[str] | None = None
+    price_min: int | None = None
+    price_max: int | None = None
     lat: float | None = None
     lng: float | None = None
 
@@ -295,6 +315,11 @@ def update_business(business_id: int, body: BusinessUpdate, x_edit_token: str = 
             fields[key] = val.strip()
     if body.services is not None:
         fields["services"] = ",".join(_services(",".join(body.services)))
+    if (body.price_min is None) != (body.price_max is None):
+        raise HTTPException(422, "צריך לשלוח גם מחיר מינימום וגם מקסימום")
+    if body.price_min is not None:
+        _check_prices(body.price_min, body.price_max)
+        fields["price_min"], fields["price_max"] = body.price_min, body.price_max
     if (body.lat is None) != (body.lng is None):
         raise HTTPException(422, "צריך לשלוח גם lat וגם lng")
     if body.lat is not None:

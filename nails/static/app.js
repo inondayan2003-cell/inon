@@ -40,6 +40,10 @@ const CITIES = [
 ];
 
 const RADII = [2, 5, 10, 25, 50];
+const BUDGETS = [100, 150, 250, 400];
+
+const priceText = (b) => (b.price_min ? (b.price_min === b.price_max
+  ? `${b.price_min} ₪` : `<span dir="ltr">${b.price_min}–${b.price_max}</span> ₪`) : "");
 
 const store = {
   get(key, fallback) {
@@ -91,6 +95,7 @@ const state = {
   loc: store.get("nails.loc", null),          // {lat, lng, label}
   radius: store.get("nails.radius", 10),
   service: null,
+  maxPrice: null,
   q: "",
 };
 const favs = () => store.get("nails.favs", []);
@@ -121,6 +126,7 @@ function card(b) {
       </div>
       <div class="body">
         <h4>${esc(b.name)}</h4>
+        ${priceText(b) ? `<div class="price">${priceText(b)}</div>` : ""}
         <div class="meta">${ICON.pin}<span>${esc(b.city)}</span></div>
         <div class="tags">${b.services.slice(0, 2).map((s) => `<span class="tag">${esc(serviceLabel(s))}</span>`).join("")}</div>
       </div>
@@ -175,6 +181,11 @@ function renderHome() {
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
 
+    <div class="chips" id="budget">
+      <button class="chip gold ${!state.maxPrice ? "on" : ""}" data-p="">כל המחירים</button>
+      ${BUDGETS.map((p) => `<button class="chip gold ${state.maxPrice === p ? "on" : ""}" data-p="${p}">עד ${p} ₪</button>`).join("")}
+    </div>
+
     <div class="chips" id="services">
       <button class="chip ${!state.service ? "on" : ""}" data-s="">הכל</button>
       ${SERVICES.map((s) => `<button class="chip ${state.service === s.key ? "on" : ""}" data-s="${s.key}">${esc(s.label)}</button>`).join("")}
@@ -203,6 +214,13 @@ function renderHome() {
     state.radius = Number(b.dataset.r);
     store.set("nails.radius", state.radius);
     $("#radius").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+    loadResults();
+  });
+  $("#budget").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-p]");
+    if (!b) return;
+    state.maxPrice = b.dataset.p ? Number(b.dataset.p) : null;
+    $("#budget").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
     loadResults();
   });
   $("#services").addEventListener("click", (e) => {
@@ -236,6 +254,7 @@ async function loadResults() {
     params.set("radius_km", state.radius);
   }
   if (state.service) params.set("service", state.service);
+  if (state.maxPrice) params.set("max_price", state.maxPrice);
   if (state.q.trim()) params.set("q", state.q.trim());
   const box = $("#results");
   try {
@@ -245,7 +264,7 @@ async function loadResults() {
     $("#results-count").textContent = list.length ? `${list.length} עסקים` : "";
     if (!list.length) {
       box.outerHTML = `<div id="results">${empty(ICON.search, "לא מצאנו עסקים באזור",
-        "נסי להגדיל את הרדיוס או לבחור סוג טיפול אחר.")}</div>`;
+        "נסי להגדיל את הרדיוס, לשנות תקציב או לבחור סוג טיפול אחר.")}</div>`;
       return;
     }
     box.className = "grid";
@@ -311,6 +330,7 @@ async function renderBusiness(id) {
         ${b.distance_km != null ? `<span>${ICON.target}${b.distance_km} ק"מ ממך</span>` : ""}
       </div>
     </div>
+    ${priceText(b) ? `<div class="price-box"><span>טווח מחירים</span><b>${priceText(b)}</b></div>` : ""}
     <div class="tags" style="margin-top:12px">${b.services.map((s) => `<span class="tag">${esc(serviceLabel(s))}</span>`).join("")}</div>
     ${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
     <div class="actions">
@@ -421,8 +441,24 @@ function businessFields(b = {}) {
           <input type="checkbox" name="services" value="${s.key}" ${sel.has(s.key) ? "checked" : ""}>${esc(s.label)}</label>`).join("")}
       </div>
     </div>
+    <div class="field" style="margin-top:12px"><span class="label-sm">טווח מחירים *</span>
+      <div class="price-row">
+        <label><span>החל מ-</span><input type="number" name="price_min" min="1" max="5000" inputmode="numeric" value="${b.price_min || ""}" placeholder="80"><em>₪</em></label>
+        <label><span>עד</span><input type="number" name="price_max" min="1" max="5000" inputmode="numeric" value="${b.price_max || ""}" placeholder="350"><em>₪</em></label>
+      </div>
+      <p class="note" style="text-align:start;margin:4px 0 0">מהטיפול הכי זול שלך ועד הכי יקר</p>
+    </div>
     <label class="field" style="margin-top:12px"><span>כמה מילים על העסק (לא חובה)</span>
       <textarea name="description" rows="3" maxlength="600" placeholder="ניסיון, סגנון, שעות פעילות...">${esc(b.description)}</textarea></label>`;
+}
+
+function readPrices(fd) {
+  const min = Number(fd.get("price_min"));
+  const max = Number(fd.get("price_max"));
+  if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < 1) return { error: "צריך למלא טווח מחירים (מספרים שלמים)" };
+  if (min > max) return { error: "המחיר ההתחלתי גבוה מהמחיר המקסימלי" };
+  if (max > 5000) return { error: "המחיר המקסימלי גבוה מדי" };
+  return { min, max };
 }
 
 function bindServiceChips(root) {
@@ -518,12 +554,16 @@ function renderAdd() {
     if (String(fd.get("name")).trim().length < 2) return fail("צריך למלא את שם העסק");
     if (!String(fd.get("phone")).trim()) return fail("צריך למלא מספר טלפון");
     if (String(fd.get("city")).trim().length < 2) return fail("צריך למלא עיר");
+    const prices = readPrices(fd);
+    if (prices.error) return fail(prices.error);
     if (!picked) return fail("צריך לסמן את מיקום העסק על המפה");
     if (photos.length < MIN_PHOTOS) return fail(`צריך לפחות ${MIN_PHOTOS} תמונות`);
 
     const body = new FormData();
     for (const k of ["name", "phone", "city", "address", "description"]) body.set(k, fd.get(k) || "");
     body.set("services", fd.getAll("services").join(","));
+    body.set("price_min", prices.min);
+    body.set("price_max", prices.max);
     body.set("lat", picked.lat);
     body.set("lng", picked.lng);
     photos.forEach((p, i) => body.append("photos", p.blob, `photo${i}.jpg`));
@@ -626,6 +666,10 @@ async function renderManage(id, isNew) {
   $("#edit-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const err = $("#edit-err");
+    err.classList.add("hidden");
+    const prices = readPrices(fd);
+    if (prices.error) { err.textContent = prices.error; err.classList.remove("hidden"); return; }
     const payload = {
       name: String(fd.get("name")).trim(),
       phone: String(fd.get("phone")).trim(),
@@ -633,10 +677,10 @@ async function renderManage(id, isNew) {
       address: String(fd.get("address") || "").trim(),
       description: String(fd.get("description") || "").trim(),
       services: fd.getAll("services"),
+      price_min: prices.min,
+      price_max: prices.max,
       ...(newLoc || {}),
     };
-    const err = $("#edit-err");
-    err.classList.add("hidden");
     try {
       await api(`/api/businesses/${id}`, {
         method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(payload),

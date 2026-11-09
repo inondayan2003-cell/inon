@@ -29,6 +29,8 @@ def make_business(client, lat=32.0853, lng=34.7818, n=5, **over):
         "phone": "050-123-4567",
         "city": "תל אביב",
         "services": "gel,build",
+        "price_min": "100",
+        "price_max": "300",
         "lat": str(lat),
         "lng": str(lng),
         **over,

@@ -2,8 +2,8 @@
 
 An app for finding nail salons close to you.
 
-- **Business owner:** uploads her salon with a name, phone, city, location on a map, the treatments she offers, and **at least 5 photos** of her work.
-- **Customer:** chooses a radius (2 / 5 / 10 / 25 / 50 km) from her location, or picks a city, filters by treatment, and sees the closest salons first.
+- **Business owner:** uploads her salon with a name, phone, city, location on a map, the treatments she offers, a **price range** (from ___ to ___ ₪) and **at least 5 photos** of her work.
+- **Customer:** chooses a radius (2 / 5 / 10 / 25 / 50 km) from her location, or picks a city, filters by treatment and by budget (up to 100 / 150 / 250 / 400 ₪), and sees the closest salons first, with the price range on every card.
 - **WhatsApp button:** opens a chat with the business and a ready-made message: "היי! הגעתי אלייך דרך אפליקציית Nails 💅"
   Every press is counted, so the business owner can see how many enquiries came through the app.
 
