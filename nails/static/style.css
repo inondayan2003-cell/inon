@@ -423,3 +423,50 @@ input.readonly { opacity: .7; cursor: default; }
 .list-item.contact-row { flex-wrap: wrap; }
 .contact-row .contact-actions { flex-basis: 100%; justify-content: stretch; padding-inline-start: 56px; }
 .contact-row .contact-actions .btn { flex: 1; }
+
+/* ---------- verification ---------- */
+.verified { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--whatsapp); color: #fff; margin-inline-start: 6px; vertical-align: middle; flex: none; }
+.verified svg { width: 12px; height: 12px; stroke-width: 3; }
+.verified.big { width: 24px; height: 24px; }
+.verified.big svg { width: 15px; height: 15px; }
+.verified-note { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; color: var(--whatsapp); font-weight: 600; font-size: .92rem; }
+.verified-note svg { width: 17px; height: 17px; }
+.card h4 { display: flex; align-items: center; }
+.card h4 .verified { margin-inline-start: 4px; }
+.verify-banner { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin: 0 0 14px; border-radius: 16px;
+  background: var(--gold-soft); border: 1px solid var(--gold); color: var(--text); }
+.verify-banner > svg:first-child { color: var(--gold); flex: none; width: 28px; height: 28px; }
+.verify-banner > svg:last-child { color: var(--muted); flex: none; margin-inline-start: auto; }
+.verify-banner b { display: block; }
+.verify-banner small { color: var(--muted); }
+.verify-banner.ok { background: color-mix(in srgb, var(--whatsapp) 10%, var(--surface)); border-color: var(--whatsapp); }
+.verify-banner.ok > svg:first-child { color: var(--whatsapp); }
+.panel-title { margin: 0 0 6px; font-size: 1.08rem; }
+.selfie-box { display: grid; place-items: center; position: relative; overflow: hidden; cursor: pointer; margin: 12px 0;
+  aspect-ratio: 4 / 3; border: 2px dashed var(--gold); border-radius: 18px; background: var(--surface-2); }
+.selfie-box img { width: 100%; height: 100%; object-fit: cover; }
+.selfie-empty { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.selfie-empty .cam { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.selfie-empty .cam svg { width: 32px; height: 32px; }
+.selfie-empty small { color: var(--muted); }
+.retake { position: absolute; bottom: 10px; display: inline-flex; gap: 6px; align-items: center; padding: 6px 14px;
+  border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: .88rem; }
+.retake svg { width: 16px; height: 16px; }
+.count-pill { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; margin-inline-start: 6px;
+  border-radius: 999px; background: var(--danger); color: #fff; font-size: .78rem; }
+
+/* ---------- admin ---------- */
+.tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 14px; border-radius: 999px; background: var(--surface-2); }
+.tab { flex: 1; border: 0; border-radius: 999px; padding: 10px; background: none; cursor: pointer; font-weight: 600; color: var(--muted); }
+.tab.on { background: var(--primary); color: var(--primary-ink); }
+.req-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.req-head small { display: block; color: var(--muted); }
+.req-selfie { max-width: 260px; margin: 0 auto 12px; border-radius: 16px; overflow: hidden; }
+.req-selfie img { width: 100%; display: block; }
+.req-biz { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn.approve { background: var(--whatsapp); color: #fff; }
+.req-status { font-weight: 700; margin: 0 0 6px; }
+.req-status.approved { color: var(--whatsapp); }
+.req-status.rejected { color: var(--danger); }

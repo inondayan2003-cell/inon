@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     provider TEXT NOT NULL,       -- google / apple / email / phone
     city TEXT NOT NULL DEFAULT '',
     avatar TEXT NOT NULL DEFAULT '',     -- photo filename in uploads/, '' = initials
+    verified INTEGER NOT NULL DEFAULT 0, -- business owner verified by an admin
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_login TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -42,6 +43,16 @@ CREATE TABLE IF NOT EXISTS photos (
     position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS photos_business ON photos(business_id, position);
+CREATE TABLE IF NOT EXISTS verifications (
+    id INTEGER PRIMARY KEY,
+    uid TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    selfie TEXT NOT NULL DEFAULT '',     -- file in private/, deleted once decided
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / rejected
+    note TEXT NOT NULL DEFAULT '',       -- reason shown to the user when rejected
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS verifications_status ON verifications(status, id);
 """
 
 
@@ -51,6 +62,11 @@ def data_dir() -> str:
 
 def uploads_dir() -> str:
     return os.path.join(data_dir(), "uploads")
+
+
+def private_dir() -> str:
+    """Files that are never served publicly (verification selfies)."""
+    return os.path.join(data_dir(), "private")
 
 
 @contextmanager
@@ -67,11 +83,13 @@ def connect():
 
 def init() -> None:
     os.makedirs(uploads_dir(), exist_ok=True)
+    os.makedirs(private_dir(), exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
         _add_missing_columns(conn, "users", {
             "city": "TEXT NOT NULL DEFAULT ''",
             "avatar": "TEXT NOT NULL DEFAULT ''",
+            "verified": "INTEGER NOT NULL DEFAULT 0",
         })
 
 

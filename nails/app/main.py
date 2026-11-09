@@ -10,6 +10,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -67,14 +68,33 @@ def current_user(ident: auth.Identity = Depends(identity)) -> dict:
     return dict(row)
 
 
-def _user_out(row) -> dict:
+def _is_admin(user) -> bool:
+    return bool(user["email"]) and user["email"].lower() in auth.admin_emails()
+
+
+def _user_out(row, conn=None) -> dict:
     out = {k: row[k] for k in ("uid", "name", "email", "phone", "provider", "city")}
     out["avatar_url"] = f"/uploads/{row['avatar']}" if row["avatar"] else None
+    out["verified"] = bool(row["verified"])
+    out["is_admin"] = _is_admin(row)
+    out["verification"] = None
+    if conn is not None:
+        v = conn.execute(
+            "SELECT status, note, created_at FROM verifications WHERE uid = ? ORDER BY id DESC LIMIT 1",
+            (row["uid"],),
+        ).fetchone()
+        out["verification"] = dict(v) if v else None
     return out
 
 
 def _get_user(conn, uid: str) -> dict:
-    return _user_out(conn.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone())
+    return _user_out(conn.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone(), conn)
+
+
+def admin_user(user: dict = Depends(current_user)) -> dict:
+    if not _is_admin(user):
+        raise HTTPException(403, "אין הרשאת ניהול")
+    return user
 
 
 @app.get("/api/config")
@@ -90,7 +110,7 @@ def me(ident: auth.Identity = Depends(identity)):
             # 404 tells the app to show the "what's your name" step.
             raise HTTPException(404, "not_registered")
         conn.execute("UPDATE users SET last_login = datetime('now') WHERE uid = ?", (ident.uid,))
-    return _user_out(row)
+        return _user_out(row, conn)
 
 
 class RegisterIn(BaseModel):
@@ -119,11 +139,15 @@ def delete_account(user: dict = Depends(current_user)):
         files = [r["filename"] for r in conn.execute(
             "SELECT p.filename FROM photos p JOIN businesses b ON b.id = p.business_id"
             " WHERE b.owner_uid = ?", (user["uid"],))]
+        selfies = [r["selfie"] for r in conn.execute(
+            "SELECT selfie FROM verifications WHERE uid = ? AND selfie != ''", (user["uid"],))]
+        conn.execute("DELETE FROM verifications WHERE uid = ?", (user["uid"],))
         conn.execute("BEGIN")
         conn.execute("DELETE FROM businesses WHERE owner_uid = ?", (user["uid"],))  # photos cascade
         conn.execute("DELETE FROM users WHERE uid = ?", (user["uid"],))
         conn.execute("COMMIT")
     _delete_files(files + ([user["avatar"]] if user["avatar"] else []))
+    _delete_files(selfies, db.private_dir())
 
 
 @app.post("/api/me/avatar")
@@ -215,7 +239,7 @@ def _image_ext(head: bytes) -> str | None:
     return None
 
 
-async def _save_photos(files: list[UploadFile]) -> list[str]:
+async def _save_photos(files: list[UploadFile], folder: str | None = None) -> list[str]:
     """Validate and store uploaded images. Returns stored filenames."""
     saved: list[str] = []
     try:
@@ -227,25 +251,30 @@ async def _save_photos(files: list[UploadFile]) -> list[str]:
             if ext is None:
                 raise HTTPException(415, "אפשר להעלות רק תמונות JPG / PNG / WEBP")
             name = f"{uuid.uuid4().hex}.{ext}"
-            with open(os.path.join(db.uploads_dir(), name), "wb") as out:
+            with open(os.path.join(folder or db.uploads_dir(), name), "wb") as out:
                 out.write(data)
             saved.append(name)
     except BaseException:
-        _delete_files(saved)
+        _delete_files(saved, folder)
         raise
     return saved
 
 
-def _delete_files(names: list[str]) -> None:
+def _delete_files(names: list[str], folder: str | None = None) -> None:
     for n in names:
         try:
-            os.remove(os.path.join(db.uploads_dir(), n))
+            os.remove(os.path.join(folder or db.uploads_dir(), n))
         except FileNotFoundError:
             pass
 
 
+# Every business row also carries whether its owner is verified.
+BIZ_SELECT = ("SELECT *, (SELECT verified FROM users u WHERE u.uid = businesses.owner_uid)"
+              " AS owner_verified FROM businesses")
+
+
 def _get_business(conn, business_id: int):
-    row = conn.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+    row = conn.execute(f"{BIZ_SELECT} WHERE id = ?", (business_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "העסק לא נמצא")
     return row
@@ -284,6 +313,7 @@ def _public(row, photos: list[dict], dist: float | None = None) -> dict:
         "lng": row["lng"],
         "photos": photos,
         "distance_km": round(dist, 1) if dist is not None else None,
+        "verified": bool(row["owner_verified"]),
         "whatsapp_url": f"https://wa.me/{whatsapp_number(row['phone'])}?text={quote(WHATSAPP_MESSAGE)}",
     }
 
@@ -306,7 +336,7 @@ def search(
     open_now: bool = False,
     _user: dict = Depends(current_user),
 ):
-    sql = "SELECT * FROM businesses WHERE 1=1"
+    sql = f"{BIZ_SELECT} WHERE 1=1"
     args: list = []
     has_loc = lat is not None and lng is not None
     if has_loc:
@@ -372,7 +402,7 @@ def whatsapp_lead(business_id: int, user: dict = Depends(current_user)):
 def my_businesses(user: dict = Depends(current_user)):
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM businesses WHERE owner_uid = ? ORDER BY id", (user["uid"],)
+            f"{BIZ_SELECT} WHERE owner_uid = ? ORDER BY id", (user["uid"],)
         ).fetchall()
         out = []
         for r in rows:
@@ -529,6 +559,103 @@ def delete_business(business_id: int, user: dict = Depends(current_user)):
             "SELECT filename FROM photos WHERE business_id = ?", (business_id,))]
         conn.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
     _delete_files(names)
+
+
+# ---------- business owner verification ----------
+
+@app.post("/api/me/verification", status_code=201)
+async def request_verification(selfie: UploadFile = File(...), user: dict = Depends(current_user)):
+    """A selfie for the admin to compare with the profile; kept privately and deleted once decided."""
+    if user["verified"]:
+        raise HTTPException(409, "החשבון כבר מאומת")
+    with db.connect() as conn:
+        if conn.execute("SELECT 1 FROM verifications WHERE uid = ? AND status = 'pending'",
+                        (user["uid"],)).fetchone():
+            raise HTTPException(409, "כבר שלחת בקשה, והיא בבדיקה")
+        if not conn.execute("SELECT 1 FROM businesses WHERE owner_uid = ?", (user["uid"],)).fetchone():
+            raise HTTPException(422, "אימות מיועד לבעלות עסקים. קודם צריך להוסיף עסק")
+    [name] = await _save_photos([selfie], db.private_dir())
+    with db.connect() as conn:
+        conn.execute("INSERT INTO verifications (uid, selfie) VALUES (?, ?)", (user["uid"], name))
+        return _get_user(conn, user["uid"])
+
+
+# ---------- admin ----------
+
+@app.get("/api/admin/summary")
+def admin_summary(_admin: dict = Depends(admin_user)):
+    with db.connect() as conn:
+        pending = conn.execute("SELECT COUNT(*) FROM verifications WHERE status = 'pending'").fetchone()[0]
+    return {"pending_verifications": pending}
+
+
+@app.get("/api/admin/verifications")
+def admin_verifications(status: str = Query("pending", pattern="^(pending|approved|rejected)$"),
+                        _admin: dict = Depends(admin_user)):
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT v.*, u.name, u.email, u.phone, u.city, u.avatar, u.verified FROM verifications v"
+            " JOIN users u ON u.uid = v.uid WHERE v.status = ? ORDER BY v.id DESC LIMIT 100",
+            (status,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            businesses = conn.execute(
+                "SELECT id, name, city FROM businesses WHERE owner_uid = ? ORDER BY id", (r["uid"],)
+            ).fetchall()
+            out.append({
+                "id": r["id"], "uid": r["uid"], "status": r["status"], "note": r["note"],
+                "created_at": r["created_at"], "decided_at": r["decided_at"],
+                "user": {"name": r["name"], "email": r["email"], "phone": r["phone"], "city": r["city"],
+                         "verified": bool(r["verified"]),
+                         "avatar_url": f"/uploads/{r['avatar']}" if r["avatar"] else None},
+                "businesses": [dict(b) for b in businesses],
+                "has_selfie": bool(r["selfie"]),
+            })
+        return out
+
+
+@app.get("/api/admin/verifications/{vid}/selfie")
+def admin_selfie(vid: int, _admin: dict = Depends(admin_user)):
+    with db.connect() as conn:
+        row = conn.execute("SELECT selfie FROM verifications WHERE id = ?", (vid,)).fetchone()
+    if row is None or not row["selfie"]:
+        raise HTTPException(404, "התמונה לא נמצאה")
+    return FileResponse(os.path.join(db.private_dir(), row["selfie"]),
+                        headers={"Cache-Control": "no-store"})
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+    note: str = Field("", max_length=300)
+
+
+@app.post("/api/admin/verifications/{vid}")
+def admin_decide(vid: int, body: DecisionIn, _admin: dict = Depends(admin_user)):
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM verifications WHERE id = ?", (vid,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "הבקשה לא נמצאה")
+        if row["status"] != "pending":
+            raise HTTPException(409, "כבר טיפלת בבקשה הזאת")
+        conn.execute("BEGIN")
+        conn.execute(
+            "UPDATE verifications SET status = ?, note = ?, selfie = '', decided_at = datetime('now')"
+            " WHERE id = ?",
+            ("approved" if body.approve else "rejected", body.note.strip(), vid),
+        )
+        if body.approve:
+            conn.execute("UPDATE users SET verified = 1 WHERE uid = ?", (row["uid"],))
+        conn.execute("COMMIT")
+    _delete_files([row["selfie"]], db.private_dir())  # the selfie is only needed for the decision
+    return {"id": vid, "status": "approved" if body.approve else "rejected"}
+
+
+@app.post("/api/admin/users/{uid}/unverify")
+def admin_unverify(uid: str, _admin: dict = Depends(admin_user)):
+    with db.connect() as conn:
+        conn.execute("UPDATE users SET verified = 0 WHERE uid = ?", (uid,))
+    return {"uid": uid, "verified": False}
 
 
 # ---------- static ----------

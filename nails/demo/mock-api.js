@@ -5,7 +5,7 @@
 "use strict";
 
 (function () {
-  const KEY = "nails.preview.db.v2";
+  const KEY = "nails.preview.db.v3";
   const TZ = "Asia/Jerusalem";
 
   const SERVICES = {
@@ -75,14 +75,14 @@
   function load() {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
     if (!db) {
-      db = { nextId: 1, nextPhoto: 1, users: {}, businesses: [] };
+      db = { nextId: 1, nextPhoto: 1, nextVer: 1, users: {}, businesses: [], verifications: [] };
       SAMPLES.forEach((s, n) => {
         const [name, phone, city, address, lat, lng, services, pmin, pmax, description, hours] = s;
         db.businesses.push({
           id: db.nextId++, owner: `sample-${n}`, name, phone, city, address, lat, lng,
           services: services.split(","), price_min: pmin, price_max: pmax, description, hours,
           photos: [0, 1, 2, 3, 4].map((i) => ({ id: db.nextPhoto++, sample: [n, i] })),
-          views: 0, clicks: 0, created: Date.now() - n * 1000,
+          views: 0, clicks: 0, created: Date.now() - n * 1000, sampleVerified: n % 3 === 0,
         });
       });
       save();
@@ -121,6 +121,7 @@
       services: b.services, price_min: b.price_min, price_max: b.price_max, hours: b.hours, open_now: openNow(b.hours),
       lat: b.lat, lng: b.lng, photos: b.photos.map((p) => ({ id: p.id, url: photoUrl(p) })),
       distance_km: dist == null ? null : Math.round(dist * 10) / 10,
+      verified: !!(db.users[b.owner]?.verified ?? b.sampleVerified),
       whatsapp_url: `https://wa.me/972${b.phone.slice(1)}?text=${encodeURIComponent(WA_TEXT)}`,
     };
   }
@@ -165,6 +166,12 @@
     if (!u) fail(403, "not_registered");
     return u;
   }
+  // What /api/me returns: the stored user plus admin flag and latest verification request.
+  function me(u) {
+    const v = [...db.verifications].reverse().find((x) => x.uid === u.uid);
+    return { ...u, verified: !!u.verified, is_admin: true,
+      verification: v ? { status: v.status, note: v.note, created_at: v.created_at } : null };
+  }
   const owned = (id, user) => {
     const b = db.businesses.find((x) => x.id === id) || fail(404, "העסק לא נמצא");
     if (b.owner !== user.uid) fail(403, "אין הרשאה לערוך את העסק הזה");
@@ -179,17 +186,66 @@
     if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "0528326523" };
     if (path === "/api/services") return Object.entries(SERVICES).map(([key, label]) => ({ key, label }));
 
+    if (path === "/api/me/verification") {
+      const u = registered(headers);
+      if (u.verified) fail(409, "החשבון כבר מאומת");
+      if (db.verifications.some((v) => v.uid === u.uid && v.status === "pending")) fail(409, "כבר שלחת בקשה, והיא בבדיקה");
+      if (!db.businesses.some((b) => b.owner === u.uid)) fail(422, "אימות מיועד לבעלות עסקים. קודם צריך להוסיף עסק");
+      db.verifications.push({ id: db.nextVer++, uid: u.uid, selfie: await blobToDataUrl(body.get("selfie")),
+        status: "pending", note: "", created_at: new Date().toISOString() });
+      saveOrFail();
+      return me(u);
+    }
+    if (path.startsWith("/api/admin/")) {
+      registered(headers);  // in the preview every account is an admin
+      let m2;
+      if (path === "/api/admin/summary") return { pending_verifications: db.verifications.filter((v) => v.status === "pending").length };
+      if (path === "/api/admin/verifications") {
+        const st = q.get("status") || "pending";
+        return db.verifications.filter((v) => v.status === st).reverse().map((v) => {
+          const u = db.users[v.uid] || {};
+          return { id: v.id, uid: v.uid, status: v.status, note: v.note, created_at: v.created_at, decided_at: v.decided_at || null,
+            user: { name: u.name, email: u.email, phone: u.phone, city: u.city, verified: !!u.verified, avatar_url: u.avatar_url || null },
+            businesses: db.businesses.filter((b) => b.owner === v.uid).map((b) => ({ id: b.id, name: b.name, city: b.city })),
+            has_selfie: !!v.selfie };
+        });
+      }
+      if ((m2 = /^\/api\/admin\/verifications\/(\d+)\/selfie$/.exec(path))) {
+        const v = db.verifications.find((x) => x.id === Number(m2[1]));
+        if (!v?.selfie) fail(404, "התמונה לא נמצאה");
+        const [meta, b64] = v.selfie.split(",");
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        return { __blob: new Blob([bytes], { type: meta.slice(5).split(";")[0] }) };
+      }
+      if ((m2 = /^\/api\/admin\/verifications\/(\d+)$/.exec(path))) {
+        const v = db.verifications.find((x) => x.id === Number(m2[1])) || fail(404, "הבקשה לא נמצאה");
+        if (v.status !== "pending") fail(409, "כבר טיפלת בבקשה הזאת");
+        const d = JSON.parse(body);
+        Object.assign(v, { status: d.approve ? "approved" : "rejected", note: (d.note || "").trim(), selfie: "", decided_at: new Date().toISOString() });
+        if (d.approve && db.users[v.uid]) db.users[v.uid].verified = true;
+        save();
+        return { id: v.id, status: v.status };
+      }
+      if ((m2 = /^\/api\/admin\/users\/([^/]+)\/unverify$/.exec(path))) {
+        const u = db.users[decodeURIComponent(m2[1])];
+        if (u) u.verified = false;
+        save();
+        return { verified: false };
+      }
+      fail(404, "לא נמצא");
+    }
     if (path === "/api/me/avatar") {
       const u = registered(headers);
       u.avatar_url = method === "POST" ? await blobToDataUrl(body.get("photo")) : null;
       saveOrFail();
-      return u;
+      return me(u);
     }
     if (path === "/api/me") {
       const ident = who(headers);
-      if (method === "GET") return db.users[ident.uid] || fail(404, "not_registered");
+      if (method === "GET") return me(db.users[ident.uid] || fail(404, "not_registered"));
       if (method === "DELETE") {
         db.businesses = db.businesses.filter((b) => b.owner !== ident.uid);
+        db.verifications = db.verifications.filter((v) => v.uid !== ident.uid);
         delete db.users[ident.uid];
         save();
         return null;
@@ -205,7 +261,7 @@
         provider: ident.uid.startsWith("google") ? "google" : ident.uid.startsWith("email") ? "email" : "dev",
       };
       saveOrFail();
-      return db.users[ident.uid];
+      return me(db.users[ident.uid]);
     }
 
     const user = registered(headers);
@@ -297,6 +353,7 @@
     });
     try {
       const data = await handle((opts.method || "GET").toUpperCase(), url, opts.headers || {}, opts.body);
+      if (data && data.__blob) return new Response(data.__blob, { status: 200 });
       return data === null ? json(204) : json(200, data);
     } catch (e) {
       if (e instanceof HttpError) return json(e.status, { detail: e.detail });

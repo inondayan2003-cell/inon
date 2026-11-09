@@ -88,6 +88,11 @@ def enabled_methods() -> list[str]:
     return [m for m in ALL_METHODS if m in wanted]
 
 
+def admin_emails() -> set[str]:
+    """Accounts that can open the admin screen (comma separated emails)."""
+    return {e.strip().lower() for e in os.environ.get("NAILS_ADMIN_EMAILS", "").split(",") if e.strip()}
+
+
 def dev_auth_enabled() -> bool:
     return os.environ.get("NAILS_DEV_AUTH") == "1"
 

@@ -43,6 +43,8 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></svg>',
   alert: '<svg viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>',
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>',
   google: '<svg viewBox="0 0 24 24" class="brand"><path fill="#4285F4" stroke="none" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h6a5 5 0 0 1-2.2 3.3v2.7h3.5c2-1.9 3.3-4.7 3.3-8z"/><path fill="#34A853" stroke="none" d="M12 23c3 0 5.5-1 7.3-2.7l-3.5-2.7c-1 .7-2.3 1.1-3.8 1.1-2.9 0-5.4-2-6.3-4.7H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" stroke="none" d="M5.7 14a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" stroke="none" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.1 7l3.6 2.8C6.6 7.3 9.1 5.4 12 5.4z"/></svg>',
@@ -396,7 +398,7 @@ function card(b) {
         <span class="count-badge">${b.photos.length} תמונות</span>
       </div>
       <div class="body">
-        <h4>${esc(b.name)}</h4>
+        <h4>${esc(b.name)}${verifiedBadge(b.verified)}</h4>
         ${priceText(b) ? `<div class="price">${priceText(b)}</div>` : ""}
         <div class="meta">${ICON.pin}<span>${esc(b.city)}</span></div>
         <div class="open-dot ${b.open_now ? "on" : ""}">${b.open_now ? "פתוח עכשיו" : "סגור עכשיו"}</div>
@@ -428,6 +430,8 @@ function pageTitle(title, backHref) {
 }
 
 const initials = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const verifiedBadge = (on, big = false) => (on
+  ? `<span class="verified ${big ? "big" : ""}" title="בעלת עסק מאומתת" aria-label="עסק מאומת">${ICON.check}</span>` : "");
 const avatarInner = (p) => (p?.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="">` : esc(initials(p?.name)));
 const cityOptions = () => `<datalist id="cities">${CITIES.map(([c]) => `<option value="${esc(c)}">`).join("")}</datalist>`;
 
@@ -788,7 +792,8 @@ async function renderBusiness(id) {
     </div>
     <div class="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
     <div class="biz-head">
-      <h1>${esc(b.name)}</h1>
+      <h1>${esc(b.name)}${verifiedBadge(b.verified, true)}</h1>
+      ${b.verified ? '<p class="verified-note">' + ICON.shield + ' בעלת העסק אומתה על ידי Nails</p>' : ""}
       <div class="meta">
         <span>${ICON.pin}${esc(b.city)}${b.address ? ` · ${esc(b.address)}` : ""}</span>
         ${b.distance_km != null ? `<span>${ICON.target}${b.distance_km} ק"מ ממך</span>` : ""}
@@ -1086,13 +1091,14 @@ async function renderProfile() {
         <input type="file" id="avatar-file" accept="image/*" hidden>
       </div>
       <div class="grow">
-        <h1>${esc(p.name)}</h1>
+        <h1>${esc(p.name)}${verifiedBadge(p.verified, true)}</h1>
         ${p.city ? `<p>${ICON.pin}${esc(p.city)}</p>` : '<p><a class="link" href="#/edit-profile">+ הוספת עיר</a></p>'}
         <small>מחוברת דרך ${via}</small>
       </div>
     </div>
 
     <div id="my-stats"></div>
+    <div id="verify-slot"></div>
 
     <div class="section-head"><h3>העסקים שלי</h3></div>
     <div id="my-list" class="panel" style="padding:0"><div class="skeleton" style="aspect-ratio:5/1"></div></div>
@@ -1103,6 +1109,7 @@ async function renderProfile() {
       ["#/edit-profile", ICON.user, "עריכת פרופיל"],
       ["#/favorites", ICON.heart, "מועדפים"],
       ["#/settings", ICON.gear, "הגדרות"],
+      ...(p.is_admin ? [["#/admin", ICON.shield, 'ניהול <span class="count-pill hidden" id="admin-count"></span>']] : []),
     ])}
 
     <div class="section-head" style="margin-top:26px"><h3>מידע ותמיכה</h3></div>
@@ -1135,10 +1142,20 @@ async function renderProfile() {
     toast("התנתקת");
   });
 
+  if (p.is_admin) {
+    api("/api/admin/summary").then((sum) => {
+      const el = $("#admin-count");
+      if (el && sum.pending_verifications) { el.textContent = sum.pending_verifications; el.classList.remove("hidden"); }
+    }).catch(() => {});
+  }
+
   try {
-    const list = await api("/api/my/businesses");
+    const [list, fresh] = await Promise.all([api("/api/my/businesses"), api("/api/me")]);
+    session.profile = fresh;
     const box = $("#my-list");
     if (!box) return;
+    if (list.length) $("#verify-slot").innerHTML = verifyBanner(fresh);
+    $(".profile-head h1").innerHTML = esc(fresh.name) + verifiedBadge(fresh.verified, true);
     if (list.length) {
       const sum = (k) => list.reduce((n, b) => n + b.stats[k], 0);
       $("#my-stats").innerHTML = `<div class="panel stats three">
@@ -1398,6 +1415,160 @@ function renderDeleteAccount() {
 }
 
 
+/* ================= business owner verification ================= */
+
+function verifyBanner(p) {
+  if (p.verified) {
+    return `<div class="verify-banner ok">${ICON.shield}<div><b>בעלת עסק מאומתת</b>
+      <small>הסימן ✓ מופיע ליד העסקים שלך</small></div></div>`;
+  }
+  const v = p.verification;
+  if (v?.status === "pending") {
+    return `<div class="verify-banner">${ICON.clock}<div><b>בקשת האימות בבדיקה</b>
+      <small>נעדכן כאן ברגע שהבקשה תאושר</small></div></div>`;
+  }
+  const rejected = v?.status === "rejected";
+  return `<a class="verify-banner" href="#/verify">${ICON.shield}<div>
+      <b>${rejected ? "בקשת האימות נדחתה" : "בקשי אימות בעלת עסק"}</b>
+      <small>${rejected ? esc(v.note || "אפשר לשלוח בקשה חדשה עם תמונה ברורה") : "צלמי סלפי ושלחי לאישור. עסק מאומת מקבל סימן ✓"}</small>
+    </div>${ICON.chevron}</a>`;
+}
+
+function renderVerify() {
+  const p = session.profile;
+  if (p.verified) { nav.replace("#/profile"); return; }
+  let blob = null;
+  view.innerHTML = `
+    ${pageTitle("אימות בעלת עסק", "#/profile")}
+    <div class="doc-head"><div class="step">${ICON.shield}</div>
+      <div><b>למה לאמת?</b><small>ליד עסק מאומת מופיע הסימן ✓. זה עוזר ללקוחות לסמוך עלייך ולבחור בך.</small></div></div>
+
+    <section class="panel">
+      <h2 class="panel-title">צילום סלפי עדכני</h2>
+      <p class="note" style="text-align:start">צלמי תמונה ברורה של הפנים, באור טוב, בלי משקפי שמש. התמונה משמשת רק לבדיקת האימות.</p>
+      <input type="file" id="selfie-file" accept="image/*" capture="user" hidden>
+      <label class="selfie-box" id="selfie-box" for="selfie-file">
+        <span class="selfie-empty"><span class="cam">${ICON.camera}</span><b>צילום סלפי</b><small>נפתחת המצלמה הקדמית</small></span>
+      </label>
+      <p class="note" style="text-align:start">התמונה נשמרת במקום מאובטח ונגיש רק לצוות Nails לצורך האימות, ונמחקת מיד אחרי ההחלטה.</p>
+      <p class="error hidden" id="v-err"></p>
+      <button class="btn block" id="v-send" disabled>שליחה לאימות</button>
+    </section>`;
+
+  const box = $("#selfie-box");
+  $("#selfie-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const r = await resizeImage(file, 1024, 0.85);
+      blob = r.blob;
+      box.innerHTML = `<img src="${r.preview}" alt="הסלפי שצילמת"><span class="retake">${ICON.camera} צילום מחדש</span>`;
+      $("#v-send").disabled = false;
+    } catch (ex) { toast(ex.message); }
+  });
+  $("#v-send").addEventListener("click", async (e) => {
+    const err = $("#v-err");
+    err.classList.add("hidden");
+    e.currentTarget.disabled = true;
+    try {
+      const body = new FormData();
+      body.append("selfie", blob, "selfie.jpg");
+      session.profile = await api("/api/me/verification", { method: "POST", body });
+      toast("הבקשה נשלחה ✓");
+      nav.go("#/profile");
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.classList.remove("hidden");
+      e.currentTarget.disabled = false;
+    }
+  });
+}
+
+/* ================= admin ================= */
+
+async function selfieUrl(id) {
+  const token = await Auth.token();
+  const res = await fetch(`/api/admin/verifications/${id}/selfie`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  return URL.createObjectURL(await res.blob());
+}
+
+async function renderAdmin(tab = "pending") {
+  if (!session.profile.is_admin) { nav.replace("#/profile"); return; }
+  view.innerHTML = `
+    ${pageTitle("ניהול", "#/profile")}
+    ${session.preview ? '<p class="dev-note">בתצוגה המקדימה כל חשבון הוא מנהל, כדי שאפשר יהיה לנסות. באפליקציה האמיתית רק המנהל רואה את המסך הזה.</p>' : ""}
+    <div class="tabs" role="tablist">
+      ${[["pending", "ממתינות"], ["approved", "אושרו"], ["rejected", "נדחו"]].map(([k, l]) =>
+        `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}" role="tab" aria-selected="${k === tab}">${l}</button>`).join("")}
+    </div>
+    <div id="admin-list"><div class="skeleton" style="aspect-ratio:3/1"></div></div>`;
+  view.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => renderAdmin(b.dataset.tab)));
+
+  let list;
+  try { list = await api(`/api/admin/verifications?status=${tab}`); } catch (ex) {
+    $("#admin-list").innerHTML = `<p class="error">${esc(ex.message)}</p>`;
+    return;
+  }
+  const box = $("#admin-list");
+  if (!list.length) {
+    box.innerHTML = empty(ICON.shield, tab === "pending" ? "אין בקשות שמחכות" : "אין בקשות ברשימה הזאת",
+      tab === "pending" ? "כשבעלת עסק תשלח בקשת אימות, היא תופיע כאן." : "");
+    return;
+  }
+  box.innerHTML = list.map((v) => `
+    <article class="panel req" data-id="${v.id}">
+      <div class="req-head">
+        <div class="avatar">${avatarInner(v.user)}</div>
+        <div class="grow"><b>${esc(v.user.name)}</b>
+          <small dir="ltr">${esc(v.user.email || v.user.phone || "")}</small>
+          <small>${esc(v.user.city || "")} · נשלח ${esc(v.created_at.slice(0, 16).replace("T", " "))}</small></div>
+      </div>
+      ${v.has_selfie ? '<div class="req-selfie"><div class="skeleton" style="aspect-ratio:3/4"></div></div>' : ""}
+      <div class="req-biz"><span class="label-sm">העסקים שלה:</span>
+        ${v.businesses.map((b) => `<a class="tag" href="#/b/${b.id}">${esc(b.name)} · ${esc(b.city)}</a>`).join(" ") || '<span class="muted">אין עסקים</span>'}</div>
+      ${tab === "pending" ? `
+        <label class="field"><span>סיבת דחייה (נשלחת לבעלת העסק, לא חובה)</span>
+          <input type="text" class="req-note" maxlength="300" placeholder="למשל: התמונה מטושטשת"></label>
+        <div class="row2">
+          <button class="btn approve" data-act="approve">${ICON.check} אישור</button>
+          <button class="btn outline reject" data-act="reject">דחייה</button>
+        </div>` : `
+        <p class="req-status ${v.status}">${v.status === "approved" ? "אושרה" : "נדחתה"}${v.note ? `: ${esc(v.note)}` : ""}</p>
+        ${v.status === "approved" && v.user.verified ? `<button class="link" data-act="unverify" data-uid="${esc(v.uid)}">ביטול האימות</button>` : ""}`}
+    </article>`).join("");
+
+  // selfies are private: fetched with the admin's sign-in
+  list.filter((v) => v.has_selfie).forEach(async (v) => {
+    const url = await selfieUrl(v.id);
+    const slot = box.querySelector(`.req[data-id="${v.id}"] .req-selfie`);
+    if (slot) slot.innerHTML = url ? `<img src="${url}" alt="סלפי של ${esc(v.user.name)}">` : '<p class="note">התמונה לא נמצאה</p>';
+  });
+
+  box.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const card = btn.closest(".req");
+    btn.disabled = true;
+    try {
+      if (btn.dataset.act === "unverify") {
+        await api(`/api/admin/users/${encodeURIComponent(btn.dataset.uid)}/unverify`, { method: "POST" });
+        toast("האימות בוטל");
+      } else {
+        const approve = btn.dataset.act === "approve";
+        await api(`/api/admin/verifications/${card.dataset.id}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approve, note: card.querySelector(".req-note")?.value || "" }),
+        });
+        toast(approve ? "אושר ✓ הסימן נוסף לעסקים שלה" : "הבקשה נדחתה");
+      }
+      renderAdmin(tab);
+    } catch (ex) { toast(ex.message); btn.disabled = false; }
+  });
+}
+
+
 async function renderManage(id, isNew) {
   view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<div class="skeleton" style="aspect-ratio:2/1"></div>`;
   let b;
@@ -1559,7 +1730,7 @@ function route() {
   document.body.classList.toggle("signed-out", !session.profile);
   const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-profile": "profile",
     settings: "profile", about: "profile", contact: "profile", terms: "profile", privacy: "profile",
-    accessibility: "profile", "delete-account": "profile" }[page || ""];
+    accessibility: "profile", "delete-account": "profile", verify: "profile", admin: "profile" }[page || ""];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   window.scrollTo(0, 0);
 
@@ -1578,6 +1749,8 @@ function route() {
     case "about": case "terms": case "privacy": case "accessibility": return renderInfoPage(page);
     case "contact": return renderContact();
     case "delete-account": return renderDeleteAccount();
+    case "verify": return renderVerify();
+    case "admin": return renderAdmin();
     case "manage": return renderManage(Number(parts[1]), params.has("new"));
     default: nav.replace("#/");
   }
