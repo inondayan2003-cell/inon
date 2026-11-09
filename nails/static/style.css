@@ -106,7 +106,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   padding: 26px 22px; min-height: 170px;
   background: linear-gradient(135deg, var(--primary-soft), var(--gold-soft));
 }
-.hero small { letter-spacing: 4px; font-weight: 700; color: var(--primary); }
+.hero small { letter-spacing: 1px; font-weight: 700; color: var(--primary); }
 .hero h2 { margin: 8px 0 6px; font-size: 1.7rem; line-height: 1.2; font-weight: 800; max-width: 70%; }
 .hero p { margin: 0; color: var(--muted); max-width: 70%; }
 .hero .nail-art { position: absolute; inset-inline-end: -10px; bottom: -14px; font-size: 110px; transform: rotate(-12deg); opacity: .9; }

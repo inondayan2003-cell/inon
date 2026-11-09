@@ -418,12 +418,12 @@ function renderAuth(mode, prefill = {}) {
       </div>
       ${session.preview
         ? '<p class="dev-note">תצוגה מקדימה: הכניסה כאן לדוגמה בלבד, והכל נשמר רק בטלפון שלך</p>'
-        : session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד SMS לדוגמה: 123456" : ""}</p>` : ""}
+        : session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד לדוגמה בהודעה: 123456" : ""}</p>` : ""}
       ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
 
       <div class="auth-buttons">
-        ${has("google") ? `<button class="btn social" id="google">${ICON.google}<span>${verb} עם Google</span></button>` : ""}
-        ${has("apple") ? `<button class="btn social apple" id="apple">${ICON.apple}<span>${verb} עם Apple</span></button>` : ""}
+        ${has("google") ? `<button class="btn social" id="google">${ICON.google}<span>${verb} עם גוגל</span></button>` : ""}
+        ${has("apple") ? `<button class="btn social apple" id="apple">${ICON.apple}<span>${verb} עם אפל</span></button>` : ""}
         ${has("phone") ? `<button class="btn social" id="phone-btn">${ICON.phone}<span>${verb} עם מספר טלפון</span></button>` : ""}
       </div>
 
@@ -497,11 +497,11 @@ function renderPhone(from) {
       <form id="phone-form" novalidate>
         <label class="field"><span>מספר טלפון</span>
           <input type="tel" name="phone" required inputmode="tel" autocomplete="tel" placeholder="050-0000000" dir="ltr"></label>
-        <p class="note" style="text-align:start">נשלח אלייך קוד ב-SMS</p>
+        <p class="note" style="text-align:start">נשלח אלייך קוד בהודעה</p>
         <button class="btn block" id="send-code">שליחת קוד</button>
       </form>
       <form id="code-form" class="hidden" novalidate>
-        <label class="field"><span>הקוד שקיבלת ב-SMS</span>
+        <label class="field"><span>הקוד שקיבלת בהודעה</span>
           <input type="text" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" class="code-input"></label>
         <button class="btn block">אישור</button>
         <button type="button" class="link" id="resend">לא קיבלתי קוד, שלחי שוב</button>
@@ -610,7 +610,7 @@ function renderHome() {
     </div>
 
     <div class="hero">
-      <small>NAILS</small>
+      <small>ציפורניים קרוב אלייך</small>
       <h2>הציפורניים שחיפשת, ממש קרוב.</h2>
       <p>מוצאים מניקוריסטית באזור, רואים עבודות, וקובעים בוואטסאפ.</p>
       <div class="nail-art" aria-hidden="true">💅</div>
@@ -1039,7 +1039,7 @@ function renderAdd() {
 
 async function renderProfile() {
   const p = session.profile;
-  const via = { google: "Google", apple: "Apple", email: "אימייל", phone: "מספר טלפון", dev: "חשבון לדוגמה" }[p.provider] || "";
+  const via = { google: "גוגל", apple: "אפל", email: "אימייל", phone: "מספר טלפון", dev: "חשבון לדוגמה" }[p.provider] || "";
   view.innerHTML = `
     <div class="profile-head">
       <div class="avatar big">${esc(initials(p.name))}</div>
@@ -1314,7 +1314,7 @@ async function onAuthChange(user) {
     Auth = firebaseAuth(cfg.firebase);
   } else {
     document.body.classList.add("signed-out");
-    view.innerHTML = empty(ICON.close, "ההתחברות עוד לא הוגדרה", "צריך להגדיר Firebase בשרת (ראו README).");
+    view.innerHTML = empty(ICON.close, "ההתחברות עוד לא הוגדרה", "צריך להשלים את הגדרת ההתחברות בשרת.");
     return;
   }
   nav.listen(route);
