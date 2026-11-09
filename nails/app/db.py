@@ -1,11 +1,21 @@
-"""SQLite storage: businesses and their photos."""
+"""SQLite storage: users, businesses and their photos."""
 import os
 import sqlite3
 from contextlib import contextmanager
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    uid TEXT PRIMARY KEY,         -- Firebase user id
+    name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    provider TEXT NOT NULL,       -- google / apple / email / phone
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS businesses (
     id INTEGER PRIMARY KEY,
+    owner_uid TEXT NOT NULL REFERENCES users(uid),
     name TEXT NOT NULL,
     phone TEXT NOT NULL,          -- normalized, e.g. 0501234567
     city TEXT NOT NULL,
@@ -14,14 +24,15 @@ CREATE TABLE IF NOT EXISTS businesses (
     services TEXT NOT NULL DEFAULT '',   -- comma separated service keys
     price_min INTEGER NOT NULL DEFAULT 0,   -- price range in ILS
     price_max INTEGER NOT NULL DEFAULT 0,
+    hours TEXT NOT NULL DEFAULT '{}',    -- JSON: {"0": ["09:00", "19:00"], ...}, 0 = Sunday
     lat REAL NOT NULL,
     lng REAL NOT NULL,
-    token_hash TEXT NOT NULL,     -- owner's secret edit token (sha256)
     views INTEGER NOT NULL DEFAULT 0,
     whatsapp_clicks INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS businesses_geo ON businesses(lat, lng);
+CREATE INDEX IF NOT EXISTS businesses_owner ON businesses(owner_uid);
 CREATE TABLE IF NOT EXISTS photos (
     id INTEGER PRIMARY KEY,
     business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -56,7 +67,3 @@ def init() -> None:
     os.makedirs(uploads_dir(), exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(businesses)")}
-        for col in ("price_min", "price_max"):  # databases created before prices existed
-            if col not in cols:
-                conn.execute(f"ALTER TABLE businesses ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")

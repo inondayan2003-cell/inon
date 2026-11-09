@@ -1,6 +1,8 @@
+import json
+
 from app.geo import distance_km, normalize_phone, whatsapp_number
 
-from .conftest import JPEG, make_business, photos
+from .conftest import JPEG, auth, make_business, photos, register
 
 TLV = (32.0853, 34.7818)
 RAMAT_GAN = (32.0684, 34.8248)   # ~4.5 km from TLV
@@ -15,14 +17,14 @@ def test_geo_helpers():
 
 
 def test_requires_five_photos(client):
-    r = make_business(client, n=4)
-    assert r.status_code == 422
+    assert make_business(client, n=4).status_code == 422
 
 
 def test_rejects_non_images(client):
     r = client.post("/api/businesses", data={
-        "name": "x" * 3, "phone": "0501234567", "city": "חיפה",
-        "price_min": "100", "price_max": "200", "lat": "32.8", "lng": "35.0",
+        "name": "xyz", "phone": "0501234567", "city": "חיפה", "price_min": "100",
+        "price_max": "200", "hours": json.dumps({"0": ["09:00", "17:00"]}),
+        "lat": "32.8", "lng": "35.0",
     }, files=photos(5, data=b"not an image at all"))
     assert r.status_code == 415
 
@@ -52,60 +54,59 @@ def test_filter_by_service(client):
     assert [b["name"] for b in r] == ["פדיקור פלוס"]
 
 
-def test_whatsapp_redirect_counts_lead(client):
-    created = make_business(client).json()
-    bid, token = created["id"], created["token"]
-    r = client.get(f"/api/businesses/{bid}/whatsapp", follow_redirects=False)
-    assert r.status_code == 302
-    loc = r.headers["location"]
-    assert loc.startswith("https://wa.me/972501234567?text=")
-    assert "Nails" in loc
-    stats = client.get(f"/api/businesses/{bid}/manage", headers={"X-Edit-Token": token}).json()["stats"]
-    assert stats["whatsapp_clicks"] == 1
+def test_whatsapp_link_and_lead_counting(client):
+    bid = make_business(client).json()["id"]
+    customer = register(client, "noa")
+    b = client.get(f"/api/businesses/{bid}", headers=customer).json()
+    assert b["whatsapp_url"].startswith("https://wa.me/972501234567?text=")
+    assert client.post(f"/api/businesses/{bid}/lead", headers=customer).status_code == 204
+    client.post(f"/api/businesses/{bid}/lead")  # owner's own clicks are not counted
+    stats = client.get("/api/my/businesses").json()[0]["stats"]
+    assert stats == {"views": 1, "whatsapp_clicks": 1}
 
 
-def test_owner_edit_requires_token(client):
-    created = make_business(client).json()
-    bid, token = created["id"], created["token"]
-    assert client.patch(f"/api/businesses/{bid}", json={"name": "חדש"}).status_code == 403
-    assert client.patch(f"/api/businesses/{bid}", json={"name": "חדש"},
-                        headers={"X-Edit-Token": "wrong"}).status_code == 403
-    r = client.patch(f"/api/businesses/{bid}", json={"name": "חדש", "services": ["art"]},
-                     headers={"X-Edit-Token": token})
+def test_only_owner_can_edit(client):
+    bid = make_business(client).json()["id"]
+    other = register(client, "noa")
+    assert client.patch(f"/api/businesses/{bid}", json={"name": "חדש"}, headers=other).status_code == 403
+    assert client.delete(f"/api/businesses/{bid}", headers=other).status_code == 403
+    r = client.patch(f"/api/businesses/{bid}", json={"name": "חדש", "services": ["art"]})
     assert r.status_code == 200
     assert r.json()["name"] == "חדש"
     assert r.json()["services"] == ["art"]
 
 
+def test_my_businesses_lists_only_mine(client):
+    make_business(client, name="שלי")
+    make_business(client, name="של נועה", headers=register(client, "noa"))
+    assert [b["name"] for b in client.get("/api/my/businesses").json()] == ["שלי"]
+
+
 def test_photos_keep_minimum(client):
-    created = make_business(client).json()
-    bid, h = created["id"], {"X-Edit-Token": created["token"]}
+    bid = make_business(client).json()["id"]
     first = client.get(f"/api/businesses/{bid}").json()["photos"][0]["id"]
-    assert client.delete(f"/api/businesses/{bid}/photos/{first}", headers=h).status_code == 422
-    added = client.post(f"/api/businesses/{bid}/photos", headers=h, files=photos(1))
+    assert client.delete(f"/api/businesses/{bid}/photos/{first}").status_code == 422
+    added = client.post(f"/api/businesses/{bid}/photos", files=photos(1))
     assert added.status_code == 201 and len(added.json()) == 6
-    assert client.delete(f"/api/businesses/{bid}/photos/{first}", headers=h).status_code == 200
+    assert client.delete(f"/api/businesses/{bid}/photos/{first}").status_code == 200
 
 
 def test_uploaded_photo_is_served(client):
-    created = make_business(client).json()
-    url = client.get(f"/api/businesses/{created['id']}").json()["photos"][0]["url"]
+    bid = make_business(client).json()["id"]
+    url = client.get(f"/api/businesses/{bid}").json()["photos"][0]["url"]
     r = client.get(url)
     assert r.status_code == 200 and r.content == JPEG
 
 
 def test_delete_business(client):
-    created = make_business(client).json()
-    bid = created["id"]
-    assert client.delete(f"/api/businesses/{bid}", headers={"X-Edit-Token": created["token"]}).status_code == 204
+    bid = make_business(client).json()["id"]
+    assert client.delete(f"/api/businesses/{bid}").status_code == 204
     assert client.get(f"/api/businesses/{bid}").status_code == 404
 
 
+# ---------- prices ----------
+
 def test_price_range_required_and_validated(client):
-    r = client.post("/api/businesses", data={
-        "name": "בלי מחיר", "phone": "0501234567", "city": "חיפה", "lat": "32.8", "lng": "35.0",
-    }, files=photos(5))
-    assert r.status_code == 422
     assert make_business(client, price_min="300", price_max="100").status_code == 422
     assert make_business(client, price_min="0", price_max="100").status_code == 422
 
@@ -120,24 +121,51 @@ def test_price_shown_and_filtered(client):
 
 
 def test_owner_updates_prices(client):
-    created = make_business(client).json()
-    h = {"X-Edit-Token": created["token"]}
-    bid = created["id"]
-    assert client.patch(f"/api/businesses/{bid}", json={"price_min": 90}, headers=h).status_code == 422
-    r = client.patch(f"/api/businesses/{bid}", json={"price_min": 90, "price_max": 400}, headers=h)
+    bid = make_business(client).json()["id"]
+    assert client.patch(f"/api/businesses/{bid}", json={"price_min": 90}).status_code == 422
+    r = client.patch(f"/api/businesses/{bid}", json={"price_min": 90, "price_max": 400})
     assert (r.json()["price_min"], r.json()["price_max"]) == (90, 400)
 
 
-def test_old_database_gets_price_columns(tmp_path, monkeypatch):
-    import sqlite3
-    monkeypatch.setenv("NAILS_DATA", str(tmp_path))
-    conn = sqlite3.connect(tmp_path / "nails.db")
-    conn.execute("CREATE TABLE businesses (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, city TEXT,"
-                 " address TEXT, description TEXT, services TEXT, lat REAL, lng REAL, token_hash TEXT,"
-                 " views INTEGER, whatsapp_clicks INTEGER, created_at TEXT)")
-    conn.close()
-    from app import db
-    db.init()
-    with db.connect() as c:
-        cols = {r["name"] for r in c.execute("PRAGMA table_info(businesses)")}
-    assert {"price_min", "price_max"} <= cols
+# ---------- opening hours ----------
+
+def test_hours_validation(client):
+    bad = [
+        {},                                   # no open day
+        {"7": ["09:00", "17:00"]},            # bad day
+        {"0": ["9:00", "17:00"]},             # bad time format
+        {"0": ["18:00", "09:00"]},            # closes before it opens
+        {"0": ["09:00"]},
+    ]
+    for hours in bad:
+        assert make_business(client, hours=json.dumps(hours)).status_code == 422, hours
+
+
+def test_hours_saved_and_closed_days_dropped(client):
+    hours = {"0": ["09:00", "19:00"], "5": ["09:00", "14:00"], "6": None}
+    bid = make_business(client, hours=json.dumps(hours)).json()["id"]
+    b = client.get(f"/api/businesses/{bid}").json()
+    assert b["hours"] == {"0": ["09:00", "19:00"], "5": ["09:00", "14:00"]}
+    r = client.patch(f"/api/businesses/{bid}", json={"hours": {"1": ["10:00", "20:00"]}})
+    assert r.json()["hours"] == {"1": ["10:00", "20:00"]}
+
+
+def test_open_now_logic():
+    from datetime import datetime
+
+    from app.main import _open_now
+    hours = {"0": ["09:00", "19:00"]}               # Sunday only
+    sunday = datetime(2026, 11, 8, 10, 0)            # 2026-11-08 is a Sunday
+    assert _open_now(hours, sunday)
+    assert not _open_now(hours, sunday.replace(hour=8, minute=59))
+    assert not _open_now(hours, sunday.replace(hour=19, minute=0))
+    assert not _open_now(hours, datetime(2026, 11, 9, 10, 0))  # Monday
+
+
+def test_open_now_filter(client):
+    make_business(client, name="תמיד פתוח")
+    never = {str(d): ["00:00", "00:01"] for d in range(7)}
+    make_business(client, name="כמעט תמיד סגור", hours=json.dumps(never))
+    r = client.get("/api/businesses", params={"open_now": "true"}).json()
+    names = [b["name"] for b in r]
+    assert "תמיד פתוח" in names and "כמעט תמיד סגור" not in names

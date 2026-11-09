@@ -268,3 +268,93 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .skeleton { background: linear-gradient(90deg, var(--surface-2), var(--border), var(--surface-2)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: var(--radius); aspect-ratio: 3/4.6; }
 @keyframes sk { to { background-position: -200% 0; } }
 .hidden { display: none !important; }
+
+/* ---------- sign-in ---------- */
+body.signed-out .tabbar { display: none; }
+body.signed-out .view { padding-bottom: 40px; }
+.boot { min-height: 80vh; display: grid; place-items: center; font-size: 56px; animation: pulse 1.2s infinite alternate; }
+@keyframes pulse { to { transform: scale(1.12); } }
+.auth { max-width: 420px; margin: 0 auto; }
+.auth-hero { text-align: center; margin: 24px 0 22px; }
+.auth-hero h1 { margin: 14px 0 4px; font-size: 1.6rem; font-weight: 800; }
+.auth-hero p { margin: 0; color: var(--muted); }
+.logo.big { width: 84px; height: 84px; font-size: 42px; margin: 0 auto; }
+.auth-buttons { display: grid; gap: 10px; }
+.btn.social {
+  background: var(--surface); color: var(--text); border: 1.5px solid var(--border);
+  justify-content: center; font-weight: 600; position: relative;
+}
+.btn.social svg { position: absolute; inset-inline-start: 18px; width: 22px; height: 22px; }
+.btn.social.apple { background: #111; color: #fff; border-color: #111; }
+@media (prefers-color-scheme: dark) { .btn.social.apple { background: #fff; color: #111; border-color: #fff; } }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .88rem; margin: 22px 0 14px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+input[type=email], input[type=password] {
+  width: 100%; padding: 12px 14px; font: inherit; color: inherit;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; outline: none;
+}
+input[type=email]:focus, input[type=password]:focus, input[type=number]:focus, input[type=time]:focus { border-color: var(--primary); }
+.code-input { font-size: 1.5rem; letter-spacing: 10px; text-align: center; }
+.link { background: none; border: 0; color: var(--primary); font-weight: 600; cursor: pointer; padding: 4px 0; margin-bottom: 8px; }
+.switch-mode { text-align: center; margin-top: 22px; color: var(--muted); }
+.switch-mode a { color: var(--primary); font-weight: 700; }
+.notice { background: var(--gold-soft); border: 1px solid var(--gold); border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; font-weight: 600; }
+.dev-note { font-size: .82rem; color: var(--muted); text-align: center; background: var(--surface-2); border-radius: 10px; padding: 8px; }
+
+/* ---------- avatar & profile ---------- */
+.avatar {
+  width: 52px; height: 52px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-weight: 800; font-size: 1.1rem;
+  background: var(--primary); color: var(--primary-ink);
+}
+.avatar.big { width: 76px; height: 76px; font-size: 1.6rem; }
+.profile-head {
+  display: flex; align-items: center; gap: 16px; padding: 22px 18px; margin: 6px 0 20px;
+  border-radius: 22px; background: linear-gradient(135deg, var(--primary-soft), var(--gold-soft));
+}
+.profile-head h1 { margin: 0; font-size: 1.4rem; }
+.profile-head p { margin: 2px 0; color: var(--muted); text-align: right; }
+.profile-head small { color: var(--muted); }
+.list-item > svg:last-child { color: var(--muted); flex: none; }
+.btn.logout { background: #fdecef; color: var(--danger); margin-top: 18px; }
+@media (prefers-color-scheme: dark) { .btn.logout { background: #3a1f25; } }
+
+/* ---------- opening hours ---------- */
+.hours { display: grid; gap: 6px; }
+.hours-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.hours-row:last-child { border-bottom: 0; }
+.day-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 92px; }
+.day-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.switch { width: 40px; height: 24px; border-radius: 999px; background: var(--border); position: relative; transition: .2s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; inset-inline-start: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.day-toggle input:checked + .switch { background: var(--primary); }
+.day-toggle input:checked + .switch::after { inset-inline-start: 19px; }
+.day-toggle input:focus-visible + .switch { outline: 2px solid var(--primary); outline-offset: 2px; }
+.times { display: flex; align-items: center; gap: 6px; direction: ltr; }
+.times select {
+  width: 86px; padding: 8px 10px; font: inherit; font-size: 1rem; color: inherit; text-align: center;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; outline: none;
+}
+.times select:focus { border-color: var(--primary); }
+.closed-label { display: none; color: var(--muted); font-size: .92rem; }
+.hours-row.closed .times { display: none; }
+.hours-row.closed .closed-label { display: inline; }
+.hours-row.closed b { color: var(--muted); font-weight: 500; }
+
+.hours-box { margin-top: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.hours-box summary { list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 16px; cursor: pointer; }
+.hours-box summary::-webkit-details-marker { display: none; }
+.hours-box .status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--danger); }
+.hours-box .status.open { color: var(--whatsapp); }
+.hours-box .status svg { width: 18px; height: 18px; }
+.hours-table { width: 100%; border-collapse: collapse; margin: 0 0 8px; }
+.hours-table td { padding: 7px 16px; }
+.hours-table td:last-child { text-align: left; }
+.hours-table tr.today { background: var(--primary-soft); font-weight: 700; }
+.muted { color: var(--muted); }
+
+.open-dot { display: inline-flex; align-items: center; gap: 5px; font-size: .8rem; color: var(--muted); margin-top: 4px; }
+.open-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.open-dot.on { color: var(--whatsapp); font-weight: 600; }
+.open-dot.on::before { background: var(--whatsapp); }
+.chip.open-chip.on { background: var(--whatsapp); border-color: var(--whatsapp); color: #fff; }

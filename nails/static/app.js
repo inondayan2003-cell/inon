@@ -17,12 +17,17 @@ const ICON = {
   phone: '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>',
   nav: '<svg viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8z"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   camera: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   store: '<svg viewBox="0 0 24 24"><path d="M4 9h16l-1-5H5zM5 9v11h14V9M9 20v-6h6v6"/></svg>',
-  info: '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  logout: '<svg viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>',
+  google: '<svg viewBox="0 0 24 24" class="brand"><path fill="#4285F4" stroke="none" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h6a5 5 0 0 1-2.2 3.3v2.7h3.5c2-1.9 3.3-4.7 3.3-8z"/><path fill="#34A853" stroke="none" d="M12 23c3 0 5.5-1 7.3-2.7l-3.5-2.7c-1 .7-2.3 1.1-3.8 1.1-2.9 0-5.4-2-6.3-4.7H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" stroke="none" d="M5.7 14a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" stroke="none" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.1 7l3.6 2.8C6.6 7.3 9.1 5.4 12 5.4z"/></svg>',
+  apple: '<svg viewBox="0 0 24 24" class="brand"><path fill="currentColor" stroke="none" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9a4.8 4.8 0 0 0-3.8-2c-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9a5 5 0 0 0-4.2 2.6c-1.8 3.1-.5 7.7 1.3 10.2.8 1.2 1.8 2.6 3.1 2.6 1.3-.1 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5a10 10 0 0 0 1.4-2.8 4.3 4.3 0 0 1-2.3-4.2zM13.9 5c.7-.8 1.2-2 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>',
 };
 
 // Fallback when the customer doesn't share GPS.
@@ -41,6 +46,11 @@ const CITIES = [
 
 const RADII = [2, 5, 10, 25, 50];
 const BUDGETS = [100, 150, 250, 400];
+const DAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];  // 0 = Sunday
+const DEFAULT_HOURS = {
+  0: ["09:00", "19:00"], 1: ["09:00", "19:00"], 2: ["09:00", "19:00"],
+  3: ["09:00", "19:00"], 4: ["09:00", "19:00"], 5: ["09:00", "14:00"],
+};
 
 const priceText = (b) => (b.price_min ? (b.price_min === b.price_max
   ? `${b.price_min} ₪` : `<span dir="ltr">${b.price_min}–${b.price_max}</span> ₪`) : "");
@@ -60,17 +70,171 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
 }
 
+/* ================= sign-in (Firebase, or fake accounts in local dev) ================= */
+
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.12.2";
+
+class AuthError extends Error {
+  constructor(code, message) { super(message); this.code = code; }
+}
+
+const AUTH_MESSAGES = {
+  "auth/email-already-in-use": ["exists", "כבר יש חשבון עם המייל הזה"],
+  "auth/invalid-email": ["bad", "כתובת המייל לא תקינה"],
+  "auth/weak-password": ["bad", "הסיסמה חלשה מדי (לפחות 6 תווים)"],
+  "auth/invalid-credential": ["bad", "המייל או הסיסמה לא נכונים"],
+  "auth/wrong-password": ["bad", "המייל או הסיסמה לא נכונים"],
+  "auth/user-not-found": ["bad", "לא מצאנו חשבון עם המייל הזה"],
+  "auth/invalid-phone-number": ["bad", "מספר הטלפון לא תקין"],
+  "auth/invalid-verification-code": ["bad", "הקוד לא נכון"],
+  "auth/code-expired": ["bad", "הקוד פג תוקף, שלחי קוד חדש"],
+  "auth/too-many-requests": ["bad", "יותר מדי ניסיונות. נסי שוב בעוד כמה דקות"],
+  "auth/popup-closed-by-user": ["cancel", ""],
+  "auth/cancelled-popup-request": ["cancel", ""],
+  "auth/network-request-failed": ["bad", "אין חיבור לאינטרנט"],
+  "auth/operation-not-allowed": ["bad", "שיטת ההתחברות הזאת עוד לא הופעלה"],
+};
+
+function authError(e) {
+  if (e instanceof AuthError) return e;
+  const [code, msg] = AUTH_MESSAGES[e?.code] || ["bad", "ההתחברות נכשלה, נסי שוב"];
+  return new AuthError(code, msg);
+}
+
+const toE164 = (phone) => {
+  const d = phone.replace(/[^\d+]/g, "");
+  if (d.startsWith("+")) return d;
+  if (d.startsWith("972")) return "+" + d;
+  if (d.startsWith("0")) return "+972" + d.slice(1);
+  return d;
+};
+
+function firebaseAuth(cfg) {
+  let F, auth, listener;
+  const ready = (async () => {
+    const appMod = await import(`${FIREBASE_SDK}/firebase-app.js`);
+    F = await import(`${FIREBASE_SDK}/firebase-auth.js`);
+    auth = F.getAuth(appMod.initializeApp(cfg));
+    auth.languageCode = "he";
+    await F.getRedirectResult(auth).catch(() => null);
+    F.onAuthStateChanged(auth, (u) => listener?.(u && {
+      uid: u.uid, name: u.displayName, email: u.email, phone: u.phoneNumber,
+    }));
+  })();
+
+  const popup = async (provider) => {
+    try {
+      await F.signInWithPopup(auth, provider);
+    } catch (e) {
+      if (e?.code === "auth/popup-blocked" || e?.code === "auth/operation-not-supported-in-this-environment") {
+        return F.signInWithRedirect(auth, provider);
+      }
+      throw authError(e);
+    }
+  };
+  const wrap = (fn) => async (...a) => { await ready; try { return await fn(...a); } catch (e) { throw authError(e); } };
+
+  let recaptcha;
+  return {
+    ready,
+    onChange(cb) { listener = cb; },
+    async token() { await ready; return auth.currentUser ? auth.currentUser.getIdToken() : null; },
+    google: async () => { await ready; return popup(new F.GoogleAuthProvider()); },
+    apple: async () => {
+      await ready;
+      const p = new F.OAuthProvider("apple.com");
+      p.addScope("email"); p.addScope("name"); p.setCustomParameters({ locale: "he" });
+      return popup(p);
+    },
+    emailSignUp: wrap((email, pw) => F.createUserWithEmailAndPassword(auth, email, pw)),
+    emailSignIn: wrap((email, pw) => F.signInWithEmailAndPassword(auth, email, pw)),
+    resetPassword: wrap((email) => F.sendPasswordResetEmail(auth, email)),
+    phoneStart: wrap(async (phone, buttonId) => {
+      recaptcha?.clear?.();
+      recaptcha = new F.RecaptchaVerifier(auth, buttonId, { size: "invisible" });
+      const confirmation = await F.signInWithPhoneNumber(auth, toE164(phone), recaptcha);
+      return { confirm: wrap((code) => confirmation.confirm(code)) };
+    }),
+    signOut: wrap(() => F.signOut(auth)),
+  };
+}
+
+// Local development without Firebase: fake accounts kept in this browser only.
+function devAuth() {
+  let listener;
+  const accounts = () => store.get("nails.dev.accounts", {});
+  const emit = () => listener?.(store.get("nails.dev.session", null));
+  const login = (uid, contact, name = null) => {
+    const isEmail = contact.includes("@");
+    store.set("nails.dev.session", { uid, contact, name, email: isEmail ? contact : null, phone: isEmail ? null : contact });
+    emit();
+  };
+  const emailUid = (email) => `email-${email.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+  return {
+    ready: Promise.resolve(),
+    onChange(cb) { listener = cb; setTimeout(emit); },
+    async token() {
+      const s = store.get("nails.dev.session", null);
+      return s && `dev:${s.uid}:${s.contact}`;
+    },
+    async google() { login("google-demo", "demo@gmail.com", "Demo Google"); },
+    async apple() { login("apple-demo", "demo@icloud.com"); },
+    async emailSignUp(email, pw) {
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new AuthError("bad", "כתובת המייל לא תקינה");
+      if (pw.length < 6) throw new AuthError("bad", "הסיסמה חלשה מדי (לפחות 6 תווים)");
+      const a = accounts();
+      if (a[email]) throw new AuthError("exists", "כבר יש חשבון עם המייל הזה");
+      store.set("nails.dev.accounts", { ...a, [email]: pw });
+      login(emailUid(email), email);
+    },
+    async emailSignIn(email, pw) {
+      if (accounts()[email] !== pw) throw new AuthError("bad", "המייל או הסיסמה לא נכונים");
+      login(emailUid(email), email);
+    },
+    async resetPassword() {},
+    async phoneStart(phone) {
+      const e164 = toE164(phone);
+      if (!/^\+\d{10,13}$/.test(e164)) throw new AuthError("bad", "מספר הטלפון לא תקין");
+      return {
+        async confirm(code) {
+          if (code !== "123456") throw new AuthError("bad", "הקוד לא נכון (בפיתוח: 123456)");
+          login(`phone-${e164.slice(1)}`, e164);
+        },
+      };
+    },
+    async signOut() { store.set("nails.dev.session", null); emit(); },
+  };
+}
+
+let Auth = null;
+const session = { user: null, profile: null, mode: "firebase" };  // user = signed in, profile = registered
+
+/* ================= API ================= */
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, opts);
+  const headers = { ...(opts.headers || {}) };
+  const token = Auth && (await Auth.token());
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(path, { ...opts, headers });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && Auth) {
+    await Auth.signOut().catch(() => {});
+  }
+  if (res.status === 403 && data.detail === "not_registered") {
+    session.profile = null;
+    location.hash = "#/welcome";
+  }
   if (!res.ok) {
     const d = data.detail;
-    const msg = typeof d === "string" ? d : Array.isArray(d) ? "יש שדה שלא מולא נכון" : "משהו השתבש, נסי שוב";
-    throw new Error(msg);
+    const msg = res.status === 401 ? "צריך להתחבר מחדש"
+      : typeof d === "string" ? d : Array.isArray(d) ? "יש שדה שלא מולא נכון" : "משהו השתבש, נסי שוב";
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -89,6 +253,81 @@ function getPosition() {
   });
 }
 
+/* ================= opening hours ================= */
+
+function israelNow() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jerusalem", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
+  return { day, time: `${parts.hour}:${parts.minute}` };
+}
+
+function openStatus(b) {
+  const { day, time } = israelNow();
+  const today = b.hours[day];
+  if (b.open_now && today) return { open: true, text: `פתוח עכשיו · עד ${today[1]}` };
+  if (today && time < today[0]) return { open: false, text: `סגור · נפתח היום ב-${today[0]}` };
+  for (let i = 1; i <= 7; i++) {
+    const d = (day + i) % 7;
+    if (b.hours[d]) return { open: false, text: `סגור · נפתח ${i === 1 ? "מחר" : `ביום ${DAYS[d]}`} ב-${b.hours[d][0]}` };
+  }
+  return { open: false, text: "סגור" };
+}
+
+// Half-hour steps, 24h clock: "00:00" ... "23:30" (+ any saved value that isn't on the grid).
+const TIMES = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+function timeOptions(selected) {
+  const list = TIMES.includes(selected) ? TIMES : [...TIMES, selected].sort();
+  return list.map((t) => `<option value="${t}" ${t === selected ? "selected" : ""}>${t}</option>`).join("");
+}
+
+function hoursEditor(hours = DEFAULT_HOURS) {
+  return `<div class="hours">${DAYS.map((name, d) => {
+    const span = hours[d];
+    return `<div class="hours-row ${span ? "" : "closed"}" data-day="${d}">
+      <label class="day-toggle"><input type="checkbox" ${span ? "checked" : ""}><span class="switch"></span><b>${name}</b></label>
+      <div class="times">
+        <select class="t-open" aria-label="שעת פתיחה ביום ${name}">${timeOptions(span ? span[0] : "09:00")}</select>
+        <span>–</span>
+        <select class="t-close" aria-label="שעת סגירה ביום ${name}">${timeOptions(span ? span[1] : "19:00")}</select>
+      </div>
+      <span class="closed-label">סגור</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function bindHoursEditor(root) {
+  root.querySelectorAll(".hours-row").forEach((row) => {
+    row.querySelector(".day-toggle input").addEventListener("change", (e) => {
+      row.classList.toggle("closed", !e.target.checked);
+    });
+  });
+}
+
+function readHours(root) {
+  const out = {};
+  for (const row of root.querySelectorAll(".hours-row")) {
+    if (!row.querySelector(".day-toggle input").checked) continue;
+    const open = row.querySelector(".t-open").value;
+    const close = row.querySelector(".t-close").value;
+    const day = DAYS[Number(row.dataset.day)];
+    if (!open || !close) return { error: `צריך למלא שעות ליום ${day}` };
+    if (open >= close) return { error: `ביום ${day} שעת הסגירה צריכה להיות אחרי הפתיחה` };
+    out[row.dataset.day] = [open, close];
+  }
+  if (!Object.keys(out).length) return { error: "צריך לבחור לפחות יום פעילות אחד" };
+  return { hours: out };
+}
+
+function hoursTable(hours) {
+  const { day } = israelNow();
+  return `<table class="hours-table">${DAYS.map((name, d) => `
+    <tr class="${d === day ? "today" : ""}"><td>${name}</td>
+    <td>${hours[d] ? `<span dir="ltr">${hours[d][0]}–${hours[d][1]}</span>` : '<span class="muted">סגור</span>'}</td></tr>`).join("")}
+  </table>`;
+}
+
 /* ================= state ================= */
 
 const state = {
@@ -96,6 +335,7 @@ const state = {
   radius: store.get("nails.radius", 10),
   service: null,
   maxPrice: null,
+  openNow: false,
   q: "",
 };
 const favs = () => store.get("nails.favs", []);
@@ -105,10 +345,6 @@ function toggleFav(id) {
   const next = f.includes(id) ? f.filter((x) => x !== id) : [...f, id];
   store.set("nails.favs", next);
   return next.includes(id);
-}
-const mine = () => store.get("nails.mine", []);  // [{id, token, name}]
-function saveMine(entry) {
-  store.set("nails.mine", [...mine().filter((m) => m.id !== entry.id), entry]);
 }
 
 /* ================= shared UI ================= */
@@ -128,6 +364,7 @@ function card(b) {
         <h4>${esc(b.name)}</h4>
         ${priceText(b) ? `<div class="price">${priceText(b)}</div>` : ""}
         <div class="meta">${ICON.pin}<span>${esc(b.city)}</span></div>
+        <div class="open-dot ${b.open_now ? "on" : ""}">${b.open_now ? "פתוח עכשיו" : "סגור עכשיו"}</div>
         <div class="tags">${b.services.slice(0, 2).map((s) => `<span class="tag">${esc(serviceLabel(s))}</span>`).join("")}</div>
       </div>
     </a>`;
@@ -155,14 +392,182 @@ function pageTitle(title, backHref) {
     <h1>${title}</h1></div>`;
 }
 
+const initials = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+
+/* ================= sign-up / sign-in screens ================= */
+
+function renderAuth(mode, prefill = {}) {
+  const signup = mode === "signup";
+  const verb = signup ? "הרשמה" : "התחברות";
+  view.innerHTML = `
+    <div class="auth">
+      <div class="auth-hero">
+        <div class="logo big">💅</div>
+        <h1>${signup ? "ברוכה הבאה ל-Nails" : "שמחים לראות אותך שוב"}</h1>
+        <p>${signup ? "הרשמי כדי למצוא מניקוריסטיות קרובות אלייך" : "התחברי לחשבון שלך"}</p>
+      </div>
+      ${session.mode === "dev" ? '<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד. קוד SMS לדוגמה: 123456</p>' : ""}
+      ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
+
+      <div class="auth-buttons">
+        <button class="btn social" id="google">${ICON.google}<span>${verb} עם Google</span></button>
+        <button class="btn social apple" id="apple">${ICON.apple}<span>${verb} עם Apple</span></button>
+        <button class="btn social" id="phone-btn">${ICON.phone}<span>${verb} עם מספר טלפון</span></button>
+      </div>
+
+      <div class="divider"><span>או עם אימייל</span></div>
+
+      <form id="email-form" novalidate>
+        <label class="field"><span>אימייל</span>
+          <input type="email" name="email" required autocomplete="email" inputmode="email" dir="ltr" value="${esc(prefill.email)}"></label>
+        <label class="field"><span>סיסמה${signup ? " (לפחות 6 תווים)" : ""}</span>
+          <input type="password" name="password" required minlength="6" autocomplete="${signup ? "new-password" : "current-password"}" dir="ltr"></label>
+        ${signup ? "" : '<button type="button" class="link" id="forgot">שכחתי סיסמה</button>'}
+        <p class="error hidden" id="auth-err"></p>
+        <button class="btn block" id="email-submit">${verb}</button>
+      </form>
+
+      <p class="switch-mode">${signup
+        ? 'כבר יש לך חשבון? <a href="#/login">להתחברות</a>'
+        : 'עוד אין לך חשבון? <a href="#/signup">להרשמה</a>'}</p>
+    </div>`;
+
+  const err = $("#auth-err");
+  const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+  const busy = async (btn, fn) => {
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try { await fn(); } catch (e) {
+      const ae = authError(e);
+      if (ae.code !== "cancel") showErr(ae.message);
+    } finally { btn.disabled = false; }
+  };
+
+  $("#google").addEventListener("click", (e) => busy(e.currentTarget, () => Auth.google()));
+  $("#apple").addEventListener("click", (e) => busy(e.currentTarget, () => Auth.apple()));
+  $("#phone-btn").addEventListener("click", () => { location.hash = `#/phone?from=${mode}`; });
+
+  $("#email-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const email = String(fd.get("email")).trim();
+    const pw = String(fd.get("password"));
+    if (!email || !pw) return showErr("צריך למלא אימייל וסיסמה");
+    busy($("#email-submit"), async () => {
+      if (!signup) return Auth.emailSignIn(email, pw);
+      try {
+        await Auth.emailSignUp(email, pw);
+      } catch (ex) {
+        const ae = authError(ex);
+        if (ae.code === "exists") {
+          // Already registered -> send her to the sign-in page with the email filled in.
+          history.replaceState(null, "", "#/login");
+          renderAuth("login", { email, notice: "כבר יש לך חשבון עם המייל הזה. התחברי עם הסיסמה שלך." });
+          return;
+        }
+        throw ae;
+      }
+    });
+  });
+
+  $("#forgot")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    const email = String($("#email-form").email.value).trim();
+    if (!email) throw new AuthError("bad", "כתבי את המייל שלך ואז לחצי שוב");
+    await Auth.resetPassword(email);
+    toast("שלחנו לך מייל לאיפוס סיסמה");
+  }));
+}
+
+function renderPhone(from) {
+  view.innerHTML = `
+    <div class="auth">
+      ${pageTitle("כניסה עם מספר טלפון", `#/${from === "login" ? "login" : "signup"}`)}
+      <form id="phone-form" novalidate>
+        <label class="field"><span>מספר טלפון</span>
+          <input type="tel" name="phone" required inputmode="tel" autocomplete="tel" placeholder="050-0000000" dir="ltr"></label>
+        <p class="note" style="text-align:start">נשלח אלייך קוד ב-SMS</p>
+        <button class="btn block" id="send-code">שליחת קוד</button>
+      </form>
+      <form id="code-form" class="hidden" novalidate>
+        <label class="field"><span>הקוד שקיבלת ב-SMS</span>
+          <input type="text" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" class="code-input"></label>
+        <button class="btn block">אישור</button>
+        <button type="button" class="link" id="resend">לא קיבלתי קוד, שלחי שוב</button>
+      </form>
+      <p class="error hidden" id="auth-err"></p>
+    </div>`;
+  const err = $("#auth-err");
+  const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+  let pending = null;
+
+  $("#phone-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const phone = String(e.target.phone.value).trim();
+    if (!phone) return showErr("צריך למלא מספר טלפון");
+    err.classList.add("hidden");
+    $("#send-code").disabled = true;
+    try {
+      pending = await Auth.phoneStart(phone, "send-code");
+      $("#phone-form").classList.add("hidden");
+      $("#code-form").classList.remove("hidden");
+      $("#code-form").code.focus();
+      toast("הקוד נשלח");
+    } catch (ex) { showErr(authError(ex).message); }
+    $("#send-code").disabled = false;
+  });
+  $("#resend").addEventListener("click", () => {
+    $("#code-form").classList.add("hidden");
+    $("#phone-form").classList.remove("hidden");
+  });
+  $("#code-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = String(e.target.code.value).trim();
+    if (code.length < 6) return showErr("הקוד הוא 6 ספרות");
+    try { await pending.confirm(code); } catch (ex) { showErr(authError(ex).message); }
+  });
+}
+
+function renderWelcome() {
+  view.innerHTML = `
+    <div class="auth">
+      <div class="auth-hero">
+        <div class="logo big">💅</div>
+        <h1>עוד רגע מסיימים</h1>
+        <p>איך קוראים לך?</p>
+      </div>
+      <form id="name-form" novalidate>
+        <label class="field"><span>שם מלא</span>
+          <input type="text" name="name" required minlength="2" maxlength="60" autocomplete="name" value="${esc(session.user?.name)}"></label>
+        <p class="error hidden" id="auth-err"></p>
+        <button class="btn block">סיום הרשמה</button>
+      </form>
+      <button class="link" id="other-account" style="margin-top:16px">התחברות עם חשבון אחר</button>
+    </div>`;
+  $("#name-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = String(e.target.name.value).trim();
+    const err = $("#auth-err");
+    if (name.length < 2) { err.textContent = "צריך לכתוב שם"; err.classList.remove("hidden"); return; }
+    try {
+      session.profile = await api("/api/me", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
+      location.hash = "#/";
+    } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
+  });
+  $("#other-account").addEventListener("click", () => Auth.signOut());
+}
+
 /* ================= home ================= */
 
 function renderHome() {
   const loc = state.loc;
+  const first = (session.profile?.name || "").split(" ")[0];
   view.innerHTML = `
     <div class="top">
-      <div class="logo">💅</div>
-      <div><h1>Nails</h1><p>איפה עושים ציפורניים היום?</p></div>
+      <a class="avatar" href="#/profile" aria-label="פרופיל">${esc(initials(session.profile?.name))}</a>
+      <div><h1>שלום, ${esc(first)}</h1><p>איפה עושים ציפורניים היום?</p></div>
       <div class="spacer"></div>
       <a class="icon-btn" href="#/favorites" aria-label="מועדפים">${ICON.heart}</a>
     </div>
@@ -182,6 +587,7 @@ function renderHome() {
     </div>
 
     <div class="chips" id="budget">
+      <button class="chip open-chip ${state.openNow ? "on" : ""}" id="open-now">${ICON.clock}פתוח עכשיו</button>
       <button class="chip gold ${!state.maxPrice ? "on" : ""}" data-p="">כל המחירים</button>
       ${BUDGETS.map((p) => `<button class="chip gold ${state.maxPrice === p ? "on" : ""}" data-p="${p}">עד ${p} ₪</button>`).join("")}
     </div>
@@ -216,11 +622,16 @@ function renderHome() {
     $("#radius").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
     loadResults();
   });
+  $("#open-now").addEventListener("click", (e) => {
+    state.openNow = !state.openNow;
+    e.currentTarget.classList.toggle("on", state.openNow);
+    loadResults();
+  });
   $("#budget").addEventListener("click", (e) => {
     const b = e.target.closest("[data-p]");
     if (!b) return;
     state.maxPrice = b.dataset.p ? Number(b.dataset.p) : null;
-    $("#budget").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+    $("#budget").querySelectorAll("[data-p]").forEach((c) => c.classList.toggle("on", c === b));
     loadResults();
   });
   $("#services").addEventListener("click", (e) => {
@@ -255,6 +666,7 @@ async function loadResults() {
   }
   if (state.service) params.set("service", state.service);
   if (state.maxPrice) params.set("max_price", state.maxPrice);
+  if (state.openNow) params.set("open_now", "true");
   if (state.q.trim()) params.set("q", state.q.trim());
   const box = $("#results");
   try {
@@ -263,15 +675,16 @@ async function loadResults() {
     $("#results-title").textContent = state.loc ? `עד ${state.radius} ק"מ ממך` : "עסקים חדשים";
     $("#results-count").textContent = list.length ? `${list.length} עסקים` : "";
     if (!list.length) {
-      box.outerHTML = `<div id="results">${empty(ICON.search, "לא מצאנו עסקים באזור",
-        "נסי להגדיל את הרדיוס, לשנות תקציב או לבחור סוג טיפול אחר.")}</div>`;
+      box.className = "";
+      box.innerHTML = empty(ICON.search, "לא מצאנו עסקים באזור",
+        "נסי להגדיל את הרדיוס, לשנות תקציב או לבחור סוג טיפול אחר.");
       return;
     }
     box.className = "grid";
     box.innerHTML = list.map(card).join("");
     bindFavButtons(box);
   } catch (err) {
-    if (box.isConnected) box.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+    if (box.isConnected) { box.className = ""; box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
   }
 }
 
@@ -289,7 +702,7 @@ function openLocationPicker() {
       const p = await getPosition();
       state.loc = { ...p, label: "המיקום שלי" };
       store.set("nails.loc", state.loc);
-      location.hash = "#/";
+      renderHome();
     } catch (err) {
       const el = $("#gps-err");
       el.textContent = err.message;
@@ -300,7 +713,7 @@ function openLocationPicker() {
     const [label, lat, lng] = CITIES[Number(b.dataset.city)];
     state.loc = { lat, lng, label };
     store.set("nails.loc", state.loc);
-    location.hash = "#/";
+    renderHome();
   }));
 }
 
@@ -317,10 +730,11 @@ async function renderBusiness(id) {
     return;
   }
   const waze = `https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
+  const status = openStatus(b);
   view.innerHTML = `
     <div class="page-title" style="justify-content:space-between">
       <a class="back" href="#/" aria-label="חזרה">${ICON.back}</a>
-      <button class="icon-btn heart-top ${isFav(b.id) ? "on" : ""}" id="fav" aria-label="מועדפים">${ICON.heart}</button>
+      <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
     </div>
     <div class="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
     <div class="biz-head">
@@ -331,10 +745,17 @@ async function renderBusiness(id) {
       </div>
     </div>
     ${priceText(b) ? `<div class="price-box"><span>טווח מחירים</span><b>${priceText(b)}</b></div>` : ""}
+
+    <details class="hours-box">
+      <summary><span class="status ${status.open ? "open" : ""}">${ICON.clock}${status.text}</span><span class="muted">שעות פעילות ▾</span></summary>
+      ${hoursTable(b.hours)}
+    </details>
+
     <div class="tags" style="margin-top:12px">${b.services.map((s) => `<span class="tag">${esc(serviceLabel(s))}</span>`).join("")}</div>
     ${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
+
     <div class="actions">
-      <a class="btn whatsapp block" href="${esc(b.whatsapp_url)}" target="_blank" rel="noopener">${ICON.whatsapp} שליחת הודעה בוואטסאפ</a>
+      <a class="btn whatsapp block" id="wa" href="${esc(b.whatsapp_url)}" target="_blank" rel="noopener">${ICON.whatsapp} שליחת הודעה בוואטסאפ</a>
       <div class="row">
         <a class="btn outline" href="tel:${esc(b.phone)}">${ICON.phone} התקשרות</a>
         <a class="btn outline" href="${waze}" target="_blank" rel="noopener">${ICON.nav} ניווט</a>
@@ -342,11 +763,16 @@ async function renderBusiness(id) {
       <p class="note">ההודעה תיפתח עם הטקסט: "היי! הגעתי אלייך דרך אפליקציית Nails 💅"</p>
     </div>`;
   const favBtn = $("#fav");
-  if (isFav(b.id)) favBtn.querySelector("svg").style.fill = "currentColor";
+  const paintFav = (on) => { favBtn.querySelector("svg").style.fill = on ? "currentColor" : "none"; };
+  paintFav(isFav(b.id));
   favBtn.addEventListener("click", () => {
     const on = toggleFav(b.id);
-    favBtn.querySelector("svg").style.fill = on ? "currentColor" : "none";
+    paintFav(on);
     toast(on ? "נשמר במועדפים 💖" : "הוסר מהמועדפים");
+  });
+  $("#wa").addEventListener("click", () => {
+    // Count the enquiry; don't block opening WhatsApp.
+    api(`/api/businesses/${b.id}/lead`, { method: "POST", keepalive: true }).catch(() => {});
   });
 }
 
@@ -356,19 +782,15 @@ async function renderFavorites() {
   const ids = favs();
   view.innerHTML = `${pageTitle("המועדפים שלי", "#/")}<div id="fav-list"></div>`;
   const box = $("#fav-list");
-  if (!ids.length) {
-    box.innerHTML = empty(ICON.heart, "אין עדיין עסקים במועדפים",
-      "לחצי על הלב כדי לשמור עסקים שאהבת.", '<a class="btn" href="#/">חיפוש עסקים</a>');
-    return;
-  }
+  const none = () => empty(ICON.heart, "אין עדיין עסקים במועדפים",
+    "לחצי על הלב כדי לשמור עסקים שאהבת.", '<a class="btn" href="#/">חיפוש עסקים</a>');
+  if (!ids.length) { box.innerHTML = none(); return; }
   const params = state.loc ? `?lat=${state.loc.lat}&lng=${state.loc.lng}` : "";
-  const results = await Promise.all(ids.map((id) => api(`/api/businesses/${id}${params}`).catch(() => null)));
+  const results = await Promise.all(ids.map((id) => api(`/api/businesses/${id}${params}`)
+    .catch((e) => (e.status === 404 ? null : undefined))));
+  store.set("nails.favs", ids.filter((id, i) => results[i] !== null));  // forget deleted businesses
   const list = results.filter(Boolean);
-  store.set("nails.favs", list.map((b) => b.id));  // drop deleted businesses
-  if (!list.length) {
-    box.innerHTML = empty(ICON.heart, "אין עדיין עסקים במועדפים", "לחצי על הלב כדי לשמור עסקים שאהבת.");
-    return;
-  }
+  if (!list.length) { box.innerHTML = none(); return; }
   box.className = "grid";
   box.innerHTML = list.map(card).join("");
   bindFavButtons(box);
@@ -397,7 +819,7 @@ async function resizeImage(file, maxSide = 1600, quality = 0.85) {
   }
 }
 
-/* ================= add business ================= */
+/* ================= business form (add / edit) ================= */
 
 const MIN_PHOTOS = 5;
 const MAX_PHOTOS = 12;
@@ -405,7 +827,7 @@ const MAX_PHOTOS = 12;
 function locationMap(el, initial, onPick) {
   if (!window.L) {
     el.innerHTML = '<p class="note" style="padding:16px">המפה לא נטענה. השתמשי בכפתור "אני בעסק עכשיו".</p>';
-    return { set() {} };
+    return { set: (lat, lng) => onPick({ lat, lng }) };
   }
   const start = initial || state.loc || { lat: 32.0853, lng: 34.7818 };
   const map = L.map(el, { zoomControl: true }).setView([start.lat, start.lng], initial ? 16 : 12);
@@ -449,7 +871,7 @@ function businessFields(b = {}) {
       <p class="note" style="text-align:start;margin:4px 0 0">מהטיפול הכי זול שלך ועד הכי יקר</p>
     </div>
     <label class="field" style="margin-top:12px"><span>כמה מילים על העסק (לא חובה)</span>
-      <textarea name="description" rows="3" maxlength="600" placeholder="ניסיון, סגנון, שעות פעילות...">${esc(b.description)}</textarea></label>`;
+      <textarea name="description" rows="3" maxlength="600" placeholder="ניסיון, סגנון, אווירה...">${esc(b.description)}</textarea></label>`;
 }
 
 function readPrices(fd) {
@@ -483,7 +905,13 @@ function renderAdd() {
       </section>
 
       <section class="panel">
-        <div class="panel-head"><div class="step">${ICON.pin}<b>2</b></div>
+        <div class="panel-head"><div class="step">${ICON.clock}<b>2</b></div>
+          <div><h2>שעות פעילות</h2><p>בחרי באילו ימים את עובדת ובאילו שעות</p></div></div>
+        ${hoursEditor()}
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div class="step">${ICON.pin}<b>3</b></div>
           <div><h2>איפה העסק נמצא?</h2><p>כדי שלקוחות באזור ימצאו אותך</p></div></div>
         <button type="button" class="btn outline block" id="here">${ICON.target} אני בעסק עכשיו, קחי את המיקום</button>
         <div class="map" id="map"></div>
@@ -491,7 +919,7 @@ function renderAdd() {
       </section>
 
       <section class="panel">
-        <div class="panel-head"><div class="step">${ICON.camera}<b>3</b></div>
+        <div class="panel-head"><div class="step">${ICON.camera}<b>4</b></div>
           <div><h2>תמונות של עבודות</h2><p>לפחות ${MIN_PHOTOS} תמונות של ציפורניים שעשית</p></div></div>
         <div class="photo-grid" id="photos"></div>
         <input type="file" id="file" accept="image/*" multiple hidden>
@@ -503,6 +931,7 @@ function renderAdd() {
     </form>`;
 
   bindServiceChips(view);
+  bindHoursEditor(view);
   const mapCtl = locationMap($("#map"), null, (p) => {
     picked = p;
     const s = $("#loc-status");
@@ -556,6 +985,8 @@ function renderAdd() {
     if (String(fd.get("city")).trim().length < 2) return fail("צריך למלא עיר");
     const prices = readPrices(fd);
     if (prices.error) return fail(prices.error);
+    const hours = readHours(form);
+    if (hours.error) return fail(hours.error);
     if (!picked) return fail("צריך לסמן את מיקום העסק על המפה");
     if (photos.length < MIN_PHOTOS) return fail(`צריך לפחות ${MIN_PHOTOS} תמונות`);
 
@@ -564,6 +995,7 @@ function renderAdd() {
     body.set("services", fd.getAll("services").join(","));
     body.set("price_min", prices.min);
     body.set("price_max", prices.max);
+    body.set("hours", JSON.stringify(hours.hours));
     body.set("lat", picked.lat);
     body.set("lng", picked.lng);
     photos.forEach((p, i) => body.append("photos", p.blob, `photo${i}.jpg`));
@@ -573,7 +1005,6 @@ function renderAdd() {
     btn.textContent = "מעלה...";
     try {
       const res = await api("/api/businesses", { method: "POST", body });
-      saveMine({ id: res.id, token: res.token, name: String(fd.get("name")).trim() });
       location.hash = `#/manage/${res.id}?new=1`;
     } catch (ex) {
       fail(ex.message);
@@ -583,42 +1014,90 @@ function renderAdd() {
   });
 }
 
-/* ================= my business ================= */
+/* ================= profile & my businesses ================= */
 
-function renderMine() {
-  const list = mine();
-  view.innerHTML = `${pageTitle("העסק שלי")}${list.length ? `
-    <div class="panel" style="padding:0">
-      ${list.map((m) => `<a class="list-item" href="#/manage/${m.id}">
-        <div class="step">${ICON.store}</div>
-        <div class="grow"><b>${esc(m.name)}</b><br><small>ניהול, סטטיסטיקות ועריכה</small></div>
-        <span style="transform:scaleX(-1)">${ICON.back}</span></a>`).join("")}
+async function renderProfile() {
+  const p = session.profile;
+  const via = { google: "Google", apple: "Apple", email: "אימייל", phone: "מספר טלפון", dev: "חשבון לדוגמה" }[p.provider] || "";
+  view.innerHTML = `
+    <div class="profile-head">
+      <div class="avatar big">${esc(initials(p.name))}</div>
+      <div><h1>${esc(p.name)}</h1><p dir="ltr">${esc(p.email || p.phone || "")}</p>
+      <small>מחוברת דרך ${via}</small></div>
     </div>
-    <a class="btn outline block" href="#/add">${ICON.plus} הוספת עסק נוסף</a>`
-    : empty(ICON.store, "עוד לא העלית עסק", "בעלת עסק לציפורניים? העלי את העסק שלך ולקוחות מהאזור ימצאו אותך.",
-      '<a class="btn" href="#/add">הוספת העסק שלי</a>')}`;
+
+    <div class="section-head"><h3>העסקים שלי</h3></div>
+    <div id="my-list" class="panel" style="padding:0"><div class="skeleton" style="aspect-ratio:5/1"></div></div>
+    <a class="btn outline block" href="#/add">${ICON.plus} הוספת עסק</a>
+
+    <div class="section-head" style="margin-top:26px"><h3>החשבון שלי</h3></div>
+    <div class="panel" style="padding:0">
+      <a class="list-item" href="#/favorites"><div class="step">${ICON.heart}</div><div class="grow"><b>מועדפים</b></div>${ICON.chevron}</a>
+      <a class="list-item" href="#/edit-name"><div class="step">${ICON.user}</div><div class="grow"><b>עריכת שם</b></div>${ICON.chevron}</a>
+    </div>
+    <button class="btn logout block" id="logout">${ICON.logout} התנתקות</button>`;
+
+  $("#logout").addEventListener("click", async () => {
+    await Auth.signOut();
+    toast("התנתקת");
+  });
+
+  try {
+    const list = await api("/api/my/businesses");
+    const box = $("#my-list");
+    if (!box) return;
+    box.innerHTML = list.length ? list.map((b) => `
+      <a class="list-item" href="#/manage/${b.id}">
+        ${b.photos[0] ? `<img src="${esc(b.photos[0].url)}" alt="">` : `<div class="step">${ICON.store}</div>`}
+        <div class="grow"><b>${esc(b.name)}</b><br>
+          <small>${b.stats.views} צפיות · ${b.stats.whatsapp_clicks} פניות בוואטסאפ</small></div>
+        ${ICON.chevron}</a>`).join("")
+      : '<p class="note" style="padding:18px">בעלת עסק לציפורניים? העלי את העסק שלך ולקוחות מהאזור ימצאו אותך.</p>';
+  } catch (err) {
+    const box = $("#my-list");
+    if (box) box.innerHTML = `<p class="error" style="padding:14px">${esc(err.message)}</p>`;
+  }
+}
+
+function renderEditName() {
+  view.innerHTML = `
+    ${pageTitle("עריכת שם", "#/profile")}
+    <form id="name-form" class="panel" novalidate>
+      <label class="field"><span>שם מלא</span>
+        <input type="text" name="name" required minlength="2" maxlength="60" value="${esc(session.profile.name)}"></label>
+      <p class="error hidden" id="err"></p>
+      <button class="btn block">שמירה</button>
+    </form>`;
+  $("#name-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = String(e.target.name.value).trim();
+    try {
+      session.profile = await api("/api/me", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      toast("השם עודכן ✓");
+      location.hash = "#/profile";
+    } catch (ex) { const el = $("#err"); el.textContent = ex.message; el.classList.remove("hidden"); }
+  });
 }
 
 async function renderManage(id, isNew) {
-  const entry = mine().find((m) => m.id === id);
-  if (!entry) {
-    view.innerHTML = `${pageTitle("ניהול עסק", "#/mine")}${empty(ICON.store, "אין הרשאה",
-      "אפשר לנהל עסק רק מהמכשיר שבו הוא נוצר, או דרך הקישור הפרטי שקיבלת.")}`;
-    return;
-  }
-  const headers = { "X-Edit-Token": entry.token };
+  view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<div class="skeleton" style="aspect-ratio:2/1"></div>`;
   let b;
   try {
-    b = await api(`/api/businesses/${id}/manage`, { headers });
+    b = (await api("/api/my/businesses")).find((x) => x.id === id);
   } catch (err) {
-    view.innerHTML = `${pageTitle("ניהול עסק", "#/mine")}<p class="error">${esc(err.message)}</p>`;
+    view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<p class="error">${esc(err.message)}</p>`;
     return;
   }
-  saveMine({ ...entry, name: b.name });
-  const privateLink = `${location.origin}/#/claim/${id}/${entry.token}`;
+  if (!b) {
+    view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}${empty(ICON.store, "העסק לא נמצא",
+      "אפשר לנהל רק עסקים שהעלית מהחשבון שלך.")}`;
+    return;
+  }
 
   view.innerHTML = `
-    ${pageTitle(esc(b.name), "#/mine")}
+    ${pageTitle(esc(b.name), "#/profile")}
     ${isNew ? `<div class="loc-bar" style="display:block"><b>🎉 העסק שלך באוויר!</b><br>
       לקוחות באזור כבר יכולות למצוא אותך.</div>` : ""}
 
@@ -629,20 +1108,21 @@ async function renderManage(id, isNew) {
 
     <a class="btn outline block" href="#/b/${id}" style="margin-bottom:14px">צפייה בעמוד כמו שלקוחה רואה</a>
 
-    <section class="panel">
-      <div class="panel-head"><div class="step">${ICON.info}</div><div><h2>קישור פרטי לניהול</h2>
-        <p>שמרי אותו! איתו אפשר לנהל את העסק מכל טלפון.</p></div></div>
-      <div class="secret" id="secret">${esc(privateLink)}</div>
-      <button class="btn outline block" id="copy" style="margin-top:10px">העתקת הקישור</button>
-    </section>
-
-    <form class="panel" id="edit-form" novalidate>
-      <div class="panel-head"><div class="step">${ICON.store}</div><div><h2>עריכת פרטים</h2></div></div>
-      ${businessFields(b)}
-      <div class="label-sm">מיקום העסק (לחצי על המפה כדי לשנות)</div>
-      <div class="map" id="map"></div>
+    <form id="edit-form" novalidate>
+      <section class="panel">
+        <div class="panel-head"><div class="step">${ICON.store}</div><div><h2>פרטי העסק</h2></div></div>
+        ${businessFields(b)}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div class="step">${ICON.clock}</div><div><h2>שעות פעילות</h2></div></div>
+        ${hoursEditor(b.hours)}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div class="step">${ICON.pin}</div><div><h2>מיקום</h2><p>לחצי על המפה כדי לשנות</p></div></div>
+        <div class="map" id="map"></div>
+      </section>
       <p class="error hidden" id="edit-err"></p>
-      <button class="btn block" style="margin-top:14px">שמירת שינויים</button>
+      <button class="btn block" style="margin-bottom:14px">שמירת שינויים</button>
     </form>
 
     <section class="panel">
@@ -655,10 +1135,7 @@ async function renderManage(id, isNew) {
     <button class="btn danger block" id="delete">מחיקת העסק</button>`;
 
   bindServiceChips(view);
-  $("#copy").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(privateLink); toast("הקישור הועתק"); }
-    catch { toast("לא הצלחנו להעתיק, סמני את הקישור והעתיקי ידנית"); }
-  });
+  bindHoursEditor(view);
 
   let newLoc = null;
   locationMap($("#map"), { lat: b.lat, lng: b.lng }, (p) => { newLoc = p; });
@@ -667,9 +1144,12 @@ async function renderManage(id, isNew) {
     e.preventDefault();
     const fd = new FormData(e.target);
     const err = $("#edit-err");
+    const fail = (m) => { err.textContent = m; err.classList.remove("hidden"); };
     err.classList.add("hidden");
     const prices = readPrices(fd);
-    if (prices.error) { err.textContent = prices.error; err.classList.remove("hidden"); return; }
+    if (prices.error) return fail(prices.error);
+    const hours = readHours(e.target);
+    if (hours.error) return fail(hours.error);
     const payload = {
       name: String(fd.get("name")).trim(),
       phone: String(fd.get("phone")).trim(),
@@ -679,18 +1159,15 @@ async function renderManage(id, isNew) {
       services: fd.getAll("services"),
       price_min: prices.min,
       price_max: prices.max,
+      hours: hours.hours,
       ...(newLoc || {}),
     };
     try {
       await api(`/api/businesses/${id}`, {
-        method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
-      saveMine({ ...entry, name: payload.name });
       toast("השינויים נשמרו ✓");
-    } catch (ex) {
-      err.textContent = ex.message;
-      err.classList.remove("hidden");
-    }
+    } catch (ex) { fail(ex.message); }
   });
 
   let photos = b.photos;
@@ -705,7 +1182,7 @@ async function renderManage(id, isNew) {
     const rm = e.target.closest("[data-rm]");
     if (!rm) return;
     try {
-      photos = await api(`/api/businesses/${id}/photos/${rm.dataset.rm}`, { method: "DELETE", headers });
+      photos = await api(`/api/businesses/${id}/photos/${rm.dataset.rm}`, { method: "DELETE" });
       drawPhotos();
     } catch (ex) { toast(ex.message); }
   });
@@ -718,7 +1195,7 @@ async function renderManage(id, isNew) {
       try { body.append("photos", (await resizeImage(f)).blob, `photo${i}.jpg`); } catch (ex) { toast(ex.message); }
     }
     try {
-      photos = await api(`/api/businesses/${id}/photos`, { method: "POST", headers, body });
+      photos = await api(`/api/businesses/${id}/photos`, { method: "POST", body });
       drawPhotos();
       toast("התמונות נוספו ✓");
     } catch (ex) { toast(ex.message); }
@@ -728,43 +1205,92 @@ async function renderManage(id, isNew) {
   $("#delete").addEventListener("click", async () => {
     if (!confirm("למחוק את העסק לצמיתות? אי אפשר לבטל את זה.")) return;
     try {
-      await api(`/api/businesses/${id}`, { method: "DELETE", headers });
-      store.set("nails.mine", mine().filter((m) => m.id !== id));
+      await api(`/api/businesses/${id}`, { method: "DELETE" });
       toast("העסק נמחק");
-      location.hash = "#/mine";
+      location.hash = "#/profile";
     } catch (ex) { toast(ex.message); }
   });
 }
 
-function claim(id, token) {
-  saveMine({ id, token, name: mine().find((m) => m.id === id)?.name || "העסק שלי" });
-  location.replace(`#/manage/${id}`);
-}
-
 /* ================= router ================= */
+
+const AUTH_PAGES = new Set(["signup", "login", "phone"]);
 
 function route() {
   const hash = location.hash || "#/";
   const [path, query] = hash.slice(1).split("?");
   const parts = path.split("/").filter(Boolean);
-  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", mine: "mine", manage: "mine" }[parts[0] || ""];
+  const page = parts[0];
+  const params = new URLSearchParams(query);
+
+  // Guards: not signed in -> sign-up; signed in but no name yet -> welcome.
+  if (!session.user) {
+    if (!AUTH_PAGES.has(page)) { location.replace("#/signup"); return; }
+  } else if (!session.profile) {
+    if (page !== "welcome") { location.replace("#/welcome"); return; }
+  } else if (AUTH_PAGES.has(page) || page === "welcome") {
+    location.replace("#/"); return;
+  }
+
+  document.body.classList.toggle("signed-out", !session.profile);
+  const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-name": "profile" }[page || ""];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   window.scrollTo(0, 0);
 
-  switch (parts[0]) {
+  switch (page) {
+    case "signup": return renderAuth("signup");
+    case "login": return renderAuth("login");
+    case "phone": return renderPhone(params.get("from"));
+    case "welcome": return renderWelcome();
     case undefined: return renderHome();
     case "b": return renderBusiness(Number(parts[1]));
     case "favorites": return renderFavorites();
     case "add": return renderAdd();
-    case "mine": return renderMine();
-    case "manage": return renderManage(Number(parts[1]), new URLSearchParams(query).has("new"));
-    case "claim": return claim(Number(parts[1]), parts[2]);
+    case "profile": return renderProfile();
+    case "edit-name": return renderEditName();
+    case "manage": return renderManage(Number(parts[1]), params.has("new"));
     default: location.hash = "#/";
   }
 }
 
+async function onAuthChange(user) {
+  const wasSignedIn = !!session.user;
+  const fromSignup = /^#\/(signup|phone\?from=signup)/.test(location.hash);
+  session.user = user;
+  session.profile = null;
+  if (user) {
+    try {
+      session.profile = await api("/api/me");
+      // Used "sign up" with an account that already exists -> she is simply signed in.
+      if (fromSignup) toast("כבר יש לך חשבון, התחברת 👋");
+    } catch (err) {
+      if (err.status !== 404) toast(err.message);
+    }
+  } else if (wasSignedIn) {
+    history.replaceState(null, "", "#/login");
+  }
+  route();
+}
+
 (async function start() {
   try { SERVICES = await api("/api/services"); } catch { SERVICES = []; }
+  let cfg = { firebase: null, dev_auth: false };
+  try { cfg = await api("/api/config"); } catch { /* offline */ }
+
+  if (cfg.firebase) {
+    Auth = firebaseAuth(cfg.firebase);
+  } else if (cfg.dev_auth) {
+    session.mode = "dev";
+    Auth = devAuth();
+  } else {
+    document.body.classList.add("signed-out");
+    view.innerHTML = empty(ICON.close, "ההתחברות עוד לא הוגדרה", "צריך להגדיר Firebase בשרת (ראו README).");
+    return;
+  }
   window.addEventListener("hashchange", route);
-  route();
+  Auth.onChange(onAuthChange);
+  try { await Auth.ready; } catch {
+    document.body.classList.add("signed-out");
+    view.innerHTML = empty(ICON.close, "לא הצלחנו לטעון את ההתחברות", "בדקי את החיבור לאינטרנט ונסי שוב.");
+  }
 })();

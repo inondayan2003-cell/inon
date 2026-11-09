@@ -1,9 +1,12 @@
 """Fill a local server with demo businesses (placeholder images) for trying the app.
 
+The server must run with NAILS_DEV_AUTH=1 (local development only).
+
 Usage:  python scripts/seed_demo.py [http://localhost:8000]
 Needs:  pip install pillow httpx
 """
 import io
+import json
 import random
 import sys
 
@@ -46,11 +49,15 @@ def photo(seed: int) -> bytes:
     return buf.getvalue()
 
 
+HOURS = json.dumps({**{str(d): ["09:00", "19:00"] for d in range(5)}, "5": ["09:00", "14:00"]})
+
 for n, (name, city, lat, lng, services, desc) in enumerate(DEMO):
     files = [("photos", (f"{i}.jpg", photo(n * 10 + i), "image/jpeg")) for i in range(5)]
-    r = httpx.post(f"{BASE}/api/businesses", data={
+    owner = {"Authorization": f"Bearer dev:owner{n}:owner{n}@example.com"}
+    httpx.post(f"{BASE}/api/me", json={"name": f"בעלת עסק {n}"}, headers=owner).raise_for_status()
+    r = httpx.post(f"{BASE}/api/businesses", headers=owner, data={
         "name": name, "phone": f"05{n}1234567"[:10], "city": city, "description": desc,
-        "services": services, "price_min": 80 + n * 20, "price_max": 250 + n * 40, "lat": lat, "lng": lng,
+        "services": services, "price_min": 80 + n * 20, "price_max": 250 + n * 40, "hours": HOURS, "lat": lat, "lng": lng,
     }, files=files)
     r.raise_for_status()
     print(f"{name}: id={r.json()['id']}")

@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
-<body>
-  <div id="view" class="view"></div>
+<body class="signed-out">
+  <div id="view" class="view"><div class="boot">💅</div></div>
 
   <nav class="tabbar" aria-label="ניווט">
     <a href="#/" data-tab="home">
@@ -28,15 +28,15 @@
       <span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
       <span>הוספת עסק</span>
     </a>
-    <a href="#/mine" data-tab="mine">
-      <svg viewBox="0 0 24 24"><path d="M4 9h16l-1-5H5zM5 9v11h14V9M9 20v-6h6v6"/></svg>
-      <span>העסק שלי</span>
+    <a href="#/profile" data-tab="profile">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+      <span>פרופיל</span>
     </a>
   </nav>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
