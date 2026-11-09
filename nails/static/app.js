@@ -1092,6 +1092,8 @@ async function renderProfile() {
       </div>
     </div>
 
+    <div id="my-stats"></div>
+
     <div class="section-head"><h3>העסקים שלי</h3></div>
     <div id="my-list" class="panel" style="padding:0"><div class="skeleton" style="aspect-ratio:5/1"></div></div>
     <a class="btn outline block" href="#/add">${ICON.plus} הוספת עסק</a>
@@ -1137,6 +1139,13 @@ async function renderProfile() {
     const list = await api("/api/my/businesses");
     const box = $("#my-list");
     if (!box) return;
+    if (list.length) {
+      const sum = (k) => list.reduce((n, b) => n + b.stats[k], 0);
+      $("#my-stats").innerHTML = `<div class="panel stats three">
+        <div><b>${list.length}</b><span>${list.length === 1 ? "עסק" : "עסקים"}</span></div>
+        <div><b>${sum("views")}</b><span>צפיות</span></div>
+        <div><b>${sum("whatsapp_clicks")}</b><span>פניות בוואטסאפ</span></div></div>`;
+    }
     box.innerHTML = list.length ? list.map((b) => `
       <a class="list-item" href="#/manage/${b.id}">
         ${b.photos[0] ? `<img src="${esc(b.photos[0].url)}" alt="">` : `<div class="step">${ICON.store}</div>`}
@@ -1262,12 +1271,19 @@ const usesPassword = () => session.profile?.provider === "email"
   || (session.mode === "dev" && String(session.profile?.uid || "").startsWith("email-"));
 
 const supportEmail = () => session.config.support_email || "";
-const emailText = () => supportEmail()
-  ? `<a href="mailto:${esc(supportEmail())}" dir="ltr">${esc(supportEmail())}</a>`
-  : '<span class="muted">כתובת המייל תתעדכן בקרוב</span>';
+const supportPhone = () => session.config.support_phone || "";
+const prettyPhone = (p) => p.replace(/^(\d{3})(\d{3})(\d{4})$/, "$1-$2-$3");
+const waLink = (phone, text) => `https://wa.me/972${phone.slice(1)}?text=${encodeURIComponent(text)}`;
+// How to reach support, inside running text.
+const contactText = () => {
+  const parts = [];
+  if (supportPhone()) parts.push(`טלפון או וואטסאפ <a href="tel:${esc(supportPhone())}" dir="ltr">${prettyPhone(esc(supportPhone()))}</a>`);
+  if (supportEmail()) parts.push(`<a href="mailto:${esc(supportEmail())}" dir="ltr">${esc(supportEmail())}</a>`);
+  return parts.join(" או ") || "דרך עמוד יצירת הקשר";
+};
 
 // **bold** inside page texts
-const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace("{EMAIL}", emailText());
+const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace("{CONTACT}", contactText());
 
 function renderSettings() {
   view.innerHTML = `
@@ -1309,31 +1325,34 @@ function renderInfoPage(key) {
 
 function renderContact() {
   const email = supportEmail();
-  const phone = session.config.support_phone || "";
-  const reportHref = email
-    ? `mailto:${email}?subject=${encodeURIComponent("דיווח על עסק ב-Nails")}&body=${encodeURIComponent("שם העסק / קישור:\nמה הבעיה:\n")}`
-    : "";
+  const phone = supportPhone();
+  const report = "היי, אני רוצה לדווח על עסק באפליקציית Nails.\nשם העסק:\nמה הבעיה:";
   view.innerHTML = `
     ${pageTitle("יצירת קשר", "#/profile")}
     <div class="doc-head contact-hero"><div class="step">${ICON.mail}</div>
       <div><b>אנחנו כאן בשבילך</b><small>יש לך שאלה, נתקלת בבעיה או רוצה להציע משהו? נשמח לעזור.</small></div></div>
 
     <div class="panel menu">
-      <div class="list-item"><div class="step">${ICON.mail}</div><div class="grow"><b>אימייל תמיכה</b><br>
-        ${email ? `<small dir="ltr">${esc(email)}</small>` : '<small>יתעדכן בקרוב</small>'}</div>
-        ${email ? `<a class="btn outline small" href="mailto:${esc(email)}">שליחת מייל</a>` : ""}</div>
-      ${phone ? `<div class="list-item"><div class="step">${ICON.phone}</div><div class="grow"><b>שירות לקוחות</b><br>
-        <small dir="ltr">${esc(phone)}</small></div><a class="btn outline small" href="tel:${esc(phone)}">שיחה</a></div>` : ""}
+      ${phone ? `<div class="list-item contact-row"><div class="step">${ICON.phone}</div><div class="grow"><b>שירות לקוחות</b><br>
+        <small dir="ltr" class="select">${prettyPhone(esc(phone))}</small></div>
+        <div class="contact-actions">
+          <a class="btn whatsapp small" href="${esc(waLink(phone, "היי, יש לי שאלה לגבי אפליקציית Nails"))}" target="_blank" rel="noopener">${ICON.whatsapp} וואטסאפ</a>
+          <a class="btn outline small" href="tel:${esc(phone)}">${ICON.phone} שיחה</a>
+        </div></div>` : ""}
+      ${email ? `<div class="list-item"><div class="step">${ICON.mail}</div><div class="grow"><b>אימייל תמיכה</b><br>
+        <small dir="ltr" class="select">${esc(email)}</small></div>
+        <a class="btn outline small" href="mailto:${esc(email)}">שליחת מייל</a></div>` : ""}
       <div class="list-item"><div class="step">${ICON.clock}</div><div class="grow"><b>זמן מענה</b><br>
         <small>בדרך כלל עד 48 שעות בימי עבודה</small></div></div>
     </div>
 
-    <section class="panel">
+    ${phone || email ? `<section class="panel">
       <div class="panel-head"><div class="step">${ICON.flag}</div><div><h2>דיווח על עסק</h2>
         <p>עסק עם פרטים לא נכונים, תמונות שאינן שלו או התנהגות פוגענית? ספרי לנו ונבדוק.</p></div></div>
-      ${reportHref ? `<a class="btn outline block" href="${esc(reportHref)}">דיווח במייל</a>`
-        : '<p class="note">אפשרות הדיווח תיפתח כשתתעדכן כתובת המייל.</p>'}
-    </section>`;
+      ${phone
+        ? `<a class="btn outline block" href="${esc(waLink(phone, report))}" target="_blank" rel="noopener">${ICON.whatsapp} דיווח בוואטסאפ</a>`
+        : `<a class="btn outline block" href="mailto:${esc(email)}?subject=${encodeURIComponent("דיווח על עסק ב-Nails")}">דיווח במייל</a>`}
+    </section>` : ""}`;
 }
 
 function renderDeleteAccount() {
@@ -1348,7 +1367,7 @@ function renderDeleteAccount() {
         <p>אם יש לך עסק פעיל ואת רק רוצה להפסיק לקבל פניות, אפשר לערוך אותו או למחוק רק אותו מתוך "העסקים שלי".</p></section>
       <section><h3>איך מוחקים</h3>
         <p>לוחצים על הכפתור למטה, ואז מאשרים פעם נוספת.</p>
-        <p>זקוקה לעזרה? ${emailText()}</p></section>
+        <p>זקוקה לעזרה? ${contactText()}</p></section>
     </article>
     <p class="error hidden" id="del-err"></p>
     <button class="btn danger-solid block" id="del-btn">${ICON.trash} מחיקת החשבון</button>`;

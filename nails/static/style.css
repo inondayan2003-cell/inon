@@ -414,3 +414,12 @@ input.readonly { opacity: .7; cursor: default; }
 .warn-box p { margin: 4px 0 0; }
 @media (prefers-color-scheme: dark) { .warn-box { background: #3a1f25; border-color: #5a2d36; } }
 .pw-wrap input { padding-left: 44px; }
+
+.stats.three { grid-template-columns: repeat(3, 1fr); }
+.contact-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.contact-actions .btn svg { width: 16px; height: 16px; }
+.select { user-select: all; }
+.select { white-space: nowrap; }
+.list-item.contact-row { flex-wrap: wrap; }
+.contact-row .contact-actions { flex-basis: 100%; justify-content: stretch; padding-inline-start: 56px; }
+.contact-row .contact-actions .btn { flex: 1; }

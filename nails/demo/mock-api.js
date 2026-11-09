@@ -176,7 +176,7 @@
     const q = url.searchParams;
     let m;
 
-    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "" };
+    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "0528326523" };
     if (path === "/api/services") return Object.entries(SERVICES).map(([key, label]) => ({ key, label }));
 
     if (path === "/api/me/avatar") {

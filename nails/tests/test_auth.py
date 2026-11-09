@@ -178,6 +178,7 @@ def test_delete_account_removes_everything(client):
 
 
 def test_config_has_contact_details(client, monkeypatch):
-    assert client.get("/api/config").json()["support_email"] == ""
+    cfg = client.get("/api/config").json()
+    assert (cfg["support_email"], cfg["support_phone"]) == ("", "0528326523")
     monkeypatch.setenv("NAILS_SUPPORT_EMAIL", "help@nails.example")
     assert client.get("/api/config").json()["support_email"] == "help@nails.example"
