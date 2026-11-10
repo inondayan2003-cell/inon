@@ -44,7 +44,7 @@ mock = "window.NAILS_ASSETS = " + _json.dumps(assets) + ";\n" + mock
 
 html = f"""<title>Nails</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
 html, body {{ direction: rtl; }}
 {css}

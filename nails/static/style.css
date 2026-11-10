@@ -4,7 +4,7 @@
   --surface: #ffffff;
   --surface-2: #f2e9e5;   /* nude */
   --text: #2b1b16;        /* deep cocoa */
-  --muted: #86766e;       /* warm stone */
+  --muted: #76665e;       /* warm stone (4.5:1 on the background) */
   --primary: #5a3426;     /* cocoa, from the flowers */
   --primary-ink: #ffffff;
   --primary-soft: #eadcd5;
@@ -12,7 +12,7 @@
   --gold-soft: #f4ebe7;
   --gold-ink: #7a5446;
   --border: #e7dcd6;
-  --whatsapp: #1fa855;
+  --whatsapp: #15803d;
   --danger: #b83a3a;
   --danger-soft: #f8e7e5;
   --danger-line: #eec9c5;
@@ -527,3 +527,85 @@ input.readonly { opacity: .7; cursor: default; }
 .install-x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; flex: none; }
 .install-x svg { width: 18px; height: 18px; }
 .ios-share { display: inline-block; padding: 0 4px; border: 1px solid var(--muted); border-radius: 4px; font-size: .75rem; }
+
+/* =====================================================================
+   Polish: type, surfaces and motion
+   ===================================================================== */
+:root {
+  --font-display: "Frank Ruhl Libre", "Heebo", serif;   /* editorial Hebrew serif for titles */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --tabbar-bg: rgba(255, 255, 255, .82);
+}
+@media (prefers-color-scheme: dark) { :root { --tabbar-bg: rgba(32, 25, 22, .82); } }
+
+/* Titles in the serif, everything else stays Heebo */
+.top h1, .page-title h1, .biz-head h1, .hero h2, .auth-hero h1, .info-hero h2, .profile-head h1, .section-head h3 {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: -.2px;
+}
+.hero h2 { font-size: 1.6rem; }
+.biz-head h1 { font-size: 1.85rem; }
+
+/* Calmer surfaces: hairline borders, soft depth only where it matters */
+.card { border-color: transparent; box-shadow: 0 1px 2px rgba(43, 27, 22, .06), 0 6px 18px rgba(43, 27, 22, .06); }
+@media (prefers-color-scheme: dark) { .card { border-color: var(--border); box-shadow: none; } }
+.panel { box-shadow: none; }
+.chip { background: var(--surface); transition: background .2s, color .2s, border-color .2s, transform .15s var(--ease-out); }
+.search { background: var(--surface); }
+.search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 4px var(--primary-soft); }
+
+/* Frosted bottom bar, like iOS */
+.tabbar { background: var(--tabbar-bg); -webkit-backdrop-filter: saturate(180%) blur(18px); backdrop-filter: saturate(180%) blur(18px); }
+.tabbar a { transition: color .2s; }
+.tabbar a svg { transition: transform .25s var(--ease-spring); }
+.tabbar a.on svg { transform: translateY(-2px); }
+.tabbar a.on span::after { content: ""; display: block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; margin: 3px auto 0; }
+.tabbar .tab-add.on span::after { display: none; }
+
+/* ---------- motion (all of it switches off with "reduce motion") ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* screens ease in */
+  .view.enter { animation: view-in .32s var(--ease-out); }
+  @keyframes view-in { from { opacity: 0; transform: translateY(10px); } }
+
+  /* result cards arrive one after another */
+  .grid .card { animation: card-in .45s var(--ease-out) both; animation-delay: calc(min(var(--i, 0), 8) * 45ms); }
+  @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+
+  /* the photo banner settles in */
+  .hero { animation: hero-in 1.4s var(--ease-out); }
+  @keyframes hero-in { from { background-size: 112%; } }
+  .hero > * { animation: view-in .6s .15s var(--ease-out) both; }
+
+  /* press feedback */
+  .btn, .chip, .icon-btn, .heart, .card, .list-item, .tabbar a, .tab { transition: transform .15s var(--ease-out), background .2s, color .2s, box-shadow .2s; }
+  .btn:active, .chip:active, .icon-btn:active, .tab:active { transform: scale(.96); }
+  .card:active, .list-item:active { transform: scale(.985); }
+  .tabbar .tab-add:active .plus { transform: scale(.9) rotate(90deg); }
+  .tabbar .tab-add .plus { transition: transform .3s var(--ease-spring); }
+
+  /* heart pops when saved */
+  .heart.pop svg, .icon-btn.pop svg { animation: heart-pop .45s var(--ease-spring); }
+  @keyframes heart-pop { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+  /* photos fade in instead of popping */
+  .card .media img, .gallery img { animation: img-in .5s var(--ease-out); }
+  @keyframes img-in { from { opacity: 0; } }
+
+  /* opening hours unfold */
+  .hours-box[open] .hours-table { animation: view-in .25s var(--ease-out); }
+
+  /* toast springs up */
+  .toast { transition: opacity .25s, transform .35s var(--ease-spring); }
+
+  /* verified badge and "new photos" get a gentle entrance */
+  .verified { animation: badge-in .4s .2s var(--ease-spring) both; }
+  .new-badge { animation: badge-in .4s .3s var(--ease-spring) both; }
+  @keyframes badge-in { from { transform: scale(0); } }
+}
+
+/* gallery position dots */
+.gallery-dots { display: flex; justify-content: center; gap: 6px; margin: -6px 0 14px; }
+.gallery-dots i { width: 6px; height: 6px; border-radius: 99px; background: var(--border); transition: width .25s var(--ease-out), background .25s; }
+.gallery-dots i.on { width: 18px; background: var(--primary); }

@@ -414,11 +414,11 @@ async function loadFavorites() {
 
 /* ================= shared UI ================= */
 
-function card(b) {
+function card(b, i = 0) {
   const cover = b.photos[0]?.url;
   const dist = b.distance_km != null ? `${b.distance_km} ק"מ` : "";
   return `
-    <a class="card" href="#/b/${b.id}">
+    <a class="card" href="#/b/${b.id}" style="--i:${i}">
       <div class="media">
         ${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}
         ${dist ? `<span class="badge">${ICON.pin}${dist}</span>` : ""}
@@ -436,6 +436,13 @@ function card(b) {
     </a>`;
 }
 
+function pop(el, on) {
+  el.classList.remove("pop");
+  if (!on) return;
+  void el.offsetWidth;
+  el.classList.add("pop");
+}
+
 function bindFavButtons(root) {
   root.querySelectorAll("[data-fav]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
@@ -443,6 +450,7 @@ function bindFavButtons(root) {
       e.stopPropagation();
       const on = toggleFav(Number(btn.dataset.fav));
       btn.classList.toggle("on", on);
+      pop(btn, on);
       toast(on ? "נשמר במועדפים 💖" : "הוסר מהמועדפים");
     });
   });
@@ -828,7 +836,8 @@ async function renderBusiness(id) {
         <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
       </div>
     </div>
-    <div class="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
+    <div class="gallery" id="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
+    ${b.photos.length > 1 ? `<div class="gallery-dots" aria-hidden="true">${b.photos.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>` : ""}
     <div class="biz-head">
       <h1>${esc(b.name)}${verifiedBadge(b.verified, true)}</h1>
       ${b.verified ? '<p class="verified-note">' + ICON.shield + ' בעלת העסק אומתה על ידי Nails</p>' : ""}
@@ -862,9 +871,25 @@ async function renderBusiness(id) {
   favBtn.addEventListener("click", () => {
     const on = toggleFav(b.id);
     paintFav(on);
+    pop(favBtn, on);
     toast(on ? "נשמר במועדפים 💖" : "הוסר מהמועדפים");
   });
   $("#share").addEventListener("click", () => openShare(b));
+  const gallery = $("#gallery");
+  const dots = [...document.querySelectorAll(".gallery-dots i")];
+  if (dots.length) {
+    gallery.addEventListener("scroll", () => {
+      const imgs = [...gallery.children];
+      const mid = gallery.getBoundingClientRect().left + gallery.clientWidth / 2;
+      let best = 0, dist = Infinity;
+      imgs.forEach((img, i) => {
+        const r = img.getBoundingClientRect();
+        const d = Math.abs(r.left + r.width / 2 - mid);
+        if (d < dist) { dist = d; best = i; }
+      });
+      dots.forEach((d, i) => d.classList.toggle("on", i === best));
+    }, { passive: true });
+  }
   $("#wa").addEventListener("click", () => {
     // Count the enquiry; don't block opening WhatsApp.
     api(`/api/businesses/${b.id}/lead`, { method: "POST", keepalive: true }).catch(() => {});
@@ -1856,6 +1881,9 @@ function route() {
     accessibility: "profile", "delete-account": "profile", verify: "profile", admin: "profile" }[page || ""];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   window.scrollTo(0, 0);
+  view.classList.remove("enter");
+  void view.offsetWidth;            // restart the entrance animation
+  view.classList.add("enter");
 
   switch (page) {
     case "signup": return renderAuth("signup");
