@@ -89,6 +89,16 @@ tests/          בדיקות
 - **בדיקות:** `pytest` (כולל `tests/test_security.py`), `pip-audit -r requirements.txt` (אין חולשות ידועות), `bandit -r app` (נקי).
 - **מינימום מידע:** בשרת להריץ את uvicorn עם `--no-access-log`, כדי שמיקום החיפוש (שנשלח בכתובת הבקשה) לא יישמר בלוגים.
 
+## העלאה לשרת
+
+על השרת הקיים ב-Oracle (Ubuntu או Oracle Linux), בחיבור SSH:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inondayan2003-cell/inon/claude/modest-pasteur-2hrgkh/nails/deploy/install.sh | sudo bash
+```
+
+הסקריפט מתקין את Nails בתיקייה נפרדת (`/opt/nails`), עם משתמש, שירות (`nails`) ופורט פנימי משלה, ולא נוגע בשום דבר אחר בשרת. הוא שואל פעם אחת את המייל של המנהל, מתקין Caddy (HTTPS אוטומטי) אם אין, נותן כתובת חינמית מסוג `nails-<IP>.sslip.io`, מפעיל את הגיבוי הלילי ומדפיס בסוף מה נשאר לעשות (פתיחת 80/443 ב-Oracle אם צריך, והוספת הכתובת ב-Firebase תחת Authorized domains). הרצה חוזרת של אותה פקודה מעדכנת לגרסה האחרונה, בלי לגעת בנתונים ובהגדרות.
+
 ### לפני ההעלאה לשרת (אבטחה)
 
 - להריץ את uvicorn עם `--proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log` מאחורי Caddy, כדי שהגבלת הקצב תראה את ה-IP האמיתי.

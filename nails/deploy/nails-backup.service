@@ -5,6 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=nails
+Group=nails
 WorkingDirectory=/opt/nails/nails
 EnvironmentFile=-/opt/nails/nails/.env
 ExecStart=/opt/nails/venv/bin/python -m app.backup
