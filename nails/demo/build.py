@@ -45,7 +45,7 @@ fonts_css = re.sub(r'url\("([^"]+\.woff2)"\)',
 import base64
 def data_uri(name, mime):
     return f"data:{mime};base64," + base64.b64encode((STATIC / name).read_bytes()).decode()
-assets = {"hero.jpg": data_uri("hero.jpg", "image/jpeg"), "icon-192.png": data_uri("icon-192.png", "image/png")}
+assets = {"hero.svg": data_uri("hero.svg", "image/svg+xml"), "icon-192.png": data_uri("icon-192.png", "image/png")}
 import json as _json
 mock = "window.NAILS_ASSETS = " + _json.dumps(assets) + ";\n" + mock
 

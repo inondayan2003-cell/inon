@@ -743,8 +743,8 @@ function renderHome() {
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
 
-    <div class="hero" role="img" aria-label="ציפורניים בגוון ניוד עם פרחים חומים"
-      ${window.NAILS_ASSETS ? `style="--hero-img:url('${asset("hero.jpg")}')"` : ""}>
+    <div class="hero" role="img" aria-label="איור של ציפורניים בגוון ניוד עם פרחים חומים"
+      ${window.NAILS_ASSETS ? `style="--hero-img:url('${asset("hero.svg")}')"` : ""}>
       <small>Nails</small>
       <h2>הציפורניים שחיפשת, ממש קרוב</h2>
       <p>רואים עבודות אמיתיות וקובעים בוואטסאפ</p>
