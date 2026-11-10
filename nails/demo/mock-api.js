@@ -5,7 +5,7 @@
 "use strict";
 
 (function () {
-  const KEY = "nails.preview.db.v6";
+  const KEY = "nails.preview.db.v7";
   const TZ = "Asia/Jerusalem";
 
   const SERVICES = {
@@ -26,15 +26,15 @@
   ];
 
   /* ---------- generated sample photos (canvas) ---------- */
-  const PALETTES = [   // nude / cocoa / stone tones, like the hero photo
-    ["#efe4df", "#b9988a", ["#e6cdc8", "#5a3426", "#f6eeea", "#fff", "#8f5d4b"]],
-    ["#e9e4dc", "#a39587", ["#d9b8ad", "#3b1f15", "#efe2dc", "#fff", "#b88b7d"]],
-    ["#f1e7e1", "#c4a397", ["#f2dcd5", "#7a4636", "#e8cfc6", "#fff", "#4a2c25"]],
-    ["#e6dfd8", "#9c8576", ["#cfa79a", "#5a3426", "#f5e9e4", "#fff", "#a77565"]],
-    ["#f3ebe6", "#b9a093", ["#ead3cb", "#6d4230", "#dcbcb0", "#fff", "#895d48"]],
-    ["#ece6e0", "#ab968a", ["#e1c2b8", "#3f2219", "#f3e4de", "#fff", "#b07c6a"]],
-    ["#efe8e2", "#b59c8e", ["#d7b2a6", "#5c2f22", "#efdcd5", "#fff", "#9b6b58"]],
-  ];  function rand(seed) { let x = seed * 9301 + 49297; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); }
+  const PALETTES = [   // blush / rose / berry tones
+    ["#fde7ef", "#f0a6c0", ["#f7b6cc", "#c93a70", "#fff0f5", "#fff", "#e57ea4"]],
+    ["#fff0f5", "#e9a3bd", ["#fbd0de", "#a3264f", "#f9e1ea", "#fff", "#d9608c"]],
+    ["#fce4ec", "#f2b6ca", ["#ffd6e4", "#b8325f", "#f6c1d3", "#fff", "#ee8fb1"]],
+    ["#fbe9f1", "#dd94b1", ["#f4a9c3", "#8e1f4f", "#ffe7ef", "#fff", "#c94f7c"]],
+    ["#fff3f7", "#efb1c7", ["#fcc6d8", "#c93a70", "#f3d2df", "#fff", "#e46f98"]],
+    ["#fde8f0", "#e7a0bb", ["#f8bfd2", "#a3264f", "#fde0ea", "#fff", "#d76b92"]],
+    ["#fdeef4", "#eaa9c1", ["#f2b0c7", "#b13a66", "#ffe9f1", "#fff", "#e58aae"]],
+  ]; function rand(seed) { let x = seed * 9301 + 49297; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); }
 
   function samplePhoto(n, i) {
     const r = rand(n * 31 + i * 7 + 3);

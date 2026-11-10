@@ -311,7 +311,7 @@ function nailLoader(size = 64) {
   return `<svg class="nail-loader" style="width:${size}px;height:${size * 1.75}px" viewBox="0 0 80 140" aria-hidden="true">
     <defs>
       <clipPath id="${id}c"><path d="${NAIL_PATH}"/></clipPath>
-      <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ecd6cf"/><stop offset="1" stop-color="#c9a39a"/></linearGradient>
+      <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcd9e5"/><stop offset="1" stop-color="#e889ac"/></linearGradient>
     </defs>
     <path d="${NAIL_PATH}" class="nl-shell"/>
     <g clip-path="url(#${id}c)">
@@ -320,7 +320,7 @@ function nailLoader(size = 64) {
       </rect>
       <path d="M25,40 C21,62 21,88 25,110" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".7"/>
     </g>
-    <g fill="#3b1a10" opacity="${still ? 1 : 0}">${petals}
+    <g fill="#a3264f" opacity="${still ? 1 : 0}">${petals}
       ${still ? "" : '<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.88;1" dur="1.9s" repeatCount="indefinite"/>'}
     </g>
     <circle cx="40" cy="66" r="2.6" fill="#fff" opacity="${still ? 1 : 0}">
@@ -391,6 +391,13 @@ window.addEventListener("online", () => {
 document.addEventListener("click", (e) => {
   if (e.target.closest("[data-retry]")) route();
 });
+// Tapping the ✓ explains it (on a card it would otherwise open the business).
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".verified")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  toast("✓ עסק מאומת: בעלת העסק אימתה את זהותה מול Nails");
+}, true);
 
 let SERVICES = [];
 const serviceLabel = (k) => (SERVICES.find((s) => s.key === k) || {}).label || k;
