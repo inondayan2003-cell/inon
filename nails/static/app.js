@@ -4,12 +4,10 @@
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-// Images shipped with the app (the preview build swaps in embedded copies).
-const asset = (name) => (window.NAILS_ASSETS || {})[name] || name;
-const LOGO = () => `<img src="${asset("icon-192.png")}" alt="">`;
+const LOGO = () => '<img src="icon-192.png" alt="">';
 
-// Screen navigation lives in the URL hash ("#/b/12"). The preview build provides its own router.
-const nav = window.NAILS_NAV || {
+// Screen navigation lives in the URL hash ("#/b/12").
+const nav = {
   get hash() { return location.hash; },
   go(h) { location.hash = h; },          // new history entry
   replace(h) { location.replace(h); },    // no history entry, triggers routing
@@ -255,7 +253,7 @@ function devAuth() {
 }
 
 let Auth = null;
-const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"], preview: false, config: {} };  // user = signed in, profile = registered
+const session = { user: null, profile: null, mode: "firebase", methods: ["google", "email"], config: {} };  // user = signed in, profile = registered
 
 /* ================= API ================= */
 
@@ -605,9 +603,7 @@ function renderAuth(mode, prefill = {}) {
         <h1>${signup ? "ברוכה הבאה ל-Nails" : "שמחים לראות אותך שוב"}</h1>
         <p>${signup ? "הרשמי כדי למצוא מניקוריסטיות קרובות אלייך" : "התחברי לחשבון שלך"}</p>
       </div>
-      ${session.preview
-        ? '<p class="dev-note">תצוגה מקדימה: הכניסה כאן לדוגמה בלבד, והכל נשמר רק בטלפון שלך</p>'
-        : session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד לדוגמה בהודעה: 123456" : ""}</p>` : ""}
+      ${session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד לדוגמה בהודעה: 123456" : ""}</p>` : ""}
       ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
 
       ${signup ? consentBox("consent", session.termsAccepted) : ""}
@@ -803,7 +799,7 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxi
 
 function showInstallBanner() {
   const slot = $("#install-slot");
-  if (!slot || session.preview || isStandalone()) return;
+  if (!slot || isStandalone()) return;
   if (Date.now() - store.get("nails.install.dismissed", 0) < 14 * 864e5) return;
   const ios = isIOS();
   if (!installEvent && !ios) return;   // this browser can't install
@@ -860,8 +856,7 @@ function renderHome() {
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
 
-    <div class="hero" role="img" aria-label="איור של ציפורניים בגוון ניוד עם פרחים חומים"
-      ${window.NAILS_ASSETS ? `style="--hero-img:url('${asset("hero.svg")}')"` : ""}>
+    <div class="hero" role="img" aria-label="איור של ציפורניים בגוון ניוד עם פרחים חומים">
       <small>Nails</small>
       <h2>הציפורניים שחיפשת, ממש קרוב</h2>
       <p>רואים עבודות אמיתיות וקובעים בוואטסאפ</p>
@@ -1822,7 +1817,6 @@ async function renderAdmin(tab = "pending") {
   if (!session.profile.is_admin) { nav.replace("#/profile"); return; }
   view.innerHTML = `
     ${pageTitle("ניהול", "#/profile")}
-    ${session.preview ? '<p class="dev-note">בתצוגה המקדימה כל חשבון הוא מנהל, כדי שאפשר יהיה לנסות. באפליקציה האמיתית רק המנהל רואה את המסך הזה.</p>' : ""}
     <div id="backup-line"></div>
     <div class="tabs" role="tablist">
       ${[["pending", "ממתינות"], ["approved", "אושרו"], ["rejected", "נדחו"]].map(([k, l]) =>
@@ -2159,7 +2153,7 @@ async function onAuthChange(user) {
   route();
 }
 
-if ("serviceWorker" in navigator && !window.NAILS_NAV) {
+if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
@@ -2182,7 +2176,6 @@ if ("serviceWorker" in navigator && !window.NAILS_NAV) {
   try { cfg = await api("/api/config"); } catch { /* offline */ }
 
   if (Array.isArray(cfg.methods) && cfg.methods.length) session.methods = cfg.methods;
-  session.preview = !!cfg.preview;
   session.config = cfg;
   if (cfg.dev_auth) {           // local development: fake accounts
     session.mode = "dev";

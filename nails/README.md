@@ -60,13 +60,7 @@ NAILS_DEV_AUTH=1 uvicorn app.main:app --reload
 
 `NAILS_DEV_AUTH=1` מאפשר לנסות את האפליקציה בלי Firebase, עם חשבונות לדוגמה. **אסור להפעיל את זה בשרת אמיתי.**
 
-נתוני דוגמה (לא חובה): `pip install pillow && python scripts/seed_demo.py`
-
 בדיקות: `pytest`
-
-### תצוגה מקדימה בלי שרת
-
-`python demo/build.py` בונה קובץ HTML אחד (`demo/nails-preview.html`) שרץ כולו בדפדפן: `demo/mock-api.js` עונה במקום השרת, עם עסקים לדוגמה, והנתונים נשמרים רק בדפדפן. משמש להצגת האפליקציה לפני שהיא עולה לשרת אמיתי.
 
 ## מבנה
 
@@ -94,7 +88,6 @@ tests/          בדיקות
 - **HSTS** מופעל כשהגישה ב-HTTPS. מצב פיתוח (`NAILS_DEV_AUTH=1`) מדפיס אזהרה בולטת בהפעלה.
 - **בדיקות:** `pytest` (כולל `tests/test_security.py`), `pip-audit -r requirements.txt` (אין חולשות ידועות), `bandit -r app` (נקי).
 - **מינימום מידע:** בשרת להריץ את uvicorn עם `--no-access-log`, כדי שמיקום החיפוש (שנשלח בכתובת הבקשה) לא יישמר בלוגים.
-- **נתוני דוגמה** (`scripts/seed_demo.py`) עובדים רק עם `NAILS_DEV_AUTH=1`, ולכן לא יכולים להגיע לשרת האמיתי.
 
 ### לפני ההעלאה לשרת (אבטחה)
 

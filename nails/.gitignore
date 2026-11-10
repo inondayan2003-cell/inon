@@ -3,4 +3,3 @@ __pycache__/
 .env
 data/
 .pytest_cache/
-demo/nails-preview.html
