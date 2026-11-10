@@ -5,7 +5,7 @@
 "use strict";
 
 (function () {
-  const KEY = "nails.preview.db.v5";
+  const KEY = "nails.preview.db.v6";
   const TZ = "Asia/Jerusalem";
 
   const SERVICES = {
@@ -26,16 +26,15 @@
   ];
 
   /* ---------- generated sample photos (canvas) ---------- */
-  const PALETTES = [
-    ["#f6c1d1", "#b03a64", ["#e94b7b", "#ffd1dc", "#c9a46a", "#fff", "#8e2a50"]],
-    ["#fbe2c9", "#c9a46a", ["#d4a373", "#faedcd", "#e76f51", "#fff", "#9c6644"]],
-    ["#d9dcf5", "#5a64b4", ["#7b8cde", "#c8b6ff", "#ffd6ff", "#fff", "#3d348b"]],
-    ["#f3d1ea", "#963c8c", ["#c86bfa", "#ffc8dd", "#ffafcc", "#fff", "#6a2c70"]],
-    ["#ffe1e1", "#dc505a", ["#ef476f", "#ffd166", "#f78c6b", "#fff", "#b5179e"]],
-    ["#d7efe5", "#3c8c6e", ["#52b788", "#b7e4c7", "#e9c46a", "#fff", "#2d6a4f"]],
-    ["#f1e4d8", "#7a5c48", ["#a98467", "#e6ccb2", "#d62828", "#fff", "#432818"]],
-  ];
-  function rand(seed) { let x = seed * 9301 + 49297; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); }
+  const PALETTES = [   // nude / cocoa / stone tones, like the hero photo
+    ["#efe4df", "#b9988a", ["#e6cdc8", "#5a3426", "#f6eeea", "#fff", "#8f5d4b"]],
+    ["#e9e4dc", "#a39587", ["#d9b8ad", "#3b1f15", "#efe2dc", "#fff", "#b88b7d"]],
+    ["#f1e7e1", "#c4a397", ["#f2dcd5", "#7a4636", "#e8cfc6", "#fff", "#4a2c25"]],
+    ["#e6dfd8", "#9c8576", ["#cfa79a", "#5a3426", "#f5e9e4", "#fff", "#a77565"]],
+    ["#f3ebe6", "#b9a093", ["#ead3cb", "#6d4230", "#dcbcb0", "#fff", "#895d48"]],
+    ["#ece6e0", "#ab968a", ["#e1c2b8", "#3f2219", "#f3e4de", "#fff", "#b07c6a"]],
+    ["#efe8e2", "#b59c8e", ["#d7b2a6", "#5c2f22", "#efdcd5", "#fff", "#9b6b58"]],
+  ];  function rand(seed) { let x = seed * 9301 + 49297; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); }
 
   function samplePhoto(n, i) {
     const r = rand(n * 31 + i * 7 + 3);

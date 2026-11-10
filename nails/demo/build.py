@@ -34,6 +34,14 @@ css = css.replace(m.group(0), (
 app = app.replace("maxSide = 1600, quality = 0.85", "maxSide = 900, quality = 0.75")
 assert "maxSide = 900" in app
 
+# Images the app loads by name, embedded so the one-file preview needs nothing else.
+import base64
+def data_uri(name, mime):
+    return f"data:{mime};base64," + base64.b64encode((STATIC / name).read_bytes()).decode()
+assets = {"hero.jpg": data_uri("hero.jpg", "image/jpeg"), "icon-192.png": data_uri("icon-192.png", "image/png")}
+import json as _json
+mock = "window.NAILS_ASSETS = " + _json.dumps(assets) + ";\n" + mock
+
 html = f"""<title>Nails</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">

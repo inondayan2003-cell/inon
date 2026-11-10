@@ -4,6 +4,10 @@
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
+// Images shipped with the app (the preview build swaps in embedded copies).
+const asset = (name) => (window.NAILS_ASSETS || {})[name] || name;
+const LOGO = () => `<img src="${asset("icon-192.png")}" alt="">`;
+
 // Screen navigation lives in the URL hash ("#/b/12"). The preview build provides its own router.
 const nav = window.NAILS_NAV || {
   get hash() { return location.hash; },
@@ -469,7 +473,7 @@ function renderAuth(mode, prefill = {}) {
   view.innerHTML = `
     <div class="auth">
       <div class="auth-hero">
-        <div class="logo big">💅</div>
+        <div class="logo big">${LOGO()}</div>
         <h1>${signup ? "ברוכה הבאה ל-Nails" : "שמחים לראות אותך שוב"}</h1>
         <p>${signup ? "הרשמי כדי למצוא מניקוריסטיות קרובות אלייך" : "התחברי לחשבון שלך"}</p>
       </div>
@@ -600,7 +604,7 @@ function renderWelcome() {
   view.innerHTML = `
     <div class="auth">
       <div class="auth-hero">
-        <div class="logo big">💅</div>
+        <div class="logo big">${LOGO()}</div>
         <h1>עוד רגע מסיימים</h1>
         <p>איך קוראים לך?</p>
       </div>
@@ -654,7 +658,7 @@ function showInstallBanner() {
   const ios = isIOS();
   if (!installEvent && !ios) return;   // this browser can't install
   slot.innerHTML = `<div class="install-banner">
-      <div class="logo">💅</div>
+      <div class="logo">${LOGO()}</div>
       <div class="grow"><b>הוסיפי את Nails למסך הבית</b>
         <small>${ios ? 'בספארי: לחצי על כפתור השיתוף <span class="ios-share">⬆︎</span> ואז "הוספה למסך הבית"'
           : "נפתחת כמו אפליקציה, בלחיצה אחת"}</small></div>
@@ -704,11 +708,11 @@ function renderHome() {
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
 
-    <div class="hero">
-      <small>ציפורניים קרוב אלייך</small>
-      <h2>הציפורניים שחיפשת, ממש קרוב.</h2>
-      <p>מוצאים מניקוריסטית באזור, רואים עבודות, וקובעים בוואטסאפ.</p>
-      <div class="nail-art" aria-hidden="true">💅</div>
+    <div class="hero" role="img" aria-label="ציפורניים בגוון ניוד עם פרחים חומים"
+      ${window.NAILS_ASSETS ? `style="--hero-img:url('${asset("hero.jpg")}')"` : ""}>
+      <small>Nails</small>
+      <h2>הציפורניים שחיפשת, ממש קרוב</h2>
+      <p>רואים עבודות אמיתיות וקובעים בוואטסאפ</p>
     </div>
 
     <div class="section-head"><h3 id="results-title">קרוב אלייך</h3><span id="results-count"></span></div>
@@ -1413,7 +1417,7 @@ function renderInfoPage(key) {
   const page = PAGES[key];
   const back = key === "accessibility" ? "#/settings" : "#/profile";
   const head = page.hero
-    ? `<div class="info-hero"><div class="logo">💅</div><h2>${esc(page.hero.title)}</h2>
+    ? `<div class="info-hero"><div class="logo">${LOGO()}</div><h2>${esc(page.hero.title)}</h2>
         <p class="lead">${esc(page.hero.lead)}</p><p>${esc(page.hero.sub)}</p></div>`
     : `<div class="doc-head"><div class="step">${key === "accessibility" ? ICON.access : key === "privacy" ? ICON.lock : ICON.doc}</div>
         <div><b>${esc(page.title)} של Nails</b><small>עודכן לאחרונה: ${UPDATED}</small></div></div>
