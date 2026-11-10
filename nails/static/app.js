@@ -66,7 +66,6 @@ const CITIES = [
 ];
 
 const RADII = [2, 5, 10, 25, 50];
-const BUDGETS = [100, 150, 250, 400];
 const DAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];  // 0 = Sunday
 const DEFAULT_HOURS = {
   0: ["09:00", "19:00"], 1: ["09:00", "19:00"], 2: ["09:00", "19:00"],
@@ -370,9 +369,6 @@ function hoursTable(hours) {
 const state = {
   loc: store.get("nails.loc", null),          // {lat, lng, label}
   radius: store.get("nails.radius", 10),
-  service: null,
-  maxPrice: null,
-  openNow: false,
   q: "",
 };
 // Saved businesses live in the account (server); this is the local copy for the hearts.
@@ -665,17 +661,6 @@ function renderHome() {
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
 
-    <div class="chips" id="budget">
-      <button class="chip open-chip ${state.openNow ? "on" : ""}" id="open-now">${ICON.clock}פתוח עכשיו</button>
-      <button class="chip gold ${!state.maxPrice ? "on" : ""}" data-p="">כל המחירים</button>
-      ${BUDGETS.map((p) => `<button class="chip gold ${state.maxPrice === p ? "on" : ""}" data-p="${p}">עד ${p} ₪</button>`).join("")}
-    </div>
-
-    <div class="chips" id="services">
-      <button class="chip ${!state.service ? "on" : ""}" data-s="">הכל</button>
-      ${SERVICES.map((s) => `<button class="chip ${state.service === s.key ? "on" : ""}" data-s="${s.key}">${esc(s.label)}</button>`).join("")}
-    </div>
-
     <div class="hero">
       <small>ציפורניים קרוב אלייך</small>
       <h2>הציפורניים שחיפשת, ממש קרוב.</h2>
@@ -701,26 +686,6 @@ function renderHome() {
     $("#radius").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
     loadResults();
   });
-  $("#open-now").addEventListener("click", (e) => {
-    state.openNow = !state.openNow;
-    e.currentTarget.classList.toggle("on", state.openNow);
-    loadResults();
-  });
-  $("#budget").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-p]");
-    if (!b) return;
-    state.maxPrice = b.dataset.p ? Number(b.dataset.p) : null;
-    $("#budget").querySelectorAll("[data-p]").forEach((c) => c.classList.toggle("on", c === b));
-    loadResults();
-  });
-  $("#services").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-s]");
-    if (!b) return;
-    state.service = b.dataset.s || null;
-    $("#services").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
-    loadResults();
-  });
-
   if (!state.loc) tryAutoLocate();
   loadResults();
 }
@@ -743,9 +708,6 @@ async function loadResults() {
     params.set("lng", state.loc.lng);
     params.set("radius_km", state.radius);
   }
-  if (state.service) params.set("service", state.service);
-  if (state.maxPrice) params.set("max_price", state.maxPrice);
-  if (state.openNow) params.set("open_now", "true");
   if (state.q.trim()) params.set("q", state.q.trim());
   const box = $("#results");
   try {
@@ -756,7 +718,7 @@ async function loadResults() {
     if (!list.length) {
       box.className = "";
       box.innerHTML = empty(ICON.search, "לא מצאנו עסקים באזור",
-        "נסי להגדיל את הרדיוס, לשנות תקציב או לבחור סוג טיפול אחר.");
+        "נסי להגדיל את הרדיוס או לחפש בעיר אחרת.");
       return;
     }
     box.className = "grid";
