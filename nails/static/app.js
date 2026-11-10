@@ -1672,12 +1672,25 @@ async function renderAdmin(tab = "pending") {
   view.innerHTML = `
     ${pageTitle("ניהול", "#/profile")}
     ${session.preview ? '<p class="dev-note">בתצוגה המקדימה כל חשבון הוא מנהל, כדי שאפשר יהיה לנסות. באפליקציה האמיתית רק המנהל רואה את המסך הזה.</p>' : ""}
+    <div id="backup-line"></div>
     <div class="tabs" role="tablist">
       ${[["pending", "ממתינות"], ["approved", "אושרו"], ["rejected", "נדחו"]].map(([k, l]) =>
         `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}" role="tab" aria-selected="${k === tab}">${l}</button>`).join("")}
     </div>
     <div id="admin-list"><div class="skeleton" style="aspect-ratio:3/1"></div></div>`;
   view.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => renderAdmin(b.dataset.tab)));
+  api("/api/admin/summary").then(({ backup: bk }) => {
+    const el = $("#backup-line");
+    if (!el) return;
+    const when = bk?.at ? new Date(bk.at) : null;
+    const hours = when ? (Date.now() - when) / 36e5 : Infinity;
+    const fmt = when ? when.toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "short", timeStyle: "short" }) : "";
+    const [cls, text] = !bk ? ["warn", "עוד לא היה גיבוי. הגיבוי הראשון ירוץ הלילה ב-00:00"]
+      : !bk.ok ? ["bad", `הגיבוי האחרון נכשל (${fmt}). כדאי לבדוק את השרת`]
+      : hours > 36 ? ["warn", `הגיבוי האחרון היה ב-${fmt}, לפני יותר מיום וחצי`]
+      : ["ok", `גיבוי אחרון: ${fmt} · ${(bk.size / 1048576).toFixed(1)}MB · ${bk.photos} תמונות${bk.offsite ? " · נשמר גם מחוץ לשרת" : ""}`];
+    el.innerHTML = `<p class="backup-line ${cls}">${ICON.shield}${esc(text)}</p>`;
+  }).catch(() => {});
 
   let list;
   try { list = await api(`/api/admin/verifications?status=${tab}`); } catch (ex) {

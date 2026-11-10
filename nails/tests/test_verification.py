@@ -21,7 +21,7 @@ def test_admin_flag(client, admin):
 def test_only_admins_reach_admin_api(client, admin):
     assert client.get("/api/admin/summary").status_code == 403
     assert client.get("/api/admin/verifications").status_code == 403
-    assert client.get("/api/admin/summary", headers=admin).json() == {"pending_verifications": 0}
+    assert client.get("/api/admin/summary", headers=admin).json()["pending_verifications"] == 0
 
 
 def test_request_needs_a_business(client):

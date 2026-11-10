@@ -1,0 +1,11 @@
+# Nightly backup of Nails (database + photos). Installed by the deploy script.
+[Unit]
+Description=Nails backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/nails/nails
+EnvironmentFile=-/opt/nails/nails/.env
+ExecStart=/opt/nails/venv/bin/python -m app.backup
+Nice=10

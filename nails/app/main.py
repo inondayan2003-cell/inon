@@ -19,7 +19,7 @@ import io
 import httpx
 from PIL import Image, ImageOps
 
-from . import auth, db, geocode, ratelimit
+from . import auth, backup, db, geocode, ratelimit
 from .geo import bounding_box, distance_km, normalize_phone, whatsapp_number
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -839,7 +839,7 @@ async def request_verification(selfie: UploadFile = File(...), user: dict = Depe
 def admin_summary(_admin: dict = Depends(admin_user)):
     with db.connect() as conn:
         pending = conn.execute("SELECT COUNT(*) FROM verifications WHERE status = 'pending'").fetchone()[0]
-    return {"pending_verifications": pending}
+    return {"pending_verifications": pending, "backup": backup.last_status()}
 
 
 @app.get("/api/admin/verifications")

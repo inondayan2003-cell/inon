@@ -219,7 +219,11 @@
     if (path.startsWith("/api/admin/")) {
       registered(headers);  // in the preview every account is an admin
       let m2;
-      if (path === "/api/admin/summary") return { pending_verifications: db.verifications.filter((v) => v.status === "pending").length };
+      if (path === "/api/admin/summary") {
+        const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+        return { pending_verifications: db.verifications.filter((v) => v.status === "pending").length,
+          backup: { ok: true, at: midnight.toISOString(), size: 4.2 * 1048576, photos: db.businesses.reduce((n, b) => n + b.photos.length, 0), offsite: true } };
+      }
       if (path === "/api/admin/verifications") {
         const st = q.get("status") || "pending";
         return db.verifications.filter((v) => v.status === st).reverse().map((v) => {

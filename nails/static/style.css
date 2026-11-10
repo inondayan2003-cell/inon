@@ -627,3 +627,9 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 4px var(--primary-
 .legal-links a { color: var(--muted); text-decoration: underline; }
 .boot img { border-radius: 18px; }
 .operator-line { font-size: .85rem; color: var(--muted); text-align: center; margin: 4px 0 14px; }
+
+.backup-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; font-size: .88rem; font-weight: 600; }
+.backup-line svg { width: 18px; height: 18px; flex: none; }
+.backup-line.ok { background: color-mix(in srgb, var(--whatsapp) 10%, var(--surface)); color: var(--whatsapp); }
+.backup-line.warn { background: var(--gold-soft); color: var(--gold-ink); }
+.backup-line.bad { background: var(--danger-soft); color: var(--danger); }
