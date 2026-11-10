@@ -15,15 +15,12 @@ out = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "demo" / "nails-preview
 
 index = (STATIC / "index.html").read_text()
 css = (STATIC / "style.css").read_text()
-app = (STATIC / "content.js").read_text() + "\n" + (STATIC / "app.js").read_text()
+app = (STATIC / "theme.js").read_text() + "\n" + (STATIC / "content.js").read_text() + "\n" + (STATIC / "app.js").read_text()
 mock = (ROOT / "demo" / "mock-api.js").read_text()
 
 # Page body: everything between <body> and the first <script>.
 body = index.split("<body", 1)[1].split(">", 1)[1].split("<script", 1)[0]
 body = re.sub(r'<div class="boot".*?</div>', "", body, flags=re.S)
-
-# The app is always light; keep it light even when the viewer is set to dark.
-css = css.replace(":root {", ":root, :root[data-theme=\"dark\"] {", 1)
 
 # Smaller photos in the preview: they are stored in the browser.
 app = app.replace("maxSide = 1600, quality = 0.85", "maxSide = 900, quality = 0.75")

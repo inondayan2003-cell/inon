@@ -1613,9 +1613,29 @@ function renderSettings() {
       ["#/accessibility", ICON.access, "הצהרת נגישות"],
       ["#/cookies", ICON.doc, "עוגיות ואחסון במכשיר"],
     ])}
+    <div class="label-sm settings-label" id="look-label">מראה</div>
+    <div class="look-picker" role="group" aria-labelledby="look-label">
+      ${[["light", "בהיר"], ["dark", "כהה"]].map(([k, t]) =>
+        `<button type="button" class="${k}" data-look="${k}" aria-pressed="${currentLook() === k}"><span class="swatch"><i></i></span>${t}</button>`).join("")}
+    </div>
     <div class="label-sm settings-label">תמיכה</div>
     ${menu([["#/contact", ICON.mail, "יצירת קשר עם התמיכה"]])}
     <a class="btn logout block" href="#/delete-account">${ICON.trash} מחיקת חשבון</a>`;
+  $(".look-picker").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-look]");
+    if (!b) return;
+    setLook(b.dataset.look);
+    $(".look-picker").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  });
+}
+
+// Light or dark, chosen in Settings. Light by default; the phone's dark mode is ignored.
+function currentLook() { return store.get("nails.look", "light") === "dark" ? "dark" : "light"; }
+function setLook(look) {
+  store.set("nails.look", look);
+  document.documentElement.setAttribute("data-look", look);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", look === "dark" ? "#1d1117" : "#c93a70");
 }
 
 function renderInfoPage(key) {

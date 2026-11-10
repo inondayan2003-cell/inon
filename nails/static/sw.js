@@ -1,9 +1,9 @@
 // Nails service worker: makes the app installable and shows a friendly page when offline.
 // Everything else goes straight to the network (no caching of data).
-const OFFLINE = "nails-offline-v2";
+const OFFLINE = "nails-offline-v3";
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(OFFLINE).then((c) => c.addAll(["/offline.html", "/icon-192.png"])));
+  e.waitUntil(caches.open(OFFLINE).then((c) => c.addAll(["/offline.html", "/theme.js", "/icon-192.png"])));
   self.skipWaiting();
 });
 
