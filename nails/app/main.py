@@ -50,6 +50,44 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Nails", lifespan=lifespan)
 
 
+def _content_security_policy() -> str:
+    """Only our own files, plus what Google sign-in (Firebase) needs. No trackers, no ads."""
+    auth_domain = auth.firebase_config().get("authDomain", "")
+    google = "https://www.gstatic.com https://apis.google.com"
+    return "; ".join([
+        "default-src 'self'",
+        f"script-src 'self' {google}",
+        "style-src 'self' 'unsafe-inline'",           # style attributes in the markup
+        "img-src 'self' data: blob:",
+        "font-src 'self'",
+        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com"
+        " https://www.googleapis.com",
+        f"frame-src https://{auth_domain} https://accounts.google.com https://apis.google.com" if auth_domain
+        else "frame-src https://accounts.google.com",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    h.setdefault("Permissions-Policy", "geolocation=(self), camera=(self), microphone=(), payment=(), usb=()")
+    h.setdefault("X-Frame-Options", "DENY")
+    if os.environ.get("NAILS_CSP", "on") != "off":   # escape hatch if a sign-in provider needs more
+        h.setdefault("Content-Security-Policy", _content_security_policy())
+    if request.url.path.startswith("/api/"):
+        h.setdefault("Cache-Control", "no-store")         # personal data is never cached
+    return response
+
+
 # ---------- auth ----------
 
 def identity(authorization: str = Header("")) -> auth.Identity:
@@ -79,6 +117,7 @@ def _user_out(row, conn=None) -> dict:
     out["avatar_url"] = f"/uploads/{row['avatar']}" if row["avatar"] else None
     out["verified"] = bool(row["verified"])
     out["is_admin"] = _is_admin(row)
+    out["terms_current"] = row["terms_version"] == TERMS_VERSION
     out["verification"] = None
     if conn is not None:
         v = conn.execute(
@@ -115,15 +154,22 @@ def me(ident: auth.Identity = Depends(identity)):
         return _user_out(row, conn)
 
 
+TERMS_VERSION = "2026-11"   # bump when the terms or privacy policy change materially
+
+
 class RegisterIn(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     city: str = Field("", max_length=40)
+    accepted_terms: bool = False   # required when the account is created
 
 
 @app.post("/api/me")
 def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
     """Create the account on first sign-in (or update name and city)."""
     with db.connect() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE uid = ?", (ident.uid,)).fetchone()
+        if not exists and not body.accepted_terms:
+            raise HTTPException(422, "כדי להירשם צריך לאשר את תנאי השימוש ומדיניות הפרטיות")
         conn.execute(
             "INSERT INTO users (uid, name, email, phone, provider, city) VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(uid) DO UPDATE SET name = excluded.name, city = excluded.city,"
@@ -131,6 +177,9 @@ def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
             " phone = COALESCE(excluded.phone, users.phone), last_login = datetime('now')",
             (ident.uid, body.name.strip(), ident.email, ident.phone, ident.provider, body.city.strip()),
         )
+        if body.accepted_terms:
+            conn.execute("UPDATE users SET terms_version = ?, terms_accepted_at = datetime('now') WHERE uid = ?",
+                         (TERMS_VERSION, ident.uid))
         return _get_user(conn, ident.uid)
 
 
@@ -477,6 +526,7 @@ async def create_business(
     lat: float | None = Form(None),     # from the phone's location; otherwise found from the address
     lng: float | None = Form(None),
     photos: list[UploadFile] = File(...),
+    photos_rights: bool = Form(False),   # "the photos are my own work and I may publish them"
     user: dict = Depends(current_user),
 ):
     norm = normalize_phone(phone)
@@ -490,6 +540,8 @@ async def create_business(
     insta = _instagram(instagram)
     if not (MIN_PHOTOS <= len(photos) <= MAX_PHOTOS):
         raise HTTPException(422, f"צריך להעלות בין {MIN_PHOTOS} ל-{MAX_PHOTOS} תמונות")
+    if not photos_rights:
+        raise HTTPException(422, "צריך לאשר שהתמונות הן של עבודות שלך ושמותר לך לפרסם אותן")
     if (lat is None) != (lng is None):
         raise HTTPException(422, "צריך לשלוח גם lat וגם lng")
     if lat is None:
@@ -503,7 +555,8 @@ async def create_business(
             cur = conn.execute(
                 "INSERT INTO businesses (owner_uid, name, phone, city, address, street, house_number,"
                 " apartment, entrance, description, services, price_min, price_max, hours, lat, lng,"
-                " instagram) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " instagram, rights_confirmed_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                 (user["uid"], name.strip(), norm, city,
                  _address_line(street, house_number, apartment, entrance), street, house_number,
                  apartment, entrance, description.strip(), ",".join(service_keys), price_min,

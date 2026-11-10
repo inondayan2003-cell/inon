@@ -20,7 +20,7 @@ mock = (ROOT / "demo" / "mock-api.js").read_text()
 
 # Page body: everything between <body> and the first <script>.
 body = index.split("<body", 1)[1].split(">", 1)[1].split("<script", 1)[0]
-body = body.replace('<div class="boot">💅</div>', "")
+body = re.sub(r'<div class="boot">.*?</div>', "", body)
 
 # Dark theme: follow both the system setting and an explicit data-theme choice.
 m = re.search(r"@media \(prefers-color-scheme: dark\) \{\n  :root \{(.*?)\n  \}\n\}", css, re.S)
@@ -34,6 +34,13 @@ css = css.replace(m.group(0), (
 app = app.replace("maxSide = 1600, quality = 0.85", "maxSide = 900, quality = 0.75")
 assert "maxSide = 900" in app
 
+import base64
+# Self-hosted fonts, embedded as data URIs.
+fonts_css = (STATIC / "fonts" / "fonts.css").read_text()
+fonts_css = re.sub(r'url\("([^"]+\.woff2)"\)',
+                   lambda m: 'url("data:font/woff2;base64,' + base64.b64encode((STATIC / "fonts" / m.group(1)).read_bytes()).decode() + '")',
+                   fonts_css)
+
 # Images the app loads by name, embedded so the one-file preview needs nothing else.
 import base64
 def data_uri(name, mime):
@@ -43,9 +50,8 @@ import json as _json
 mock = "window.NAILS_ASSETS = " + _json.dumps(assets) + ";\n" + mock
 
 html = f"""<title>Nails</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
+{fonts_css}
 html, body {{ direction: rtl; }}
 {css}
 </style>

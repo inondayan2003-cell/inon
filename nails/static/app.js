@@ -420,7 +420,7 @@ function card(b, i = 0) {
   return `
     <a class="card" href="#/b/${b.id}" style="--i:${i}">
       <div class="media">
-        ${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}
+        ${cover ? `<img src="${esc(cover)}" alt="עבודת ציפורניים של ${esc(b.name)}" loading="lazy">` : ""}
         ${dist ? `<span class="badge">${ICON.pin}${dist}</span>` : ""}
         <button class="heart ${isFav(b.id) ? "on" : ""}" data-fav="${b.id}" aria-label="מועדפים">${ICON.heart}</button>
         ${b.new_photos ? '<span class="new-badge">תמונות חדשות</span>' : ""}
@@ -468,8 +468,13 @@ function pageTitle(title, backHref) {
 
 const initials = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 const verifiedBadge = (on, big = false) => (on
-  ? `<span class="verified ${big ? "big" : ""}" title="בעלת עסק מאומתת" aria-label="עסק מאומת">${ICON.check}</span>` : "");
+  ? `<span class="verified ${big ? "big" : ""}" role="img" title="בעלת עסק מאומתת" aria-label="עסק מאומת">${ICON.check}</span>` : "");
 const avatarInner = (p) => (p?.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="">` : esc(initials(p?.name)));
+// Terms & privacy consent, shown when the account is created.
+const consentBox = (id, checked = false) => `<label class="consent">
+  <input type="checkbox" id="${id}" ${checked ? "checked" : ""}>
+  <span>קראתי ואני מסכימה ל<a href="#/terms">תנאי השימוש</a> ול<a href="#/privacy">מדיניות הפרטיות</a></span>
+</label>`;
 const cityOptions = () => `<datalist id="cities">${CITIES.map(([c]) => `<option value="${esc(c)}">`).join("")}</datalist>`;
 
 /* ================= sign-up / sign-in screens ================= */
@@ -489,6 +494,8 @@ function renderAuth(mode, prefill = {}) {
         ? '<p class="dev-note">תצוגה מקדימה: הכניסה כאן לדוגמה בלבד, והכל נשמר רק בטלפון שלך</p>'
         : session.mode === "dev" ? `<p class="dev-note">מצב פיתוח: חשבונות לדוגמה בלבד${has("phone") ? ". קוד לדוגמה בהודעה: 123456" : ""}</p>` : ""}
       ${prefill.notice ? `<div class="notice">${esc(prefill.notice)}</div>` : ""}
+
+      ${signup ? consentBox("consent", session.termsAccepted) : ""}
 
       <div class="auth-buttons">
         ${has("google") ? `<button class="btn social" id="google">${ICON.google}<span>${verb} עם גוגל</span></button>` : ""}
@@ -511,6 +518,7 @@ function renderAuth(mode, prefill = {}) {
       <p class="switch-mode">${signup
         ? 'כבר יש לך חשבון? <a href="#/login">להתחברות</a>'
         : 'עוד אין לך חשבון? <a href="#/signup">להרשמה</a>'}</p>
+      <p class="legal-links"><a href="#/terms">תנאי שימוש</a> · <a href="#/privacy">פרטיות</a> · <a href="#/cookies">עוגיות</a> · <a href="#/accessibility">נגישות</a></p>
     </div>`;
 
   const err = $("#auth-err");
@@ -524,9 +532,20 @@ function renderAuth(mode, prefill = {}) {
     } finally { btn.disabled = false; }
   };
 
-  $("#google")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.google()));
-  $("#apple")?.addEventListener("click", (e) => busy(e.currentTarget, () => Auth.apple()));
-  $("#phone-btn")?.addEventListener("click", () => { nav.go(`#/phone?from=${mode}`); });
+  // Sign-up needs the terms checkbox first (sign-in doesn't).
+  const consentOk = () => {
+    if (!signup) return true;
+    session.termsAccepted = $("#consent").checked;
+    if (session.termsAccepted) return true;
+    showErr("כדי להירשם צריך לסמן שקראת ואת מסכימה לתנאי השימוש ולמדיניות הפרטיות");
+    $("#consent").closest(".consent").classList.add("shake");
+    setTimeout(() => $(".consent")?.classList.remove("shake"), 500);
+    return false;
+  };
+  $("#consent")?.addEventListener("change", (e) => { session.termsAccepted = e.target.checked; err.classList.add("hidden"); });
+  $("#google")?.addEventListener("click", (e) => { if (consentOk()) busy(e.currentTarget, () => Auth.google()); });
+  $("#apple")?.addEventListener("click", (e) => { if (consentOk()) busy(e.currentTarget, () => Auth.apple()); });
+  $("#phone-btn")?.addEventListener("click", () => { if (consentOk()) nav.go(`#/phone?from=${mode}`); });
 
   $("#email-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -534,6 +553,7 @@ function renderAuth(mode, prefill = {}) {
     const email = String(fd.get("email")).trim();
     const pw = String(fd.get("password"));
     if (!email || !pw) return showErr("צריך למלא אימייל וסיסמה");
+    if (!consentOk()) return;
     busy($("#email-submit"), async () => {
       if (!signup) return Auth.emailSignIn(email, pw);
       try {
@@ -622,6 +642,7 @@ function renderWelcome() {
         <label class="field"><span>עיר מגורים (לא חובה)</span>
           <input type="text" name="city" maxlength="40" list="cities" autocomplete="address-level2"></label>
         ${cityOptions()}
+        ${consentBox("w-consent", session.termsAccepted)}
         <p class="error hidden" id="auth-err"></p>
         <button class="btn block">סיום הרשמה</button>
       </form>
@@ -633,9 +654,15 @@ function renderWelcome() {
     const city = String(e.target.city.value).trim();
     const err = $("#auth-err");
     if (name.length < 2) { err.textContent = "צריך לכתוב שם"; err.classList.remove("hidden"); return; }
+    if (!$("#w-consent").checked) {
+      err.textContent = "צריך לסמן שקראת ואת מסכימה לתנאי השימוש ולמדיניות הפרטיות";
+      err.classList.remove("hidden");
+      return;
+    }
     try {
       session.profile = await api("/api/me", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, city }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, city, accepted_terms: true }),
       });
       loadFavorites();
       toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
@@ -836,7 +863,7 @@ async function renderBusiness(id) {
         <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
       </div>
     </div>
-    <div class="gallery" id="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
+    <div class="gallery" id="gallery" tabindex="0" role="region" aria-label="תמונות של העבודות, אפשר לגלול לצדדים">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
     ${b.photos.length > 1 ? `<div class="gallery-dots" aria-hidden="true">${b.photos.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>` : ""}
     <div class="biz-head">
       <h1>${esc(b.name)}${verifiedBadge(b.verified, true)}</h1>
@@ -1119,6 +1146,10 @@ function renderAdd() {
         <div class="photo-grid" id="photos"></div>
         <input type="file" id="file" accept="image/*" multiple hidden>
         <p class="progress" id="photo-status"></p>
+        <label class="consent">
+          <input type="checkbox" id="rights">
+          <span>אני מאשרת שהתמונות הן של עבודות שעשיתי, ושמותר לי לפרסם אותן. אם מופיע בהן אדם, יש לי את הסכמתו.</span>
+        </label>
       </section>
 
       <p class="error hidden" id="form-err"></p>
@@ -1182,6 +1213,7 @@ function renderAdd() {
     const addr = readAddress(fd, picked);
     if (addr.error) return fail(addr.error);
     if (photos.length < MIN_PHOTOS) return fail(`צריך לפחות ${MIN_PHOTOS} תמונות`);
+    if (!$("#rights").checked) return fail("צריך לאשר שהתמונות הן של עבודות שלך ושמותר לך לפרסם אותן");
 
     const body = new FormData();
     for (const k of ["name", "phone", "description", "instagram"]) body.set(k, fd.get(k) || "");
@@ -1192,6 +1224,7 @@ function renderAdd() {
     body.set("hours", JSON.stringify(hours.hours));
     if (picked) { body.set("lat", picked.lat); body.set("lng", picked.lng); }
     photos.forEach((p, i) => body.append("photos", p.blob, `photo${i}.jpg`));
+    body.set("photos_rights", "true");
 
     const btn = $("#submit");
     btn.disabled = true;
@@ -1430,7 +1463,13 @@ const contactText = () => {
 };
 
 // **bold** inside page texts
-const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace("{CONTACT}", contactText());
+const operatorText = () => {
+  const o = session.config.operator || {};
+  if (!o.name) return "מפעילי Nails";
+  return [esc(o.name), o.id && `מספר עוסק / ח.פ. ${esc(o.id)}`, o.address && esc(o.address)].filter(Boolean).join(", ");
+};
+const rich = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+  .replace("{CONTACT}", contactText()).replace("{OPERATOR}", operatorText());
 
 function renderSettings() {
   view.innerHTML = `
@@ -1441,6 +1480,7 @@ function renderSettings() {
       ["#/privacy", ICON.lock, "מדיניות פרטיות"],
       ["#/terms", ICON.doc, "תנאי שימוש"],
       ["#/accessibility", ICON.access, "הצהרת נגישות"],
+      ["#/cookies", ICON.doc, "עוגיות ואחסון במכשיר"],
     ])}
     <div class="label-sm settings-label">תמיכה</div>
     ${menu([["#/contact", ICON.mail, "יצירת קשר עם התמיכה"]])}
@@ -1449,7 +1489,8 @@ function renderSettings() {
 
 function renderInfoPage(key) {
   const page = PAGES[key];
-  const back = key === "accessibility" ? "#/settings" : "#/profile";
+  const back = !session.profile ? (session.user ? "#/welcome" : "#/signup")
+    : ["accessibility", "cookies"].includes(key) ? "#/settings" : "#/profile";
   const head = page.hero
     ? `<div class="info-hero"><div class="logo">${LOGO()}</div><h2>${esc(page.hero.title)}</h2>
         <p class="lead">${esc(page.hero.lead)}</p><p>${esc(page.hero.sub)}</p></div>`
@@ -1492,6 +1533,8 @@ function renderContact() {
       <div class="list-item"><div class="step">${ICON.clock}</div><div class="grow"><b>זמן מענה</b><br>
         <small>בדרך כלל עד 48 שעות בימי עבודה</small></div></div>
     </div>
+
+    ${session.config.operator?.name ? `<p class="operator-line">השירות מופעל על ידי ${operatorText()}</p>` : ""}
 
     ${phone || email ? `<section class="panel">
       <div class="panel-head"><div class="step">${ICON.flag}</div><div><h2>דיווח על עסק</h2>
@@ -1851,9 +1894,15 @@ async function renderManage(id, isNew) {
   });
 }
 
+function renderNotFound() {
+  view.innerHTML = `${pageTitle("", "#/")}${empty(ICON.search, "הדף הזה לא נמצא",
+    "אולי הקישור ישן, או שהעסק כבר לא באפליקציה.", '<a class="btn" href="#/">חזרה לדף הבית</a>')}`;
+}
+
 /* ================= router ================= */
 
 const AUTH_PAGES = new Set(["signup", "login", "phone"]);
+const PUBLIC_PAGES = new Set(["terms", "privacy", "cookies", "accessibility", "about"]);  // readable without an account
 
 // A page opened before signing in (a shared link) is shown right after.
 function rememberReturn(hash) { try { sessionStorage.setItem("nails.return", hash); } catch { /* blocked */ } }
@@ -1874,6 +1923,11 @@ function route() {
   const params = new URLSearchParams(query);
 
   // Guards: not signed in -> sign-up; signed in but no name yet -> welcome.
+  if (PUBLIC_PAGES.has(page) && !session.profile) {
+    document.body.classList.add("signed-out");
+    window.scrollTo(0, 0);
+    return renderInfoPage(page);
+  }
   if (!session.user) {
     if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) {
       if (page && page !== "welcome") rememberReturn(hash);   // e.g. a shared business link
@@ -1889,8 +1943,11 @@ function route() {
   document.body.classList.toggle("signed-out", !session.profile);
   const tab = { "": "home", b: "home", favorites: "favorites", add: "add", profile: "profile", manage: "profile", "edit-profile": "profile",
     settings: "profile", about: "profile", contact: "profile", terms: "profile", privacy: "profile",
-    accessibility: "profile", "delete-account": "profile", verify: "profile", admin: "profile" }[page || ""];
-  document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
+    accessibility: "profile", cookies: "profile", "delete-account": "profile", verify: "profile", admin: "profile" }[page || ""];
+  document.querySelectorAll(".tabbar a").forEach((a) => {
+    a.classList.toggle("on", a.dataset.tab === tab);
+    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
   window.scrollTo(0, 0);
   view.classList.remove("enter");
   void view.offsetWidth;            // restart the entrance animation
@@ -1908,13 +1965,13 @@ function route() {
     case "profile": return renderProfile();
     case "edit-profile": return renderEditProfile();
     case "settings": return renderSettings();
-    case "about": case "terms": case "privacy": case "accessibility": return renderInfoPage(page);
+    case "about": case "terms": case "privacy": case "accessibility": case "cookies": return renderInfoPage(page);
     case "contact": return renderContact();
     case "delete-account": return renderDeleteAccount();
     case "verify": return renderVerify();
     case "admin": return renderAdmin();
     case "manage": return renderManage(Number(parts[1]), params.has("new"));
-    default: nav.replace("#/");
+    default: return renderNotFound();
   }
 }
 

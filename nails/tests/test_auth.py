@@ -21,7 +21,8 @@ def test_new_user_must_register_first(client):
     h = auth("newbie", "+972501112222")
     assert client.get("/api/me", headers=h).status_code == 404
     assert client.get("/api/businesses", headers=h).status_code == 403
-    r = client.post("/api/me", json={"name": "מיכל"}, headers=h)
+    assert client.post("/api/me", json={"name": "מיכל"}, headers=h).status_code == 422   # terms not accepted
+    r = client.post("/api/me", json={"name": "מיכל", "accepted_terms": True}, headers=h)
     assert r.status_code == 200
     assert r.json()["phone"] == "+972501112222" and r.json()["provider"] == "dev"
     assert client.get("/api/me", headers=h).json()["name"] == "מיכל"
@@ -120,7 +121,7 @@ from .conftest import JPEG, auth as auth_header  # noqa: E402
 
 def test_register_with_city(client):
     h = auth_header("maya", "maya@example.com")
-    r = client.post("/api/me", json={"name": "מאיה", "city": "חיפה"}, headers=h).json()
+    r = client.post("/api/me", json={"name": "מאיה", "city": "חיפה", "accepted_terms": True}, headers=h).json()
     assert (r["name"], r["city"], r["avatar_url"]) == ("מאיה", "חיפה", None)
     r = client.post("/api/me", json={"name": "מאיה לוי", "city": ""}, headers=h).json()
     assert (r["name"], r["city"]) == ("מאיה לוי", "")
@@ -182,3 +183,10 @@ def test_config_has_contact_details(client, monkeypatch):
     assert (cfg["support_email"], cfg["support_phone"]) == ("", "0528326523")
     monkeypatch.setenv("NAILS_SUPPORT_EMAIL", "help@nails.example")
     assert client.get("/api/config").json()["support_email"] == "help@nails.example"
+
+
+def test_terms_acceptance_is_recorded(client):
+    me = client.get("/api/me").json()
+    assert me["terms_current"] is True
+    # later profile edits don't need to accept again
+    assert client.post("/api/me", json={"name": "דנה כהן"}).status_code == 200

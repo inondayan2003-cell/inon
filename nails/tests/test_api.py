@@ -24,7 +24,7 @@ def test_rejects_non_images(client):
     r = client.post("/api/businesses", data={
         "name": "xyz", "phone": "0501234567", "city": "חיפה", "price_min": "100",
         "price_max": "200", "hours": json.dumps({"0": ["09:00", "17:00"]}),
-        "lat": "32.8", "lng": "35.0",
+        "lat": "32.8", "lng": "35.0", "photos_rights": "true",
     }, files=photos(5, data=b"not an image at all"))
     assert r.status_code == 415
 
@@ -192,3 +192,29 @@ def test_set_main_photo(client):
     other = register(client, "noa")
     assert client.post(f"/api/businesses/{bid}/photos/{ids[0]}/main", headers=other).status_code == 403
     assert client.post(f"/api/businesses/{bid}/photos/99999/main").status_code == 404
+
+
+# ---------- security headers & 404 ----------
+
+def test_security_headers(client):
+    r = client.get("/")
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "fonts.googleapis.com" not in csp            # fonts are self-hosted
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert client.get("/api/businesses").headers["cache-control"] == "no-store"
+
+
+def test_html_404_for_unknown_pages(client):
+    r = client.get("/no-such-page")
+    assert r.status_code == 404 and "הדף הזה לא נמצא" in r.text
+    assert client.get("/api/no-such-thing").status_code == 404
+
+
+def test_fonts_are_served_locally(client):
+    assert "@font-face" in client.get("/fonts/fonts.css").text
+    assert client.get("/fonts/heebo-hebrew-400-normal.woff2").status_code == 200
+
+
+def test_photo_rights_confirmation_required(client):
+    assert make_business(client, photos_rights="false").status_code == 422

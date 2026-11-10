@@ -98,6 +98,8 @@ def init() -> None:
             "city": "TEXT NOT NULL DEFAULT ''",
             "avatar": "TEXT NOT NULL DEFAULT ''",
             "verified": "INTEGER NOT NULL DEFAULT 0",
+            "terms_version": "TEXT NOT NULL DEFAULT ''",    # which terms she agreed to, and when
+            "terms_accepted_at": "TEXT NOT NULL DEFAULT ''",
         })
         _add_missing_columns(conn, "businesses", {
             # when photos were last added; '' for older rows (= nothing new)
@@ -108,6 +110,8 @@ def init() -> None:
             "house_number": "TEXT NOT NULL DEFAULT ''",
             "apartment": "TEXT NOT NULL DEFAULT ''",
             "entrance": "TEXT NOT NULL DEFAULT ''",
+            # owner confirmed the photos are her own work and she may publish them
+            "rights_confirmed_at": "TEXT NOT NULL DEFAULT ''",
         })
 
 

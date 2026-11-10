@@ -26,13 +26,13 @@ def client(tmp_path, monkeypatch):
     with TestClient(main.app) as c:
         # default signed-in, registered user
         c.headers.update(auth())
-        assert c.post("/api/me", json={"name": "דנה"}).status_code == 200
+        assert c.post("/api/me", json={"name": "דנה", "accepted_terms": True}).status_code == 200
         yield c
 
 
 def register(client, uid, name="משתמשת"):
     h = auth(uid, f"{uid}@example.com")
-    assert client.post("/api/me", json={"name": name}, headers=h).status_code == 200
+    assert client.post("/api/me", json={"name": name, "accepted_terms": True}, headers=h).status_code == 200
     return h
 
 
@@ -49,6 +49,7 @@ def make_business(client, lat=32.0853, lng=34.7818, n=5, headers=None, **over):
         "price_min": "100",
         "price_max": "300",
         "hours": json.dumps(ALWAYS_OPEN),
+        "photos_rights": "true",
         "lat": str(lat),
         "lng": str(lng),
         **over,

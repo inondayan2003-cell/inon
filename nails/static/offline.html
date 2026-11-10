@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nails · אין חיבור</title>
+  <link rel="stylesheet" href="/fonts/fonts.css">
   <style>
     :root { --bg: #f8f4f1; --text: #2b1b16; --muted: #86766e; --primary: #5a3426; }
     @media (prefers-color-scheme: dark) { :root { --bg: #15100e; --text: #f4ece8; --muted: #b1a29a; --primary: #e3c6ba; } }
@@ -12,7 +13,7 @@
     img { width: 84px; height: 84px; }
     h1 { margin: 16px 0 6px; font-size: 1.4rem; }
     p { color: var(--muted); margin: 0 0 20px; }
-    button { border: 0; border-radius: 999px; padding: 12px 26px; background: var(--primary); color: #fff; font: inherit; font-weight: 700; }
+    .retry { display: inline-block; border-radius: 999px; padding: 12px 26px; background: var(--primary); color: #fff; font-weight: 700; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -20,7 +21,7 @@
     <img src="/icon-192.png" alt="">
     <h1>אין חיבור לאינטרנט</h1>
     <p>Nails צריכה אינטרנט כדי להציג עסקים. בדקי את החיבור ונסי שוב.</p>
-    <button onclick="location.reload()">לנסות שוב</button>
+    <a class="retry" href="/">לנסות שוב</a>
   </main>
 </body>
 </html>

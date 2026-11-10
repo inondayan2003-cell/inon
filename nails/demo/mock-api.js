@@ -203,7 +203,7 @@
     const q = url.searchParams;
     let m;
 
-    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "0528326523" };
+    if (path === "/api/config") return { firebase: null, dev_auth: true, methods: ["google", "email"], preview: true, support_email: "", support_phone: "0528326523", operator: { name: "", id: "", address: "" } };
     if (path === "/api/services") return Object.entries(SERVICES).map(([key, label]) => ({ key, label }));
 
     if (path === "/api/me/verification") {
@@ -274,6 +274,7 @@
       const data = JSON.parse(body);
       const name = String(data.name || "").trim();
       if (name.length < 2) fail(422, "צריך לכתוב שם");
+      if (!db.users[ident.uid] && !data.accepted_terms) fail(422, "כדי להירשם צריך לאשר את תנאי השימוש ומדיניות הפרטיות");
       const isEmail = ident.contact.includes("@");
       db.users[ident.uid] = {
         avatar_url: null, ...db.users[ident.uid],
@@ -308,6 +309,7 @@
       const hours = checkHours(JSON.parse(f.get("hours")));
       const files = f.getAll("photos");
       if (files.length < 5 || files.length > 12) fail(422, "צריך להעלות בין 5 ל-12 תמונות");
+      if (f.get("photos_rights") !== "true") fail(422, "צריך לאשר שהתמונות הן של עבודות שלך ושמותר לך לפרסם אותן");
       const g = (k) => String(f.get(k) || "").trim();
       const pos = f.get("lat") ? [Number(f.get("lat")), Number(f.get("lng"))] : locate(g("city"), g("street"), g("house_number"));
       const b = {

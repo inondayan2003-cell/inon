@@ -27,7 +27,7 @@ def without_coords(client, **over):
     from .conftest import ALWAYS_OPEN, photos
     form = {"name": "סטודיו כתובת", "phone": "0501234567", "city": "רחובות", "street": "הרצל",
             "house_number": "12", "apartment": "4", "entrance": "ב", "price_min": "100",
-            "price_max": "300", "hours": json.dumps(ALWAYS_OPEN), **over}
+            "price_max": "300", "hours": json.dumps(ALWAYS_OPEN), "photos_rights": "true", **over}
     return client.post("/api/businesses", data=form, files=photos(5))
 
 

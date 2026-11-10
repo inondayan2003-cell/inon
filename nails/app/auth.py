@@ -108,6 +108,12 @@ def client_config() -> dict:
         # Shown on the contact page; empty until the owner sets them.
         "support_email": os.environ.get("NAILS_SUPPORT_EMAIL", ""),
         "support_phone": os.environ.get("NAILS_SUPPORT_PHONE", "0528326523"),
+        # Who runs the service (shown on the contact page and in the terms); empty = hidden.
+        "operator": {
+            "name": os.environ.get("NAILS_OPERATOR_NAME", ""),
+            "id": os.environ.get("NAILS_OPERATOR_ID", ""),          # עוסק / ח.פ. number
+            "address": os.environ.get("NAILS_OPERATOR_ADDRESS", ""),
+        },
     }
 
 
