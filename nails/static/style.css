@@ -1,17 +1,17 @@
 :root {
   /* Light blush palette */
-  --bg: #ffffff;          /* clean white */
+  --bg: #fff0f5;          /* light pink */
   --surface: #ffffff;
-  --surface-2: #fdeef3;   /* soft pink */
+  --surface-2: #fde5ee;   /* soft pink (fields, chips) */
   --text: #3d2232;        /* deep plum */
-  --muted: #85606f;       /* dusty rose-gray (5:1 on the background) */
-  --primary: #bd3468;     /* rose, readable with white text and on every pink tint */
+  --muted: #7a5566;       /* dusty rose-gray (4.5:1+ on every pink) */
+  --primary: #b5305f;     /* rose, readable with white text and on every pink tint */
   --primary-ink: #ffffff;
   --primary-soft: #fbdbe7;
   --gold: #f0a6c0;        /* blush accent */
-  --gold-soft: #fde9f0;
-  --gold-ink: #b0436c;
-  --border: #f6dce6;
+  --gold-soft: #fde8f0;
+  --gold-ink: #a63a62;
+  --border: #f5d3e0;
   --whatsapp: #15803d;
   --danger: #b8323c;
   --danger-soft: #fde8ea;
