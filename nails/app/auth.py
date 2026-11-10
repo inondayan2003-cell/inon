@@ -34,7 +34,7 @@ CERTS_URL = (
 PROVIDERS = {
     "google.com": "google",
     "apple.com": "apple",
-    "password": "email",
+    "password": "email",   # nosec B105: Firebase's name for email+password sign-in, not a secret
     "phone": "phone",
     "dev": "dev",
 }
@@ -51,6 +51,7 @@ class Identity:
     email: str | None = None
     phone: str | None = None
     name: str | None = None
+    email_verified: bool = False   # Google confirmed she owns the email
 
 
 CONFIG_FILE = Path(__file__).resolve().parent.parent / "firebase-config.json"
@@ -172,6 +173,7 @@ def _verify_firebase(token: str) -> Identity:
         email=claims.get("email"),
         phone=claims.get("phone_number"),
         name=claims.get("name"),
+        email_verified=bool(claims.get("email_verified")),
     )
 
 
@@ -185,6 +187,7 @@ def _verify_dev(token: str) -> Identity:
         uid=f"dev-{parts[1]}", provider="dev",
         email=contact if "@" in contact else None,
         phone=None if "@" in contact else contact or None,
+        email_verified="@" in contact,
     )
 
 

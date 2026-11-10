@@ -131,7 +131,7 @@ def test_avatar_upload_replace_remove(client, tmp_path):
     r = client.post("/api/me/avatar", files={"photo": ("a.jpg", JPEG, "image/jpeg")})
     first = r.json()["avatar_url"]
     assert r.status_code == 200 and first.startswith("/uploads/")
-    assert client.get(first).content == JPEG
+    assert client.get(first).content[:3] == b"\xff\xd8\xff"
     second = client.post("/api/me/avatar", files={"photo": ("b.jpg", JPEG, "image/jpeg")}).json()["avatar_url"]
     assert second != first and client.get(first).status_code == 404   # old picture deleted
     assert client.get("/api/me").json()["avatar_url"] == second

@@ -14,9 +14,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-import httpx
+import io
 
-from . import auth, db, geocode
+import httpx
+from PIL import Image, ImageOps
+
+from . import auth, db, geocode, ratelimit
 from .geo import bounding_box, distance_km, normalize_phone, whatsapp_number
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -44,6 +47,9 @@ WHATSAPP_MESSAGE = "היי! הגעתי אלייך דרך אפליקציית Nail
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init()
+    if auth.dev_auth_enabled():
+        print("\n" + "!" * 70 + "\n  NAILS_DEV_AUTH=1: anyone can sign in as anyone. Local development only!\n"
+              + "!" * 70 + "\n", flush=True)
     yield
 
 
@@ -73,8 +79,23 @@ def _content_security_policy() -> str:
     ])
 
 
+MAX_BODY_BYTES = 60 * 1024 * 1024      # a whole business with 12 photos fits easily
+TOO_MANY = "יותר מדי פעולות בזמן קצר. נסי שוב בעוד כמה דקות"
+
+
+def _client_ip(request) -> str:
+    return request.client.host if request.client else "?"
+
+
 @app.middleware("http")
 async def security_headers(request, call_next):
+    from fastapi.responses import JSONResponse
+    if request.url.path.startswith("/api/"):
+        size = request.headers.get("content-length")
+        if size and size.isdigit() and int(size) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "הקבצים גדולים מדי"}, status_code=413)
+        if not ratelimit.limit(f"ip:{_client_ip(request)}", 600, 60):   # flood protection
+            return JSONResponse({"detail": TOO_MANY}, status_code=429)
     response = await call_next(request)
     h = response.headers
     h.setdefault("X-Content-Type-Options", "nosniff")
@@ -85,6 +106,8 @@ async def security_headers(request, call_next):
         h.setdefault("Content-Security-Policy", _content_security_policy())
     if request.url.path.startswith("/api/"):
         h.setdefault("Cache-Control", "no-store")         # personal data is never cached
+    if request.headers.get("x-forwarded-proto", request.url.scheme) == "https":
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
 
 
@@ -109,7 +132,10 @@ def current_user(ident: auth.Identity = Depends(identity)) -> dict:
 
 
 def _is_admin(user) -> bool:
-    return bool(user["email"]) and user["email"].lower() in auth.admin_emails()
+    """Admin = an email in NAILS_ADMIN_EMAILS that Google confirmed (a password account
+    opened with someone else's unconfirmed address never qualifies)."""
+    return (bool(user["email"]) and bool(user["email_verified"])
+            and user["email"].lower() in auth.admin_emails())
 
 
 def _user_out(row, conn=None) -> dict:
@@ -132,6 +158,11 @@ def _get_user(conn, uid: str) -> dict:
     return _user_out(conn.execute("SELECT * FROM users WHERE uid = ?", (uid,)).fetchone(), conn)
 
 
+def _throttle(user: dict, action: str, count: int, seconds: int) -> None:
+    if not ratelimit.limit(f"{action}:{user['uid']}", count, seconds):
+        raise HTTPException(429, TOO_MANY)
+
+
 def admin_user(user: dict = Depends(current_user)) -> dict:
     if not _is_admin(user):
         raise HTTPException(403, "אין הרשאת ניהול")
@@ -150,8 +181,9 @@ def me(ident: auth.Identity = Depends(identity)):
         if row is None:
             # 404 tells the app to show the "what's your name" step.
             raise HTTPException(404, "not_registered")
-        conn.execute("UPDATE users SET last_login = datetime('now') WHERE uid = ?", (ident.uid,))
-        return _user_out(row, conn)
+        conn.execute("UPDATE users SET last_login = datetime('now'), email_verified = ? WHERE uid = ?",
+                     (int(ident.email_verified), ident.uid))
+        return _get_user(conn, ident.uid)
 
 
 TERMS_VERSION = "2026-11"   # bump when the terms or privacy policy change materially
@@ -166,6 +198,8 @@ class RegisterIn(BaseModel):
 @app.post("/api/me")
 def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
     """Create the account on first sign-in (or update name and city)."""
+    if not ratelimit.limit(f"register:{ident.uid}", 30, 3600):
+        raise HTTPException(429, TOO_MANY)
     with db.connect() as conn:
         exists = conn.execute("SELECT 1 FROM users WHERE uid = ?", (ident.uid,)).fetchone()
         if not exists and not body.accepted_terms:
@@ -177,6 +211,7 @@ def register(body: RegisterIn, ident: auth.Identity = Depends(identity)):
             " phone = COALESCE(excluded.phone, users.phone), last_login = datetime('now')",
             (ident.uid, body.name.strip(), ident.email, ident.phone, ident.provider, body.city.strip()),
         )
+        conn.execute("UPDATE users SET email_verified = ? WHERE uid = ?", (int(ident.email_verified), ident.uid))
         if body.accepted_terms:
             conn.execute("UPDATE users SET terms_version = ?, terms_accepted_at = datetime('now') WHERE uid = ?",
                          (TERMS_VERSION, ident.uid))
@@ -204,6 +239,7 @@ def delete_account(user: dict = Depends(current_user)):
 @app.post("/api/me/avatar")
 async def set_avatar(photo: UploadFile = File(...), user: dict = Depends(current_user)):
     """Profile picture (replaces the previous one)."""
+    _throttle(user, "avatar", 20, 3600)
     [name] = await _save_photos([photo])
     with db.connect() as conn:
         conn.execute("UPDATE users SET avatar = ? WHERE uid = ?", (name, user["uid"]))
@@ -325,20 +361,45 @@ def _image_ext(head: bytes) -> str | None:
     return None
 
 
+Image.MAX_IMAGE_PIXELS = 50_000_000     # refuse "decompression bomb" images
+MAX_SIDE = 2048
+
+
+def _clean_image(data: bytes) -> bytes:
+    """Re-draw the photo as a fresh JPEG. This drops all hidden metadata (EXIF, including
+    the GPS position phones store), and anything that isn't really an image fails here."""
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im = ImageOps.exif_transpose(im)          # keep the orientation the phone intended
+            if im.mode in ("RGBA", "LA", "P"):
+                im = im.convert("RGBA")
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                bg.paste(im, mask=im.getchannel("A"))
+                im = bg
+            else:
+                im = im.convert("RGB")
+            im.thumbnail((MAX_SIDE, MAX_SIDE))
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=86, optimize=True, progressive=True)
+            return out.getvalue()
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise HTTPException(415, "הקובץ לא נראה כמו תמונה תקינה")
+
+
 async def _save_photos(files: list[UploadFile], folder: str | None = None) -> list[str]:
-    """Validate and store uploaded images. Returns stored filenames."""
+    """Validate, clean and store uploaded images. Returns stored filenames."""
     saved: list[str] = []
     try:
         for f in files:
             data = await f.read(MAX_PHOTO_BYTES + 1)
             if len(data) > MAX_PHOTO_BYTES:
                 raise HTTPException(413, "תמונה גדולה מדי (עד 10MB)")
-            ext = _image_ext(data[:16])
-            if ext is None:
+            if _image_ext(data[:16]) is None:
                 raise HTTPException(415, "אפשר להעלות רק תמונות JPG / PNG / WEBP")
-            name = f"{uuid.uuid4().hex}.{ext}"
+            clean = _clean_image(data)
+            name = f"{uuid.uuid4().hex}.jpg"
             with open(os.path.join(folder or db.uploads_dir(), name), "wb") as out:
-                out.write(data)
+                out.write(clean)
             saved.append(name)
     except BaseException:
         _delete_files(saved, folder)
@@ -471,9 +532,9 @@ def get_business(business_id: int, lat: float | None = None, lng: float | None =
                  user: dict = Depends(current_user)):
     with db.connect() as conn:
         row = _get_business(conn, business_id)
-        if row["owner_uid"] != user["uid"]:
+        if row["owner_uid"] != user["uid"] and ratelimit.once(f"view:{user['uid']}:{business_id}", 3600):
             conn.execute("UPDATE businesses SET views = views + 1 WHERE id = ?", (business_id,))
-        conn.execute(f"UPDATE favorites SET seen_at = {NOW} WHERE uid = ? AND business_id = ?",
+        conn.execute(f"UPDATE favorites SET seen_at = {NOW} WHERE uid = ? AND business_id = ?",  # nosec B608: NOW is a constant
                      (user["uid"], business_id))
         dist = distance_km(lat, lng, row["lat"], row["lng"]) if lat is not None and lng is not None else None
         return _public(row, _photos(conn, business_id), dist)
@@ -484,7 +545,7 @@ def whatsapp_lead(business_id: int, user: dict = Depends(current_user)):
     """Called when a customer taps the WhatsApp button (counts the enquiry)."""
     with db.connect() as conn:
         row = _get_business(conn, business_id)
-        if row["owner_uid"] != user["uid"]:
+        if row["owner_uid"] != user["uid"] and ratelimit.once(f"lead:{user['uid']}:{business_id}", 600):
             conn.execute(
                 "UPDATE businesses SET whatsapp_clicks = whatsapp_clicks + 1 WHERE id = ?",
                 (business_id,),
@@ -529,6 +590,7 @@ async def create_business(
     photos_rights: bool = Form(False),   # "the photos are my own work and I may publish them"
     user: dict = Depends(current_user),
 ):
+    _throttle(user, "create", 10, 3600)
     norm = normalize_phone(phone)
     if norm is None:
         raise HTTPException(422, "מספר טלפון לא תקין")
@@ -567,7 +629,7 @@ async def create_business(
                 "INSERT INTO photos (business_id, filename, position) VALUES (?, ?, ?)",
                 [(bid, n, i) for i, n in enumerate(saved)],
             )
-            conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (bid,))
+            conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (bid,))  # nosec B608: NOW is a constant
             conn.execute("COMMIT")
     except BaseException:
         _delete_files(saved)
@@ -595,6 +657,7 @@ class BusinessUpdate(BaseModel):
 
 @app.patch("/api/businesses/{business_id}")
 def update_business(business_id: int, body: BusinessUpdate, user: dict = Depends(current_user)):
+    _throttle(user, "edit", 60, 3600)
     fields: dict = {}
     if body.name is not None:
         fields["name"] = body.name.strip()
@@ -635,13 +698,14 @@ def update_business(business_id: int, body: BusinessUpdate, user: dict = Depends
                 fields["lat"], fields["lng"] = _locate(merged["city"], merged["street"], merged["house_number"])
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
-            conn.execute(f"UPDATE businesses SET {sets} WHERE id = ?", [*fields.values(), business_id])
+            conn.execute(f"UPDATE businesses SET {sets} WHERE id = ?", [*fields.values(), business_id])  # nosec B608: column names come from a fixed list in code; values are parameters
         return _public(_get_business(conn, business_id), _photos(conn, business_id))
 
 
 @app.post("/api/businesses/{business_id}/photos", status_code=201)
 async def add_photos(business_id: int, photos: list[UploadFile] = File(...),
                      user: dict = Depends(current_user)):
+    _throttle(user, "photos", 40, 3600)
     with db.connect() as conn:
         _owned_business(conn, business_id, user)
         count = conn.execute(
@@ -655,7 +719,7 @@ async def add_photos(business_id: int, photos: list[UploadFile] = File(...),
             "INSERT INTO photos (business_id, filename, position) VALUES (?, ?, ?)",
             [(business_id, n, count + i) for i, n in enumerate(saved)],
         )
-        conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (business_id,))
+        conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (business_id,))  # nosec B608: NOW is a constant
         return _photos(conn, business_id)
 
 
@@ -720,7 +784,7 @@ def favorites(lat: float | None = None, lng: float | None = None, user: dict = D
     """Saved businesses, newest first; `new_photos` = photos added since she last opened the page."""
     with db.connect() as conn:
         rows = conn.execute(
-            f"SELECT b.*, f.seen_at FROM ({BIZ_SELECT}) b JOIN favorites f ON f.business_id = b.id"
+            f"SELECT b.*, f.seen_at FROM ({BIZ_SELECT}) b JOIN favorites f ON f.business_id = b.id"  # nosec B608: constant query text
             " WHERE f.uid = ? ORDER BY f.created_at DESC, f.rowid DESC", (user["uid"],),
         ).fetchall()
         out = []
@@ -734,6 +798,7 @@ def favorites(lat: float | None = None, lng: float | None = None, user: dict = D
 
 @app.put("/api/favorites/{business_id}", status_code=204)
 def add_favorite(business_id: int, user: dict = Depends(current_user)):
+    _throttle(user, "fav", 200, 3600)
     with db.connect() as conn:
         _get_business(conn, business_id)
         conn.execute(
@@ -753,6 +818,7 @@ def remove_favorite(business_id: int, user: dict = Depends(current_user)):
 @app.post("/api/me/verification", status_code=201)
 async def request_verification(selfie: UploadFile = File(...), user: dict = Depends(current_user)):
     """A selfie for the admin to compare with the profile; kept privately and deleted once decided."""
+    _throttle(user, "verify", 3, 86400)
     if user["verified"]:
         raise HTTPException(409, "החשבון כבר מאומת")
     with db.connect() as conn:

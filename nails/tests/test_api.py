@@ -95,7 +95,7 @@ def test_uploaded_photo_is_served(client):
     bid = make_business(client).json()["id"]
     url = client.get(f"/api/businesses/{bid}").json()["photos"][0]["url"]
     r = client.get(url)
-    assert r.status_code == 200 and r.content == JPEG
+    assert r.status_code == 200 and r.content[:3] == b"\xff\xd8\xff"
 
 
 def test_delete_business(client):

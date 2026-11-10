@@ -41,7 +41,7 @@ def test_full_approval_flow(client, admin, tmp_path):
     [req] = client.get("/api/admin/verifications", headers=admin).json()
     assert req["user"]["name"] == "דנה" and req["businesses"][0]["id"] == bid and req["has_selfie"]
     assert client.get(f"/api/admin/verifications/{req['id']}/selfie").status_code == 403
-    assert client.get(f"/api/admin/verifications/{req['id']}/selfie", headers=admin).content == JPEG
+    assert client.get(f"/api/admin/verifications/{req['id']}/selfie", headers=admin).content[:3] == b"\xff\xd8\xff"
     assert client.get("/api/admin/summary", headers=admin).json()["pending_verifications"] == 1
 
     r = client.post(f"/api/admin/verifications/{req['id']}", json={"approve": True}, headers=admin)

@@ -98,6 +98,7 @@ def init() -> None:
             "city": "TEXT NOT NULL DEFAULT ''",
             "avatar": "TEXT NOT NULL DEFAULT ''",
             "verified": "INTEGER NOT NULL DEFAULT 0",
+            "email_verified": "INTEGER NOT NULL DEFAULT 0",  # admin rights need a verified email
             "terms_version": "TEXT NOT NULL DEFAULT ''",    # which terms she agreed to, and when
             "terms_accepted_at": "TEXT NOT NULL DEFAULT ''",
         })

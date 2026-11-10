@@ -5,8 +5,19 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-# A tiny valid-looking JPEG header is enough for the type check.
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+import io
+
+from PIL import Image
+
+
+def _jpeg(color=(200, 120, 140), size=(64, 48)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+# A small real JPEG (the server re-encodes every upload).
+JPEG = _jpeg()
 
 # Open every day 00:00-23:59 so "open now" never depends on when tests run.
 ALWAYS_OPEN = {str(d): ["00:00", "23:59"] for d in range(7)}
