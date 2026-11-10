@@ -675,3 +675,14 @@ body.net-busy #netbar { opacity: 1; animation: netbar 1.1s linear infinite; }
 .offline-art svg { width: 44px; height: 37px; }
 .offline-state h3 { margin: 0; font-family: var(--font-display); }
 .offline-state p { margin: 0 0 14px; color: var(--muted); }
+
+/* ---------- text search ---------- */
+.search-clear { border: 0; background: var(--surface-2); color: var(--muted); width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
+.search-clear svg { width: 15px; height: 15px; }
+input[type=search]::-webkit-search-cancel-button { display: none; }
+.search-note { display: none; }
+body.searching .search-note { display: inline; }
+body.searching #radius { opacity: .45; }
+.search input:focus { box-shadow: none; outline: none; }
+body.searching .hero { display: none; }

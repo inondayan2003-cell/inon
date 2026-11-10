@@ -838,7 +838,9 @@ function renderHome() {
     <div id="install-slot"></div>
 
     <label class="search">${ICON.search}
-      <input id="q" type="search" placeholder="חפשי לפי שם, עיר או סגנון..." value="${esc(state.q)}">
+      <input id="q" type="search" enterkeyhint="search" aria-label="חיפוש עסקים"
+        placeholder="חפשי לפי שם, עיר או טיפול..." value="${esc(state.q)}">
+      <button type="button" class="search-clear ${state.q ? "" : "hidden"}" id="q-clear" aria-label="ניקוי החיפוש">${ICON.close}</button>
     </label>
 
     <div class="loc-bar">
@@ -846,7 +848,7 @@ function renderHome() {
       <button id="change-loc">${loc ? "שינוי" : "בחירה"}</button>
     </div>
 
-    <div class="label-sm">רדיוס חיפוש</div>
+    <div class="label-sm">רדיוס חיפוש <span class="search-note">· בחיפוש לפי טקסט מחפשים בכל הארץ</span></div>
     <div class="chips" id="radius">
       ${RADII.map((r) => `<button class="chip ${state.radius === r ? "on" : ""}" data-r="${r}">עד ${r} ק"מ</button>`).join("")}
     </div>
@@ -865,8 +867,17 @@ function renderHome() {
   let qTimer;
   $("#q").addEventListener("input", (e) => {
     clearTimeout(qTimer);
+    $("#q-clear").classList.toggle("hidden", !e.target.value);
     qTimer = setTimeout(() => { state.q = e.target.value; loadResults(); }, 300);
   });
+  $("#q-clear").addEventListener("click", () => {
+    $("#q").value = "";
+    $("#q-clear").classList.add("hidden");
+    state.q = "";
+    loadResults();
+    $("#q").focus();
+  });
+  $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
   $("#change-loc").addEventListener("click", openLocationPicker);
   $("#radius").addEventListener("click", (e) => {
     const b = e.target.closest("[data-r]");
@@ -904,12 +915,17 @@ async function loadResults() {
   try {
     const list = await api(`/api/businesses?${params}`);
     if (seq !== loadSeq || !box.isConnected) return;
-    $("#results-title").textContent = state.loc ? `עד ${state.radius} ק"מ ממך` : "עסקים חדשים";
-    $("#results-count").textContent = list.length ? `${list.length} עסקים` : "";
+    const text = state.q.trim();
+    document.body.classList.toggle("searching", !!text);   // the radius doesn't apply to text search
+    $("#results-title").textContent = text ? `תוצאות עבור "${text}"`
+      : state.loc ? `עד ${state.radius} ק"מ ממך` : "עסקים חדשים";
+    $("#results-count").textContent = list.length ? `${list.length} ${list.length === 1 ? "עסק" : "עסקים"}` : "";
     if (!list.length) {
       box.className = "";
-      box.innerHTML = empty(ICON.search, "לא מצאנו עסקים באזור",
-        "נסי להגדיל את הרדיוס או לחפש בעיר אחרת.");
+      box.innerHTML = text
+        ? empty(ICON.search, `לא מצאנו עסקים עבור "${esc(text)}"`,
+            "אפשר לחפש לפי שם העסק, עיר (למשל חיפה) או טיפול (למשל ג'ל, פדיקור). נסי מילה אחרת או קצרה יותר.")
+        : empty(ICON.search, "לא מצאנו עסקים באזור", "נסי להגדיל את הרדיוס, או לחפש עיר בשורת החיפוש למעלה.");
       return;
     }
     box.className = "grid";

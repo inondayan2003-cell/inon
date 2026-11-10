@@ -296,11 +296,14 @@
       const lat = q.has("lat") ? Number(q.get("lat")) : null, lng = q.has("lng") ? Number(q.get("lng")) : null;
       const radius = Number(q.get("radius_km") || 10), service = q.get("service"), maxPrice = q.get("max_price");
       const text = (q.get("q") || "").trim(), onlyOpen = q.get("open_now") === "true";
+      const treat = Object.entries(SERVICES).filter(([, l]) => text && (l.includes(text) || text.includes(l))).map(([k]) => k);
+      const matches = (b) => [b.name, b.city, b.description, b.street || ""].some((v) => v.includes(text))
+        || b.services.some((k) => treat.includes(k));
       let list = db.businesses.map((b) => [lat == null ? null : distanceKm(lat, lng, b.lat, b.lng), b])
-        .filter(([d, b]) => (d == null || d <= radius)
+        .filter(([d, b]) => (d == null || text || d <= radius)   // text search: whole country
           && (!service || b.services.includes(service))
           && (!maxPrice || b.price_min <= Number(maxPrice))
-          && (!text || [b.name, b.city, b.description].some((v) => v.includes(text)))
+          && (!text || matches(b))
           && (!onlyOpen || openNow(b.hours)));
       list = lat == null ? list.sort((a, b) => b[1].created - a[1].created) : list.sort((a, b) => a[0] - b[0]);
       return list.slice(0, 100).map(([d, b]) => pub(b, d));

@@ -218,3 +218,26 @@ def test_fonts_are_served_locally(client):
 
 def test_photo_rights_confirmation_required(client):
     assert make_business(client, photos_rights="false").status_code == 422
+
+
+# ---------- text search ----------
+
+def test_text_search_ignores_radius(client):
+    make_business(client, *JERUSALEM, name="נוי ציפורניים", city="ירושלים")
+    make_business(client, *RAMAT_GAN, name="רמת גן נייל", city="רמת גן")
+    near = {"lat": TLV[0], "lng": TLV[1], "radius_km": 10}
+    # browsing: only the radius
+    assert [b["name"] for b in client.get("/api/businesses", params=near).json()] == ["רמת גן נייל"]
+    # typing a city far away still finds it, with its distance
+    r = client.get("/api/businesses", params={**near, "q": "ירושלים"}).json()
+    assert [b["name"] for b in r] == ["נוי ציפורניים"] and r[0]["distance_km"] > 40
+    # by name, nearest first
+    assert [b["name"] for b in client.get("/api/businesses", params={**near, "q": "נייל"}).json()] == ["רמת גן נייל"]
+
+
+def test_text_search_by_treatment(client):
+    make_business(client, name="רק פדיקור", services="pedicure")
+    make_business(client, name="רק ג'ל", services="gel")
+    assert [b["name"] for b in client.get("/api/businesses", params={"q": "פדיקור"}).json()] == ["רק פדיקור"]
+    names = [b["name"] for b in client.get("/api/businesses", params={"q": "ג'ל"}).json()]
+    assert names == ["רק ג'ל"]

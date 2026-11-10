@@ -493,8 +493,13 @@ def search(
     sql = f"{BIZ_SELECT} WHERE 1=1"
     args: list = []
     has_loc = lat is not None and lng is not None
+    text = (q or "").strip()
+    # Typing a name / city / treatment searches the whole country (nearest first);
+    # the radius only applies when browsing without text.
+    within_radius = has_loc and not text
     if has_loc:
         _check_coords(lat, lng)
+    if within_radius:
         a, b, c, d = bounding_box(lat, lng, radius_km)
         sql += " AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?"
         args += [a, b, c, d]
@@ -506,10 +511,15 @@ def search(
     if max_price is not None:  # the business's cheapest treatment fits the budget
         sql += " AND price_min <= ?"
         args.append(max_price)
-    if q and q.strip():
-        sql += " AND (name LIKE ? OR city LIKE ? OR description LIKE ?)"
-        like = f"%{q.strip()}%"
-        args += [like, like, like]
+    if text:
+        like = f"%{text}%"
+        cond = ["name LIKE ?", "city LIKE ?", "description LIKE ?", "street LIKE ?"]
+        args += [like] * 4
+        for key, label in SERVICES.items():          # "ג'ל", "בניית", "פדיקור"...
+            if text in label or label in text:
+                cond.append("(',' || services || ',') LIKE ?")
+                args.append(f"%,{key},%")
+        sql += " AND (" + " OR ".join(cond) + ")"
     sql += " ORDER BY created_at DESC, id DESC LIMIT 500"
 
     now = datetime.now(TZ)
@@ -517,7 +527,7 @@ def search(
         results = []
         for r in conn.execute(sql, args).fetchall():
             dist = distance_km(lat, lng, r["lat"], r["lng"]) if has_loc else None
-            if dist is not None and dist > radius_km:
+            if within_radius and dist > radius_km:
                 continue
             if open_now and not _open_now(json.loads(r["hours"] or "{}"), now):
                 continue
