@@ -118,6 +118,7 @@
   function pub(b, dist = null) {
     return {
       id: b.id, name: b.name, phone: b.phone, city: b.city, address: b.address, description: b.description,
+      street: b.street || "", house_number: b.house_number || "", apartment: b.apartment || "", entrance: b.entrance || "",
       instagram: b.instagram || "",
       services: b.services, price_min: b.price_min, price_max: b.price_max, hours: b.hours, open_now: openNow(b.hours),
       lat: b.lat, lng: b.lng, photos: b.photos.map((p) => ({ id: p.id, url: photoUrl(p) })),
@@ -146,6 +147,16 @@
     if (v && !/^[A-Za-z0-9._]{1,30}$/.test(v)) fail(422, "שם המשתמש באינסטגרם לא תקין");
     return v;
   }
+  // Preview stand-in for the map lookup: the city's center, nudged by the street name.
+  function locate(city, street, number) {
+    if (!street || !number) fail(422, "צריך למלא רחוב ומספר בית, או ללחוץ 'אני בעסק עכשיו'");
+    const c = (typeof CITIES !== "undefined" ? CITIES : []).find(([n]) => n === city);
+    if (!c) fail(422, "לא מצאנו את הכתובת במפה. בדקי את שם העיר והרחוב");
+    let h = 0;
+    for (const ch of street + number) h = (h * 31 + ch.charCodeAt(0)) % 1000;
+    return [c[1] + (h - 500) / 50000, c[2] + ((h * 7) % 1000 - 500) / 50000];
+  }
+  const addressLine = (st, no, apt, ent) => [`${st} ${no}`.trim(), ent && `כניסה ${ent}`, apt && `דירה ${apt}`].filter(Boolean).join(", ");
   function checkPrices(min, max) {
     if (!(min > 0 && max > 0 && min <= 5000 && max <= 5000)) fail(422, "המחירים צריכים להיות בין 1 ל-5000 ₪");
     if (min > max) fail(422, "המחיר ההתחלתי גבוה מהמחיר המקסימלי");
@@ -297,12 +308,16 @@
       const hours = checkHours(JSON.parse(f.get("hours")));
       const files = f.getAll("photos");
       if (files.length < 5 || files.length > 12) fail(422, "צריך להעלות בין 5 ל-12 תמונות");
+      const g = (k) => String(f.get(k) || "").trim();
+      const pos = f.get("lat") ? [Number(f.get("lat")), Number(f.get("lng"))] : locate(g("city"), g("street"), g("house_number"));
       const b = {
         id: db.nextId++, owner: user.uid, name: f.get("name").trim(), phone, city: f.get("city").trim(),
-        address: (f.get("address") || "").trim(), description: (f.get("description") || "").trim(),
+        street: g("street"), house_number: g("house_number"), apartment: g("apartment"), entrance: g("entrance"),
+        address: addressLine(g("street"), g("house_number"), g("apartment"), g("entrance")),
+        description: (f.get("description") || "").trim(),
         instagram: insta(f.get("instagram") || ""),
         services: (f.get("services") || "").split(",").filter(Boolean), price_min: pmin, price_max: pmax, hours,
-        lat: Number(f.get("lat")), lng: Number(f.get("lng")), photos: await storePhotos(files),
+        lat: pos[0], lng: pos[1], photos: await storePhotos(files),
         views: 0, clicks: 0, created: Date.now(), photos_updated_at: Date.now(),
       };
       db.businesses.push(b);
@@ -381,6 +396,12 @@
       if (u.price_min != null) checkPrices(u.price_min, u.price_max);
       if (u.hours != null) u.hours = checkHours(u.hours);
       if (u.instagram != null) u.instagram = insta(u.instagram);
+      const moved = ["city", "street", "house_number"].some((k) => u[k] != null && u[k] !== (b[k] || ""));
+      if (moved && u.lat == null) [u.lat, u.lng] = locate(u.city ?? b.city, u.street ?? b.street, u.house_number ?? b.house_number);
+      for (const k of ["street", "house_number", "apartment", "entrance"]) if (u[k] != null) b[k] = u[k];
+      if (["street", "house_number", "apartment", "entrance"].some((k) => u[k] != null)) {
+        u.address = addressLine(b.street || "", b.house_number || "", b.apartment || "", b.entrance || "");
+      }
       for (const k of ["name", "phone", "city", "address", "description", "services", "price_min", "price_max", "hours", "lat", "lng", "instagram"]) {
         if (u[k] != null) b[k] = u[k];
       }

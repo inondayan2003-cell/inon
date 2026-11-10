@@ -987,34 +987,61 @@ async function resizeImage(file, maxSide = 1600, quality = 0.85) {
 const MIN_PHOTOS = 5;
 const MAX_PHOTOS = 12;
 
-function locationMap(el, initial, onPick) {
-  if (!window.L) {
-    // No map (offline / blocked): choose the city instead.
-    el.classList.add("map-fallback");
-    el.innerHTML = `<label class="field"><span>המפה לא נטענה. בחרי את העיר של העסק:</span>
-      <select class="city-pick"><option value="">בחירת עיר</option>
-      ${CITIES.map(([c], i) => `<option value="${i}">${esc(c)}</option>`).join("")}</select></label>`;
-    el.querySelector(".city-pick").addEventListener("change", (e) => {
-      if (e.target.value === "") return;
-      const [, lat, lng] = CITIES[Number(e.target.value)];
-      onPick({ lat, lng });
-    });
-    return { set: (lat, lng) => onPick({ lat, lng }) };
-  }
-  const start = initial || state.loc || { lat: 32.0853, lng: 34.7818 };
-  const map = L.map(el, { zoomControl: true }).setView([start.lat, start.lng], initial ? 16 : 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "© OpenStreetMap",
-  }).addTo(map);
-  let marker = initial ? L.marker([initial.lat, initial.lng]).addTo(map) : null;
-  const set = (lat, lng, zoom) => {
-    if (marker) marker.setLatLng([lat, lng]); else marker = L.marker([lat, lng]).addTo(map);
-    if (zoom) map.setView([lat, lng], zoom);
-    onPick({ lat, lng });
+
+function locationFields(b = {}) {
+  return `
+    <label class="field"><span>עיר *</span>
+      <input type="text" name="city" required minlength="2" maxlength="40" value="${esc(b.city)}" list="cities" autocomplete="address-level2"></label>
+    <datalist id="cities">${CITIES.map(([c]) => `<option value="${esc(c)}">`).join("")}</datalist>
+    <div class="addr-row">
+      <label class="field grow2"><span>רחוב *</span>
+        <input type="text" name="street" maxlength="60" value="${esc(b.street)}" placeholder="למשל: הרצל" autocomplete="address-line1"></label>
+      <label class="field"><span>מספר *</span>
+        <input type="text" name="house_number" maxlength="10" value="${esc(b.house_number)}" inputmode="numeric" placeholder="12"></label>
+    </div>
+    <div class="addr-row">
+      <label class="field"><span>כניסה</span>
+        <input type="text" name="entrance" maxlength="10" value="${esc(b.entrance)}" placeholder="לא חובה"></label>
+      <label class="field"><span>דירה</span>
+        <input type="text" name="apartment" maxlength="10" value="${esc(b.apartment)}" inputmode="numeric" placeholder="לא חובה"></label>
+    </div>
+    <div class="divider"><span>או</span></div>
+    <button type="button" class="btn outline block" id="here">${ICON.target} אני בעסק עכשיו, קחי את המיקום</button>
+    <p class="progress" id="loc-status">ניקח את המיקום מהכתובת. אם את בעסק עכשיו, אפשר לקחת אותו מהטלפון ולקבל מיקום מדויק יותר.</p>`;
+}
+
+// "I'm at the business now": the phone's location replaces the address lookup.
+function bindHere(onPick) {
+  const status = $("#loc-status");
+  $("#here").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const p = await getPosition();
+      onPick(p);
+      status.innerHTML = `✓ המיקום נלקח מהטלפון <button type="button" class="link" id="here-undo">ביטול</button>`;
+      status.classList.add("ok");
+      $("#here-undo").addEventListener("click", () => {
+        onPick(null);
+        status.textContent = "ניקח את המיקום מהכתובת.";
+        status.classList.remove("ok");
+      });
+    } catch (err) { toast(err.message); }
+    btn.disabled = false;
+  });
+}
+
+function readAddress(fd, picked) {
+  const a = {
+    city: String(fd.get("city") || "").trim(),
+    street: String(fd.get("street") || "").trim(),
+    house_number: String(fd.get("house_number") || "").trim(),
+    entrance: String(fd.get("entrance") || "").trim(),
+    apartment: String(fd.get("apartment") || "").trim(),
   };
-  map.on("click", (e) => set(e.latlng.lat, e.latlng.lng));
-  setTimeout(() => map.invalidateSize(), 50);
-  return { set };
+  if (a.city.length < 2) return { error: "צריך למלא עיר" };
+  if (!picked && (!a.street || !a.house_number)) return { error: "צריך למלא רחוב ומספר בית, או ללחוץ 'אני בעסק עכשיו'" };
+  return { address: a };
 }
 
 function businessFields(b = {}) {
@@ -1024,11 +1051,6 @@ function businessFields(b = {}) {
       <input type="text" name="name" required minlength="2" maxlength="60" value="${esc(b.name)}" placeholder="למשל: סטודיו ורוד"></label>
     <label class="field"><span>טלפון (וואטסאפ) *</span>
       <input type="tel" name="phone" required inputmode="tel" value="${esc(b.phone)}" placeholder="050-0000000"></label>
-    <label class="field"><span>עיר *</span>
-      <input type="text" name="city" required minlength="2" maxlength="40" value="${esc(b.city)}" list="cities"></label>
-    <datalist id="cities">${CITIES.map(([c]) => `<option value="${esc(c)}">`).join("")}</datalist>
-    <label class="field"><span>כתובת (לא חובה)</span>
-      <input type="text" name="address" maxlength="100" value="${esc(b.address)}" placeholder="רחוב ומספר"></label>
     <div class="field"><span class="label-sm">אילו טיפולים את עושה?</span>
       <div class="check-grid">
         ${SERVICES.map((s) => `<label class="chip ${sel.has(s.key) ? "on" : ""}">
@@ -1087,10 +1109,8 @@ function renderAdd() {
 
       <section class="panel">
         <div class="panel-head"><div class="step">${ICON.pin}<b>3</b></div>
-          <div><h2>איפה העסק נמצא?</h2><p>כדי שלקוחות באזור ימצאו אותך</p></div></div>
-        <button type="button" class="btn outline block" id="here">${ICON.target} אני בעסק עכשיו, קחי את המיקום</button>
-        <div class="map" id="map"></div>
-        <p class="progress" id="loc-status">או לחצי על המפה במקום של העסק</p>
+          <div><h2>איפה העסק נמצא?</h2><p>הכתובת המלאה תופיע ללקוחות, כדי שיגיעו בדיוק אלייך</p></div></div>
+        ${locationFields()}
       </section>
 
       <section class="panel">
@@ -1107,18 +1127,7 @@ function renderAdd() {
 
   bindServiceChips(view);
   bindHoursEditor(view);
-  const mapCtl = locationMap($("#map"), null, (p) => {
-    picked = p;
-    const s = $("#loc-status");
-    s.textContent = "✓ המיקום נשמר";
-    s.classList.add("ok");
-  });
-  $("#here").addEventListener("click", async () => {
-    try {
-      const p = await getPosition();
-      mapCtl.set(p.lat, p.lng, 17);
-    } catch (err) { toast(err.message); }
-  });
+  bindHere((p) => { picked = p; });
 
   const drawPhotos = () => {
     $("#photos").innerHTML = photos.map((p, i) => `
@@ -1166,22 +1175,22 @@ function renderAdd() {
     const fd = new FormData(form);
     if (String(fd.get("name")).trim().length < 2) return fail("צריך למלא את שם העסק");
     if (!String(fd.get("phone")).trim()) return fail("צריך למלא מספר טלפון");
-    if (String(fd.get("city")).trim().length < 2) return fail("צריך למלא עיר");
     const prices = readPrices(fd);
     if (prices.error) return fail(prices.error);
     const hours = readHours(form);
     if (hours.error) return fail(hours.error);
-    if (!picked) return fail("צריך לסמן את מיקום העסק על המפה");
+    const addr = readAddress(fd, picked);
+    if (addr.error) return fail(addr.error);
     if (photos.length < MIN_PHOTOS) return fail(`צריך לפחות ${MIN_PHOTOS} תמונות`);
 
     const body = new FormData();
-    for (const k of ["name", "phone", "city", "address", "description", "instagram"]) body.set(k, fd.get(k) || "");
+    for (const k of ["name", "phone", "description", "instagram"]) body.set(k, fd.get(k) || "");
+    for (const [k, v] of Object.entries(addr.address)) body.set(k, v);
     body.set("services", fd.getAll("services").join(","));
     body.set("price_min", prices.min);
     body.set("price_max", prices.max);
     body.set("hours", JSON.stringify(hours.hours));
-    body.set("lat", picked.lat);
-    body.set("lng", picked.lng);
+    if (picked) { body.set("lat", picked.lat); body.set("lng", picked.lng); }
     photos.forEach((p, i) => body.append("photos", p.blob, `photo${i}.jpg`));
 
     const btn = $("#submit");
@@ -1728,8 +1737,8 @@ async function renderManage(id, isNew) {
         ${hoursEditor(b.hours)}
       </section>
       <section class="panel">
-        <div class="panel-head"><div class="step">${ICON.pin}</div><div><h2>מיקום</h2><p>לחצי על המפה כדי לשנות</p></div></div>
-        <div class="map" id="map"></div>
+        <div class="panel-head"><div class="step">${ICON.pin}</div><div><h2>כתובת העסק</h2><p>אם משנים כתובת, המיקום מתעדכן לבד</p></div></div>
+        ${locationFields(b)}
       </section>
       <p class="error hidden" id="edit-err"></p>
       <button class="btn block" style="margin-bottom:14px">שמירת שינויים</button>
@@ -1748,7 +1757,7 @@ async function renderManage(id, isNew) {
   bindHoursEditor(view);
 
   let newLoc = null;
-  locationMap($("#map"), { lat: b.lat, lng: b.lng }, (p) => { newLoc = p; });
+  bindHere((p) => { newLoc = p; });
 
   $("#edit-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1760,17 +1769,19 @@ async function renderManage(id, isNew) {
     if (prices.error) return fail(prices.error);
     const hours = readHours(e.target);
     if (hours.error) return fail(hours.error);
+    // The business already has a position; the server only looks up an address that changed.
+    const addr = readAddress(fd, newLoc || b);
+    if (addr.error) return fail(addr.error);
     const payload = {
       name: String(fd.get("name")).trim(),
       phone: String(fd.get("phone")).trim(),
-      city: String(fd.get("city")).trim(),
-      address: String(fd.get("address") || "").trim(),
       description: String(fd.get("description") || "").trim(),
       instagram: String(fd.get("instagram") || "").trim(),
       services: fd.getAll("services"),
       price_min: prices.min,
       price_max: prices.max,
       hours: hours.hours,
+      ...addr.address,
       ...(newLoc || {}),
     };
     try {

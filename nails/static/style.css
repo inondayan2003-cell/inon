@@ -609,3 +609,10 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 4px var(--primary-
 .gallery-dots { display: flex; justify-content: center; gap: 6px; margin: -6px 0 14px; }
 .gallery-dots i { width: 6px; height: 6px; border-radius: 99px; background: var(--border); transition: width .25s var(--ease-out), background .25s; }
 .gallery-dots i.on { width: 18px; background: var(--primary); }
+
+/* ---------- address ---------- */
+.addr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.addr-row .grow2 { grid-column: span 1; }
+.addr-row:has(.grow2) { grid-template-columns: 2fr 1fr; }
+.panel .divider { margin: 6px 0 12px; }
+#loc-status .link { margin: 0 6px; padding: 0; }

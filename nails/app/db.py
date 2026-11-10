@@ -103,6 +103,11 @@ def init() -> None:
             # when photos were last added; '' for older rows (= nothing new)
             "photos_updated_at": "TEXT NOT NULL DEFAULT ''",
             "instagram": "TEXT NOT NULL DEFAULT ''",   # username, without @
+            # exact address (address = the composed display line)
+            "street": "TEXT NOT NULL DEFAULT ''",
+            "house_number": "TEXT NOT NULL DEFAULT ''",
+            "apartment": "TEXT NOT NULL DEFAULT ''",
+            "entrance": "TEXT NOT NULL DEFAULT ''",
         })
 
 

@@ -14,7 +14,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, db
+import httpx
+
+from . import auth, db, geocode
 from .geo import bounding_box, distance_km, normalize_phone, whatsapp_number
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -236,6 +238,29 @@ def _instagram(raw: str) -> str:
     return v
 
 
+def _address_line(street: str, number: str, apartment: str, entrance: str) -> str:
+    """'הרצל 12, כניסה ב, דירה 4'"""
+    line = f"{street} {number}".strip()
+    if entrance:
+        line += f", כניסה {entrance}"
+    if apartment:
+        line += f", דירה {apartment}"
+    return line
+
+
+def _locate(city: str, street: str, number: str) -> tuple[float, float]:
+    """Map position of an address, or a clear error the owner can fix."""
+    if not street or not number:
+        raise HTTPException(422, "צריך למלא רחוב ומספר בית, או לבחור 'אני בעסק עכשיו'")
+    try:
+        pos = geocode.lookup(city, street, number)
+    except httpx.HTTPError:
+        raise HTTPException(503, "לא הצלחנו לבדוק את הכתובת כרגע. נסי שוב בעוד רגע")
+    if pos is None:
+        raise HTTPException(422, "לא מצאנו את הכתובת במפה. בדקי את שם העיר והרחוב")
+    return pos
+
+
 def _check_coords(lat: float, lng: float) -> None:
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise HTTPException(422, "מיקום לא תקין")
@@ -317,6 +342,10 @@ def _public(row, photos: list[dict], dist: float | None = None) -> dict:
         "phone": row["phone"],
         "city": row["city"],
         "address": row["address"],
+        "street": row["street"],
+        "house_number": row["house_number"],
+        "apartment": row["apartment"],
+        "entrance": row["entrance"],
         "description": row["description"],
         "instagram": row["instagram"],
         "services": [s for s in row["services"].split(",") if s],
@@ -435,40 +464,50 @@ async def create_business(
     name: str = Form(..., min_length=2, max_length=60),
     phone: str = Form(...),
     city: str = Form(..., min_length=2, max_length=40),
-    address: str = Form("", max_length=100),
+    street: str = Form("", max_length=60),
+    house_number: str = Form("", max_length=10),
+    apartment: str = Form("", max_length=10),
+    entrance: str = Form("", max_length=10),
     description: str = Form("", max_length=600),
     instagram: str = Form("", max_length=100),
     services: str = Form(""),
     price_min: int = Form(...),
     price_max: int = Form(...),
     hours: str = Form(...),
-    lat: float = Form(...),
-    lng: float = Form(...),
+    lat: float | None = Form(None),     # from the phone's location; otherwise found from the address
+    lng: float | None = Form(None),
     photos: list[UploadFile] = File(...),
     user: dict = Depends(current_user),
 ):
     norm = normalize_phone(phone)
     if norm is None:
         raise HTTPException(422, "מספר טלפון לא תקין")
-    _check_coords(lat, lng)
+    city, street, house_number = city.strip(), street.strip(), house_number.strip()
+    apartment, entrance = apartment.strip(), entrance.strip()
     service_keys = _services(services)
     _check_prices(price_min, price_max)
     hours_ok = _hours(hours)
     insta = _instagram(instagram)
     if not (MIN_PHOTOS <= len(photos) <= MAX_PHOTOS):
         raise HTTPException(422, f"צריך להעלות בין {MIN_PHOTOS} ל-{MAX_PHOTOS} תמונות")
+    if (lat is None) != (lng is None):
+        raise HTTPException(422, "צריך לשלוח גם lat וגם lng")
+    if lat is None:
+        lat, lng = _locate(city, street, house_number)
+    _check_coords(lat, lng)
 
     saved = await _save_photos(photos)
     try:
         with db.connect() as conn:
             conn.execute("BEGIN")
             cur = conn.execute(
-                "INSERT INTO businesses (owner_uid, name, phone, city, address, description,"
-                " services, price_min, price_max, hours, lat, lng, instagram)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (user["uid"], name.strip(), norm, city.strip(), address.strip(),
-                 description.strip(), ",".join(service_keys), price_min, price_max,
-                 json.dumps(hours_ok), lat, lng, insta),
+                "INSERT INTO businesses (owner_uid, name, phone, city, address, street, house_number,"
+                " apartment, entrance, description, services, price_min, price_max, hours, lat, lng,"
+                " instagram) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user["uid"], name.strip(), norm, city,
+                 _address_line(street, house_number, apartment, entrance), street, house_number,
+                 apartment, entrance, description.strip(), ",".join(service_keys), price_min,
+                 price_max, json.dumps(hours_ok), lat, lng, insta),
             )
             bid = cur.lastrowid
             conn.executemany(
@@ -487,7 +526,10 @@ class BusinessUpdate(BaseModel):
     name: str | None = Field(None, min_length=2, max_length=60)
     phone: str | None = None
     city: str | None = Field(None, min_length=2, max_length=40)
-    address: str | None = Field(None, max_length=100)
+    street: str | None = Field(None, max_length=60)
+    house_number: str | None = Field(None, max_length=10)
+    apartment: str | None = Field(None, max_length=10)
+    entrance: str | None = Field(None, max_length=10)
     description: str | None = Field(None, max_length=600)
     instagram: str | None = Field(None, max_length=100)
     services: list[str] | None = None
@@ -508,7 +550,7 @@ def update_business(business_id: int, body: BusinessUpdate, user: dict = Depends
         if norm is None:
             raise HTTPException(422, "מספר טלפון לא תקין")
         fields["phone"] = norm
-    for key in ("city", "address", "description"):
+    for key in ("city", "street", "house_number", "apartment", "entrance", "description"):
         val = getattr(body, key)
         if val is not None:
             fields[key] = val.strip()
@@ -530,7 +572,14 @@ def update_business(business_id: int, body: BusinessUpdate, user: dict = Depends
         fields["lat"], fields["lng"] = body.lat, body.lng
 
     with db.connect() as conn:
-        _owned_business(conn, business_id, user)
+        row = _owned_business(conn, business_id, user)
+        merged = {k: fields.get(k, row[k]) for k in ("city", "street", "house_number", "apartment", "entrance")}
+        if any(k in fields for k in merged):
+            fields["address"] = _address_line(merged["street"], merged["house_number"],
+                                              merged["apartment"], merged["entrance"])
+            moved = any(fields.get(k, row[k]) != row[k] for k in ("city", "street", "house_number"))
+            if moved and "lat" not in fields:  # new address and no pin from the phone: find it
+                fields["lat"], fields["lng"] = _locate(merged["city"], merged["street"], merged["house_number"])
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             conn.execute(f"UPDATE businesses SET {sets} WHERE id = ?", [*fields.values(), business_id])
