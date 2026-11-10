@@ -5,7 +5,7 @@
 "use strict";
 
 (function () {
-  const KEY = "nails.preview.db.v4";
+  const KEY = "nails.preview.db.v5";
   const TZ = "Asia/Jerusalem";
 
   const SERVICES = {
@@ -83,6 +83,7 @@
           services: services.split(","), price_min: pmin, price_max: pmax, description, hours,
           photos: [0, 1, 2, 3, 4].map((i) => ({ id: db.nextPhoto++, sample: [n, i] })),
           views: 0, clicks: 0, created: Date.now() - n * 1000, sampleVerified: n % 3 === 0,
+          instagram: ["pink.studio.tlv", "", "lia.nails", "", "glow.studio", "", ""][n],
         });
       });
       save();
@@ -118,6 +119,7 @@
   function pub(b, dist = null) {
     return {
       id: b.id, name: b.name, phone: b.phone, city: b.city, address: b.address, description: b.description,
+      instagram: b.instagram || "",
       services: b.services, price_min: b.price_min, price_max: b.price_max, hours: b.hours, open_now: openNow(b.hours),
       lat: b.lat, lng: b.lng, photos: b.photos.map((p) => ({ id: p.id, url: photoUrl(p) })),
       distance_km: dist == null ? null : Math.round(dist * 10) / 10,
@@ -136,6 +138,14 @@
     }
     if (!Object.keys(out).length) fail(422, "צריך לבחור לפחות יום פעילות אחד");
     return out;
+  }
+  function insta(raw) {
+    let v = String(raw).trim();
+    const m = /^(?:https?:\/\/)?(?:www\.)?instagram\.com\/([^/?#]+)/i.exec(v);
+    if (m) v = m[1];
+    v = v.replace(/^@+/, "").trim();
+    if (v && !/^[A-Za-z0-9._]{1,30}$/.test(v)) fail(422, "שם המשתמש באינסטגרם לא תקין");
+    return v;
   }
   function checkPrices(min, max) {
     if (!(min > 0 && max > 0 && min <= 5000 && max <= 5000)) fail(422, "המחירים צריכים להיות בין 1 ל-5000 ₪");
@@ -291,6 +301,7 @@
       const b = {
         id: db.nextId++, owner: user.uid, name: f.get("name").trim(), phone, city: f.get("city").trim(),
         address: (f.get("address") || "").trim(), description: (f.get("description") || "").trim(),
+        instagram: insta(f.get("instagram") || ""),
         services: (f.get("services") || "").split(",").filter(Boolean), price_min: pmin, price_max: pmax, hours,
         lat: Number(f.get("lat")), lng: Number(f.get("lng")), photos: await storePhotos(files),
         views: 0, clicks: 0, created: Date.now(), photos_updated_at: Date.now(),
@@ -326,6 +337,13 @@
       const b = db.businesses.find((x) => x.id === Number(m[1])) || fail(404, "העסק לא נמצא");
       if (b.owner !== user.uid) { b.clicks++; save(); }
       return null;
+    }
+    if ((m = /^\/api\/businesses\/(\d+)\/photos\/(\d+)\/main$/.exec(path))) {
+      const b = owned(Number(m[1]), user);
+      const p = b.photos.find((x) => x.id === Number(m[2])) || fail(404, "התמונה לא נמצאה");
+      b.photos = [p, ...b.photos.filter((x) => x !== p)];
+      save();
+      return pub(b).photos;
     }
     if ((m = /^\/api\/businesses\/(\d+)\/photos(?:\/(\d+))?$/.exec(path))) {
       const b = owned(Number(m[1]), user);
@@ -363,7 +381,8 @@
       if (u.phone != null) u.phone = normPhone(u.phone) || fail(422, "מספר טלפון לא תקין");
       if (u.price_min != null) checkPrices(u.price_min, u.price_max);
       if (u.hours != null) u.hours = checkHours(u.hours);
-      for (const k of ["name", "phone", "city", "address", "description", "services", "price_min", "price_max", "hours", "lat", "lng"]) {
+      if (u.instagram != null) u.instagram = insta(u.instagram);
+      for (const k of ["name", "phone", "city", "address", "description", "services", "price_min", "price_max", "hours", "lat", "lng", "instagram"]) {
         if (u[k] != null) b[k] = u[k];
       }
       saveOrFail();

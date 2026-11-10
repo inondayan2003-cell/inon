@@ -224,6 +224,18 @@ def _open_now(hours: dict, now: datetime | None = None) -> bool:
     return bool(span) and span[0] <= now.strftime("%H:%M") < span[1]
 
 
+def _instagram(raw: str) -> str:
+    """Accepts @name, name or an instagram.com link; returns the username ('' = none)."""
+    v = raw.strip()
+    m = re.match(r"^(?:https?://)?(?:www\.)?instagram\.com/([^/?#]+)", v, re.I)
+    if m:
+        v = m.group(1)
+    v = v.lstrip("@").strip()
+    if v and not re.fullmatch(r"[A-Za-z0-9._]{1,30}", v):
+        raise HTTPException(422, "שם המשתמש באינסטגרם לא תקין")
+    return v
+
+
 def _check_coords(lat: float, lng: float) -> None:
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise HTTPException(422, "מיקום לא תקין")
@@ -306,6 +318,7 @@ def _public(row, photos: list[dict], dist: float | None = None) -> dict:
         "city": row["city"],
         "address": row["address"],
         "description": row["description"],
+        "instagram": row["instagram"],
         "services": [s for s in row["services"].split(",") if s],
         "price_min": row["price_min"],
         "price_max": row["price_max"],
@@ -424,6 +437,7 @@ async def create_business(
     city: str = Form(..., min_length=2, max_length=40),
     address: str = Form("", max_length=100),
     description: str = Form("", max_length=600),
+    instagram: str = Form("", max_length=100),
     services: str = Form(""),
     price_min: int = Form(...),
     price_max: int = Form(...),
@@ -440,6 +454,7 @@ async def create_business(
     service_keys = _services(services)
     _check_prices(price_min, price_max)
     hours_ok = _hours(hours)
+    insta = _instagram(instagram)
     if not (MIN_PHOTOS <= len(photos) <= MAX_PHOTOS):
         raise HTTPException(422, f"צריך להעלות בין {MIN_PHOTOS} ל-{MAX_PHOTOS} תמונות")
 
@@ -449,11 +464,11 @@ async def create_business(
             conn.execute("BEGIN")
             cur = conn.execute(
                 "INSERT INTO businesses (owner_uid, name, phone, city, address, description,"
-                " services, price_min, price_max, hours, lat, lng)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " services, price_min, price_max, hours, lat, lng, instagram)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (user["uid"], name.strip(), norm, city.strip(), address.strip(),
                  description.strip(), ",".join(service_keys), price_min, price_max,
-                 json.dumps(hours_ok), lat, lng),
+                 json.dumps(hours_ok), lat, lng, insta),
             )
             bid = cur.lastrowid
             conn.executemany(
@@ -474,6 +489,7 @@ class BusinessUpdate(BaseModel):
     city: str | None = Field(None, min_length=2, max_length=40)
     address: str | None = Field(None, max_length=100)
     description: str | None = Field(None, max_length=600)
+    instagram: str | None = Field(None, max_length=100)
     services: list[str] | None = None
     price_min: int | None = None
     price_max: int | None = None
@@ -496,6 +512,8 @@ def update_business(business_id: int, body: BusinessUpdate, user: dict = Depends
         val = getattr(body, key)
         if val is not None:
             fields[key] = val.strip()
+    if body.instagram is not None:
+        fields["instagram"] = _instagram(body.instagram)
     if body.services is not None:
         fields["services"] = ",".join(_services(",".join(body.services)))
     if (body.price_min is None) != (body.price_max is None):
@@ -536,6 +554,23 @@ async def add_photos(business_id: int, photos: list[UploadFile] = File(...),
             [(business_id, n, count + i) for i, n in enumerate(saved)],
         )
         conn.execute(f"UPDATE businesses SET photos_updated_at = {NOW} WHERE id = ?", (business_id,))
+        return _photos(conn, business_id)
+
+
+@app.post("/api/businesses/{business_id}/photos/{photo_id}/main")
+def set_main_photo(business_id: int, photo_id: int, user: dict = Depends(current_user)):
+    """Move a photo to the front: it becomes the cover on the business card."""
+    with db.connect() as conn:
+        _owned_business(conn, business_id, user)
+        ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM photos WHERE business_id = ? ORDER BY position, id", (business_id,))]
+        if photo_id not in ids:
+            raise HTTPException(404, "התמונה לא נמצאה")
+        ids.remove(photo_id)
+        conn.execute("BEGIN")
+        conn.executemany("UPDATE photos SET position = ? WHERE id = ?",
+                         [(pos, pid) for pos, pid in enumerate([photo_id, *ids])])
+        conn.execute("COMMIT")
         return _photos(conn, business_id)
 
 

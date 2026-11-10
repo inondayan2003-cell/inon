@@ -480,3 +480,40 @@ input.readonly { opacity: .7; cursor: default; }
 .tabbar a { position: relative; }
 .tabbar a.has-new::after { content: ""; position: absolute; top: 12px; inset-inline-end: calc(50% - 18px);
   width: 9px; height: 9px; border-radius: 50%; background: var(--gold); border: 2px solid var(--surface); }
+
+/* ---------- share sheet ---------- */
+.top-actions { display: flex; gap: 8px; }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 3000; background: rgba(20, 10, 14, .45); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: 100%; max-width: 560px; background: var(--surface); border-radius: 24px 24px 0 0; display: grid; gap: 10px;
+  padding: 10px 18px calc(22px + env(safe-area-inset-bottom)); animation: sheet-up .2s ease-out; }
+.sheet h3 { margin: 6px 0; text-align: center; }
+.sheet-grip { width: 44px; height: 5px; border-radius: 99px; background: var(--border); margin: 0 auto; }
+.share-url { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font: inherit; font-size: .85rem; }
+.sheet .link { justify-self: center; }
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
+.actions .row.three { grid-template-columns: repeat(3, 1fr); }
+.actions .row.three .btn { padding-inline: 8px; font-size: .92rem; }
+
+/* ---------- instagram field ---------- */
+.insta-wrap { display: flex; align-items: center; direction: ltr; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; }
+.insta-wrap b { padding-left: 14px; color: var(--muted); }
+.insta-wrap input { border: 0; background: none; padding-left: 4px; }
+
+/* ---------- main photo ---------- */
+.photo-grid .make-main { position: absolute; bottom: 4px; inset-inline-end: 4px; width: 30px; height: 30px; border-radius: 50%; border: 0;
+  background: rgba(0,0,0,.5); color: #fff; cursor: pointer; display: grid; place-items: center; }
+.photo-grid .make-main svg { width: 17px; height: 17px; }
+.photo-grid .main-tag { position: absolute; bottom: 4px; inset-inline-end: 4px; padding: 2px 8px; border-radius: 99px;
+  background: var(--gold); color: #fff; font-size: .72rem; font-weight: 700; }
+
+/* ---------- install banner ---------- */
+.install-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 14px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.install-banner .logo { width: 40px; height: 40px; font-size: 20px; }
+.install-banner .grow { min-width: 0; }
+.install-banner b { display: block; font-size: .95rem; }
+.install-banner small { color: var(--muted); font-size: .82rem; }
+.install-x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; flex: none; }
+.install-x svg { width: 18px; height: 18px; }
+.ios-share { display: inline-block; padding: 0 4px; border: 1px solid var(--muted); border-radius: 4px; font-size: .75rem; }

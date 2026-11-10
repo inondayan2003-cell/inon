@@ -45,6 +45,11 @@ const ICON = {
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></svg>',
+  instagram: '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r=".6" fill="currentColor"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>',
   google: '<svg viewBox="0 0 24 24" class="brand"><path fill="#4285F4" stroke="none" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h6a5 5 0 0 1-2.2 3.3v2.7h3.5c2-1.9 3.3-4.7 3.3-8z"/><path fill="#34A853" stroke="none" d="M12 23c3 0 5.5-1 7.3-2.7l-3.5-2.7c-1 .7-2.3 1.1-3.8 1.1-2.9 0-5.4-2-6.3-4.7H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" stroke="none" d="M5.7 14a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" stroke="none" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.1 7l3.6 2.8C6.6 7.3 9.1 5.4 12 5.4z"/></svg>',
@@ -622,13 +627,49 @@ function renderWelcome() {
       });
       loadFavorites();
       toast(`ברוכה הבאה, ${name.split(" ")[0]}! 💅`);
-      nav.go("#/");
+      nav.go(takeReturn() || "#/");
     } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
   });
   $("#other-account").addEventListener("click", () => Auth.signOut());
 }
 
 /* ================= home ================= */
+
+/* ================= install as an app ================= */
+
+let installEvent = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();            // show our own banner instead
+  installEvent = e;
+  if (nav.hash === "" || nav.hash === "#/") showInstallBanner();
+});
+
+const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
+
+function showInstallBanner() {
+  const slot = $("#install-slot");
+  if (!slot || session.preview || isStandalone()) return;
+  if (Date.now() - store.get("nails.install.dismissed", 0) < 14 * 864e5) return;
+  const ios = isIOS();
+  if (!installEvent && !ios) return;   // this browser can't install
+  slot.innerHTML = `<div class="install-banner">
+      <div class="logo">💅</div>
+      <div class="grow"><b>הוסיפי את Nails למסך הבית</b>
+        <small>${ios ? 'בספארי: לחצי על כפתור השיתוף <span class="ios-share">⬆︎</span> ואז "הוספה למסך הבית"'
+          : "נפתחת כמו אפליקציה, בלחיצה אחת"}</small></div>
+      ${ios ? "" : `<button class="btn small" id="install-btn">${ICON.download} התקנה</button>`}
+      <button class="install-x" id="install-x" aria-label="לא עכשיו">${ICON.close}</button>
+    </div>`;
+  $("#install-x").addEventListener("click", () => { store.set("nails.install.dismissed", Date.now()); slot.innerHTML = ""; });
+  $("#install-btn")?.addEventListener("click", async () => {
+    installEvent.prompt();
+    const { outcome } = await installEvent.userChoice;
+    installEvent = null;
+    slot.innerHTML = "";
+    if (outcome === "accepted") toast("Nails נוספה למסך הבית 💅");
+  });
+}
 
 function renderHome() {
   // No location yet: start from the city in her profile.
@@ -646,6 +687,8 @@ function renderHome() {
       <div class="spacer"></div>
       <a class="icon-btn" href="#/favorites" aria-label="מועדפים">${ICON.heart}</a>
     </div>
+
+    <div id="install-slot"></div>
 
     <label class="search">${ICON.search}
       <input id="q" type="search" placeholder="חפשי לפי שם, עיר או סגנון..." value="${esc(state.q)}">
@@ -688,6 +731,7 @@ function renderHome() {
   });
   if (!state.loc) tryAutoLocate();
   loadResults();
+  showInstallBanner();
 }
 
 async function tryAutoLocate() {
@@ -775,7 +819,10 @@ async function renderBusiness(id) {
   view.innerHTML = `
     <div class="page-title" style="justify-content:space-between">
       <a class="back" href="#/" aria-label="חזרה">${ICON.back}</a>
-      <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
+      <div class="top-actions">
+        <button class="icon-btn" id="share" aria-label="שיתוף העסק">${ICON.share}</button>
+        <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
+      </div>
     </div>
     <div class="gallery">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
     <div class="biz-head">
@@ -798,9 +845,10 @@ async function renderBusiness(id) {
 
     <div class="actions">
       <a class="btn whatsapp block" id="wa" href="${esc(b.whatsapp_url)}" target="_blank" rel="noopener">${ICON.whatsapp} שליחת הודעה בוואטסאפ</a>
-      <div class="row">
+      <div class="row ${b.instagram ? "three" : ""}">
         <a class="btn outline" href="tel:${esc(b.phone)}">${ICON.phone} התקשרות</a>
         <a class="btn outline" href="${waze}" target="_blank" rel="noopener">${ICON.nav} ניווט</a>
+        ${b.instagram ? `<a class="btn outline" href="https://instagram.com/${esc(b.instagram)}" target="_blank" rel="noopener">${ICON.instagram} אינסטגרם</a>` : ""}
       </div>
       <p class="note">ההודעה תיפתח עם הטקסט: "היי! הגעתי אלייך דרך אפליקציית Nails 💅"</p>
     </div>`;
@@ -812,10 +860,49 @@ async function renderBusiness(id) {
     paintFav(on);
     toast(on ? "נשמר במועדפים 💖" : "הוסר מהמועדפים");
   });
+  $("#share").addEventListener("click", () => openShare(b));
   $("#wa").addEventListener("click", () => {
     // Count the enquiry; don't block opening WhatsApp.
     api(`/api/businesses/${b.id}/lead`, { method: "POST", keepalive: true }).catch(() => {});
   });
+}
+
+/* ================= share ================= */
+
+const businessLink = (id) => `${location.origin}${location.pathname}#/b/${id}`;
+
+function openShare(b) {
+  const url = businessLink(b.id);
+  const text = `מצאתי את ${b.name} ב-Nails 💅 ${b.city}${priceText(b) ? ` · ${priceText(b).replace(/<[^>]+>/g, "")}` : ""}`;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet-backdrop";
+  sheet.innerHTML = `
+    <div class="sheet" role="dialog" aria-label="שיתוף העסק">
+      <div class="sheet-grip"></div>
+      <h3>שיתוף ${esc(b.name)}</h3>
+      <a class="btn whatsapp block" target="_blank" rel="noopener"
+        href="https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}">${ICON.whatsapp} שליחה בוואטסאפ</a>
+      ${navigator.share ? `<button class="btn outline block" data-native>${ICON.share} שיתוף באפליקציה אחרת</button>` : ""}
+      <button class="btn outline block" data-copy>${ICON.link} העתקת קישור</button>
+      <input class="share-url" value="${esc(url)}" readonly dir="ltr" aria-label="קישור לעסק">
+      <button class="link" data-close>סגירה</button>
+    </div>`;
+  const close = () => sheet.remove();
+  sheet.addEventListener("click", async (e) => {
+    if (e.target === sheet || e.target.closest("[data-close]")) return close();
+    if (e.target.closest("[data-native]")) {
+      try { await navigator.share({ title: b.name, text, url }); close(); } catch { /* cancelled */ }
+    }
+    if (e.target.closest("[data-copy]")) {
+      try { await navigator.clipboard.writeText(url); toast("הקישור הועתק ✓"); close(); } catch {
+        const input = sheet.querySelector(".share-url");
+        input.focus(); input.select();
+        toast("סמני את הקישור והעתיקי");
+      }
+    }
+    if (e.target.closest("a.whatsapp")) setTimeout(close, 300);
+  });
+  document.body.appendChild(sheet);
 }
 
 /* ================= favorites ================= */
@@ -926,6 +1013,9 @@ function businessFields(b = {}) {
       </div>
       <p class="note" style="text-align:start;margin:4px 0 0">מהטיפול הכי זול שלך ועד הכי יקר</p>
     </div>
+    <label class="field" style="margin-top:12px"><span>אינסטגרם (לא חובה)</span>
+      <span class="insta-wrap"><b>@</b><input type="text" name="instagram" maxlength="100" dir="ltr" value="${esc(b.instagram)}"
+        placeholder="your.studio" autocapitalize="off" autocorrect="off" spellcheck="false"></span></label>
     <label class="field" style="margin-top:12px"><span>כמה מילים על העסק (לא חובה)</span>
       <textarea name="description" rows="3" maxlength="600" placeholder="ניסיון, סגנון, אווירה...">${esc(b.description)}</textarea></label>`;
 }
@@ -976,7 +1066,7 @@ function renderAdd() {
 
       <section class="panel">
         <div class="panel-head"><div class="step">${ICON.camera}<b>4</b></div>
-          <div><h2>תמונות של עבודות</h2><p>לפחות ${MIN_PHOTOS} תמונות של ציפורניים שעשית</p></div></div>
+          <div><h2>תמונות של עבודות</h2><p>לפחות ${MIN_PHOTOS} תמונות של ציפורניים שעשית. ⭐ קובע איזו תמונה תופיע ראשונה</p></div></div>
         <div class="photo-grid" id="photos"></div>
         <input type="file" id="file" accept="image/*" multiple hidden>
         <p class="progress" id="photo-status"></p>
@@ -1003,7 +1093,9 @@ function renderAdd() {
 
   const drawPhotos = () => {
     $("#photos").innerHTML = photos.map((p, i) => `
-      <div class="ph"><img src="${p.preview}" alt=""><button type="button" class="rm" data-rm="${i}" aria-label="הסרה">${ICON.close}</button></div>`).join("")
+      <div class="ph"><img src="${p.preview}" alt=""><button type="button" class="rm" data-rm="${i}" aria-label="הסרה">${ICON.close}</button>
+        ${i === 0 ? '<span class="main-tag">ראשית</span>'
+          : `<button type="button" class="make-main" data-main="${i}" aria-label="קביעה כתמונה ראשית">${ICON.star}</button>`}</div>`).join("")
       + (photos.length < MAX_PHOTOS ? `<div class="ph add-ph" id="add-ph" role="button" tabindex="0">${ICON.plus}<span>הוספת תמונות</span></div>` : "");
     const st = $("#photo-status");
     const missing = MIN_PHOTOS - photos.length;
@@ -1012,6 +1104,13 @@ function renderAdd() {
     $("#add-ph")?.addEventListener("click", () => $("#file").click());
   };
   $("#photos").addEventListener("click", (e) => {
+    const main = e.target.closest("[data-main]");
+    if (main) {
+      const [p] = photos.splice(Number(main.dataset.main), 1);
+      photos.unshift(p);
+      drawPhotos();
+      return;
+    }
     const rm = e.target.closest("[data-rm]");
     if (!rm) return;
     const [p] = photos.splice(Number(rm.dataset.rm), 1);
@@ -1047,7 +1146,7 @@ function renderAdd() {
     if (photos.length < MIN_PHOTOS) return fail(`צריך לפחות ${MIN_PHOTOS} תמונות`);
 
     const body = new FormData();
-    for (const k of ["name", "phone", "city", "address", "description"]) body.set(k, fd.get(k) || "");
+    for (const k of ["name", "phone", "city", "address", "description", "instagram"]) body.set(k, fd.get(k) || "");
     body.set("services", fd.getAll("services").join(","));
     body.set("price_min", prices.min);
     body.set("price_max", prices.max);
@@ -1609,7 +1708,7 @@ async function renderManage(id, isNew) {
 
     <section class="panel">
       <div class="panel-head"><div class="step">${ICON.camera}</div><div><h2>תמונות</h2>
-        <p>לפחות ${MIN_PHOTOS}, עד ${MAX_PHOTOS}</p></div></div>
+        <p>לפחות ${MIN_PHOTOS}, עד ${MAX_PHOTOS}. ⭐ קובע איזו תמונה תופיע בכרטיס</p></div></div>
       <div class="photo-grid" id="photos"></div>
       <input type="file" id="file" accept="image/*" multiple hidden>
     </section>
@@ -1638,6 +1737,7 @@ async function renderManage(id, isNew) {
       city: String(fd.get("city")).trim(),
       address: String(fd.get("address") || "").trim(),
       description: String(fd.get("description") || "").trim(),
+      instagram: String(fd.get("instagram") || "").trim(),
       services: fd.getAll("services"),
       price_min: prices.min,
       price_max: prices.max,
@@ -1654,13 +1754,24 @@ async function renderManage(id, isNew) {
 
   let photos = b.photos;
   const drawPhotos = () => {
-    $("#photos").innerHTML = photos.map((p) => `
+    $("#photos").innerHTML = photos.map((p, i) => `
       <div class="ph"><img src="${esc(p.url)}" alt="">${photos.length > MIN_PHOTOS
-        ? `<button type="button" class="rm" data-rm="${p.id}" aria-label="מחיקה">${ICON.close}</button>` : ""}</div>`).join("")
+        ? `<button type="button" class="rm" data-rm="${p.id}" aria-label="מחיקה">${ICON.close}</button>` : ""}
+        ${i === 0 ? '<span class="main-tag">ראשית</span>'
+          : `<button type="button" class="make-main" data-main="${p.id}" aria-label="קביעה כתמונה ראשית">${ICON.star}</button>`}</div>`).join("")
       + (photos.length < MAX_PHOTOS ? `<div class="ph add-ph" id="add-ph" role="button" tabindex="0">${ICON.plus}<span>הוספה</span></div>` : "");
     $("#add-ph")?.addEventListener("click", () => $("#file").click());
   };
   $("#photos").addEventListener("click", async (e) => {
+    const main = e.target.closest("[data-main]");
+    if (main) {
+      try {
+        photos = await api(`/api/businesses/${id}/photos/${main.dataset.main}/main`, { method: "POST" });
+        drawPhotos();
+        toast("התמונה הראשית עודכנה ✓");
+      } catch (ex) { toast(ex.message); }
+      return;
+    }
     const rm = e.target.closest("[data-rm]");
     if (!rm) return;
     try {
@@ -1703,6 +1814,16 @@ async function renderManage(id, isNew) {
 /* ================= router ================= */
 
 const AUTH_PAGES = new Set(["signup", "login", "phone"]);
+
+// A page opened before signing in (a shared link) is shown right after.
+function rememberReturn(hash) { try { sessionStorage.setItem("nails.return", hash); } catch { /* blocked */ } }
+function takeReturn() {
+  try {
+    const h = sessionStorage.getItem("nails.return");
+    sessionStorage.removeItem("nails.return");
+    return h;
+  } catch { return null; }
+}
 const isAuthPageEnabled = (page) => page !== "phone" || session.methods.includes("phone");
 
 function route() {
@@ -1714,11 +1835,15 @@ function route() {
 
   // Guards: not signed in -> sign-up; signed in but no name yet -> welcome.
   if (!session.user) {
-    if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) { nav.replace("#/signup"); return; }
+    if (!AUTH_PAGES.has(page) || !isAuthPageEnabled(page)) {
+      if (page && page !== "welcome") rememberReturn(hash);   // e.g. a shared business link
+      nav.replace("#/signup");
+      return;
+    }
   } else if (!session.profile) {
     if (page !== "welcome") { nav.replace("#/welcome"); return; }
   } else if (AUTH_PAGES.has(page) || page === "welcome") {
-    nav.replace("#/"); return;
+    nav.replace(takeReturn() || "#/"); return;
   }
 
   document.body.classList.toggle("signed-out", !session.profile);
@@ -1768,6 +1893,10 @@ async function onAuthChange(user) {
     nav.silent("#/login");
   }
   route();
+}
+
+if ("serviceWorker" in navigator && !window.NAILS_NAV) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
 (async function start() {

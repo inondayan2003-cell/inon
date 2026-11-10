@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nails · אין חיבור</title>
+  <style>
+    :root { --bg: #fffafb; --text: #2a1f23; --muted: #85747a; --primary: #b03a64; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #171114; --text: #f7eef1; --muted: #b8a2aa; --primary: #e9739c; } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 24px;
+      font-family: "Heebo", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    img { width: 84px; height: 84px; }
+    h1 { margin: 16px 0 6px; font-size: 1.4rem; }
+    p { color: var(--muted); margin: 0 0 20px; }
+    button { border: 0; border-radius: 999px; padding: 12px 26px; background: var(--primary); color: #fff; font: inherit; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/icon-192.png" alt="">
+    <h1>אין חיבור לאינטרנט</h1>
+    <p>Nails צריכה אינטרנט כדי להציג עסקים. בדקי את החיבור ונסי שוב.</p>
+    <button onclick="location.reload()">לנסות שוב</button>
+  </main>
+</body>
+</html>

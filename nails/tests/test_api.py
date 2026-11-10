@@ -169,3 +169,26 @@ def test_open_now_filter(client):
     r = client.get("/api/businesses", params={"open_now": "true"}).json()
     names = [b["name"] for b in r]
     assert "תמיד פתוח" in names and "כמעט תמיד סגור" not in names
+
+
+# ---------- instagram & main photo ----------
+
+def test_instagram_forms(client):
+    for raw, expected in [("@nail.studio_1", "nail.studio_1"), ("https://www.instagram.com/lia.nails/?hl=he", "lia.nails"),
+                          ("instagram.com/abc", "abc"), ("", "")]:
+        bid = make_business(client, instagram=raw).json()["id"]
+        assert client.get(f"/api/businesses/{bid}").json()["instagram"] == expected
+    assert make_business(client, instagram="not valid!").status_code == 422
+    r = client.patch(f"/api/businesses/{bid}", json={"instagram": "@new_name"})
+    assert r.json()["instagram"] == "new_name"
+
+
+def test_set_main_photo(client):
+    bid = make_business(client).json()["id"]
+    ids = [p["id"] for p in client.get(f"/api/businesses/{bid}").json()["photos"]]
+    r = client.post(f"/api/businesses/{bid}/photos/{ids[3]}/main")
+    assert [p["id"] for p in r.json()] == [ids[3], ids[0], ids[1], ids[2], ids[4]]
+    assert client.get("/api/businesses").json()[0]["photos"][0]["id"] == ids[3]   # the card cover
+    other = register(client, "noa")
+    assert client.post(f"/api/businesses/{bid}/photos/{ids[0]}/main", headers=other).status_code == 403
+    assert client.post(f"/api/businesses/{bid}/photos/99999/main").status_code == 404

@@ -102,6 +102,7 @@ def init() -> None:
         _add_missing_columns(conn, "businesses", {
             # when photos were last added; '' for older rows (= nothing new)
             "photos_updated_at": "TEXT NOT NULL DEFAULT ''",
+            "instagram": "TEXT NOT NULL DEFAULT ''",   # username, without @
         })
 
 
