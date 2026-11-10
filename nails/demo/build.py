@@ -20,7 +20,7 @@ mock = (ROOT / "demo" / "mock-api.js").read_text()
 
 # Page body: everything between <body> and the first <script>.
 body = index.split("<body", 1)[1].split(">", 1)[1].split("<script", 1)[0]
-body = re.sub(r'<div class="boot">.*?</div>', "", body)
+body = re.sub(r'<div class="boot".*?</div>', "", body, flags=re.S)
 
 # Dark theme: follow both the system setting and an explicit data-theme choice.
 m = re.search(r"@media \(prefers-color-scheme: dark\) \{\n  :root \{(.*?)\n  \}\n\}", css, re.S)

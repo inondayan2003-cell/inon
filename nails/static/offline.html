@@ -6,21 +6,30 @@
   <title>Nails · אין חיבור</title>
   <link rel="stylesheet" href="/fonts/fonts.css">
   <style>
-    :root { --bg: #f8f4f1; --text: #2b1b16; --muted: #86766e; --primary: #5a3426; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #15100e; --text: #f4ece8; --muted: #b1a29a; --primary: #e3c6ba; } }
+    :root { --bg: #f8f4f1; --text: #2b1b16; --muted: #76665e; --primary: #5a3426; --soft: #f2e9e5; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #15100e; --text: #f4ece8; --muted: #b1a29a; --primary: #e3c6ba; --soft: #2a211d; } }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 24px;
       font-family: "Heebo", system-ui, sans-serif; background: var(--bg); color: var(--text); }
-    img { width: 84px; height: 84px; }
-    h1 { margin: 16px 0 6px; font-size: 1.4rem; }
-    p { color: var(--muted); margin: 0 0 20px; }
-    .retry { display: inline-block; border-radius: 999px; padding: 12px 26px; background: var(--primary); color: #fff; font-weight: 700; text-decoration: none; }
+    .art { width: 96px; height: 96px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center;
+      background: var(--soft); color: var(--primary); }
+    .art svg { width: 48px; height: 40px; }
+    rect { fill: currentColor; opacity: .25; }
+    @media (prefers-reduced-motion: no-preference) {
+      rect { animation: signal 1.6s infinite; }
+      rect:nth-child(2) { animation-delay: .2s; } rect:nth-child(3) { animation-delay: .4s; } rect:nth-child(4) { animation-delay: .6s; }
+      @keyframes signal { 0%, 100% { opacity: .2; } 40% { opacity: 1; } }
+    }
+    h1 { font-family: "Frank Ruhl Libre", serif; margin: 0 0 6px; font-size: 1.5rem; }
+    p { color: var(--muted); margin: 0 0 22px; }
+    .retry { display: inline-block; border-radius: 999px; padding: 12px 26px; background: var(--primary); color: var(--bg);
+      font-weight: 700; text-decoration: none; }
   </style>
 </head>
 <body>
   <main>
-    <img src="/icon-192.png" alt="">
-    <h1>אין חיבור לאינטרנט</h1>
-    <p>Nails צריכה אינטרנט כדי להציג עסקים. בדקי את החיבור ונסי שוב.</p>
+    <div class="art"><svg viewBox="0 0 48 40" aria-hidden="true"><rect x="4" y="28" width="7" height="8" rx="2"/><rect x="15" y="20" width="7" height="16" rx="2"/><rect x="26" y="12" width="7" height="24" rx="2"/><rect x="37" y="4" width="7" height="32" rx="2"/></svg></div>
+    <h1>אין קליטה כרגע</h1>
+    <p>Nails צריכה אינטרנט כדי להציג עסקים.<br>כשהחיבור יחזור, נסי שוב.</p>
     <a class="retry" href="/">לנסות שוב</a>
   </main>
 </body>

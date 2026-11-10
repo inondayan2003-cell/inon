@@ -263,7 +263,19 @@ async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = Auth && (await Auth.token());
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...opts, headers });
+  let res;
+  netStart();
+  try {
+    res = await fetch(path, { ...opts, headers });
+  } catch {
+    const err = new Error("אין חיבור לאינטרנט");
+    err.offline = true;
+    setOffline(true);
+    throw err;
+  } finally {
+    netEnd();
+  }
+  setOffline(false);                    // the request got through
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && Auth) {
@@ -283,6 +295,102 @@ async function api(path, opts = {}) {
   }
   return data;
 }
+
+/* ================= loading & connection ================= */
+
+// A nail being painted, bottom to top, then a little flower appears. Pure SVG (no network needed).
+const NAIL_PATH = "M40,6 C58,24 72,54 72,92 C72,122 58,134 40,134 C22,134 8,122 8,92 C8,54 22,24 40,6Z";
+let loaderId = 0;
+function nailLoader(size = 64) {
+  const id = `nl${++loaderId}`;
+  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const petals = [0, 72, 144, 216, 288].map((a) => {
+    const t = (a - 90) * Math.PI / 180;
+    return `<ellipse cx="${(40 + Math.cos(t) * 7).toFixed(1)}" cy="${(66 + Math.sin(t) * 7).toFixed(1)}" rx="4.6" ry="6.4" transform="rotate(${a} ${(40 + Math.cos(t) * 7).toFixed(1)} ${(66 + Math.sin(t) * 7).toFixed(1)})"/>`;
+  }).join("");
+  return `<svg class="nail-loader" style="width:${size}px;height:${size * 1.75}px" viewBox="0 0 80 140" aria-hidden="true">
+    <defs>
+      <clipPath id="${id}c"><path d="${NAIL_PATH}"/></clipPath>
+      <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ecd6cf"/><stop offset="1" stop-color="#c9a39a"/></linearGradient>
+    </defs>
+    <path d="${NAIL_PATH}" class="nl-shell"/>
+    <g clip-path="url(#${id}c)">
+      <rect x="0" y="${still ? 0 : 140}" width="80" height="140" fill="url(#${id}g)">
+        ${still ? "" : '<animate attributeName="y" values="140;0;0;140" keyTimes="0;.55;.88;1" dur="1.9s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .2 1;0 0 1 1;.4 0 1 1"/>'}
+      </rect>
+      <path d="M25,40 C21,62 21,88 25,110" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".7"/>
+    </g>
+    <g fill="#3b1a10" opacity="${still ? 1 : 0}">${petals}
+      ${still ? "" : '<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.88;1" dur="1.9s" repeatCount="indefinite"/>'}
+    </g>
+    <circle cx="40" cy="66" r="2.6" fill="#fff" opacity="${still ? 1 : 0}">
+      ${still ? "" : '<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.88;1" dur="1.9s" repeatCount="indefinite"/>'}
+    </circle>
+  </svg>`;
+}
+
+const loadingState = (text = "רגע, טוענים...") =>
+  `<div class="loading-state" role="status">${nailLoader()}<p>${esc(text)}</p></div>`;
+
+// Signal bars that "search" for reception.
+const OFFLINE_ART = `<svg class="no-signal" viewBox="0 0 48 40" aria-hidden="true">
+  <rect x="4" y="28" width="7" height="8" rx="2"/><rect x="15" y="20" width="7" height="16" rx="2"/>
+  <rect x="26" y="12" width="7" height="24" rx="2"/><rect x="37" y="4" width="7" height="32" rx="2"/></svg>`;
+
+function offlineState() {
+  return `<div class="offline-state" role="status">
+    <div class="offline-art">${OFFLINE_ART}</div>
+    <h3>אין קליטה כרגע</h3>
+    <p>ברגע שהחיבור יחזור, נטען את הדף מחדש לבד.</p>
+    <button class="btn outline" data-retry>לנסות שוב</button>
+  </div>`;
+}
+
+// What to show inside a page area when loading it failed.
+function failState(err) {
+  return err?.offline ? offlineState() : `<p class="error">${esc(err?.message || "משהו השתבש, נסי שוב")}</p>`;
+}
+
+const net = { pending: 0, slowTimer: null, barTimer: null };
+
+function netStart() {
+  net.pending++;
+  if (net.pending > 1) return;
+  net.barTimer = setTimeout(() => document.body.classList.add("net-busy"), 300);    // thin top bar
+  net.slowTimer = setTimeout(() => {                                              // still waiting
+    const note = $("#net-note");
+    if (note) { note.innerHTML = `${nailLoader(18)}<span>החיבור איטי, עוד רגע...</span>`; note.classList.add("show"); }
+  }, 5000);
+}
+
+function netEnd() {
+  net.pending = Math.max(0, net.pending - 1);
+  if (net.pending) return;
+  clearTimeout(net.barTimer); clearTimeout(net.slowTimer);
+  document.body.classList.remove("net-busy");
+  $("#net-note")?.classList.remove("show");
+}
+
+function setOffline(off) {
+  const banner = $("#offline-banner");
+  if (!banner) return;
+  if (off) {
+    banner.innerHTML = `${OFFLINE_ART}<span>אין קליטה · ננסה שוב כשהחיבור יחזור</span>`;
+    banner.classList.add("show");
+  } else if (banner.classList.contains("show")) {
+    banner.classList.remove("show");
+    toast("החיבור חזר ✓");
+  }
+}
+
+window.addEventListener("offline", () => setOffline(true));
+window.addEventListener("online", () => {
+  setOffline(false);
+  if (document.querySelector(".offline-state")) route();     // reload what failed
+});
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-retry]")) route();
+});
 
 let SERVICES = [];
 const serviceLabel = (k) => (SERVICES.find((s) => s.key === k) || {}).label || k;
@@ -808,7 +916,7 @@ async function loadResults() {
     box.innerHTML = list.map(card).join("");
     bindFavButtons(box);
   } catch (err) {
-    if (box.isConnected) { box.className = ""; box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+    if (box.isConnected) { box.className = ""; box.innerHTML = failState(err); }
   }
 }
 
@@ -844,13 +952,13 @@ function openLocationPicker() {
 /* ================= business page ================= */
 
 async function renderBusiness(id) {
-  view.innerHTML = `${pageTitle("", "#/")}<div class="skeleton" style="aspect-ratio:4/3"></div>`;
+  view.innerHTML = `${pageTitle("", "#/")}${loadingState()}`;
   const params = state.loc ? `?lat=${state.loc.lat}&lng=${state.loc.lng}` : "";
   let b;
   try {
     b = await api(`/api/businesses/${id}${params}`);
   } catch (err) {
-    view.innerHTML = `${pageTitle("", "#/")}${empty(ICON.store, "העסק לא נמצא", esc(err.message))}`;
+    view.innerHTML = `${pageTitle("", "#/")}${err.offline ? offlineState() : empty(ICON.store, "העסק לא נמצא", esc(err.message))}`;
     return;
   }
   const waze = `https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
@@ -972,7 +1080,7 @@ async function renderFavorites() {
   const params = state.loc ? `?lat=${state.loc.lat}&lng=${state.loc.lng}` : "";
   let list;
   try { list = await api(`/api/favorites${params}`); } catch (err) {
-    box.className = ""; box.innerHTML = `<p class="error">${esc(err.message)}</p>`; return;
+    box.className = ""; box.innerHTML = failState(err); return;
   }
   if (!box.isConnected) return;
   savedIds.clear();
@@ -1335,7 +1443,7 @@ async function renderProfile() {
       : '<p class="note" style="padding:18px">בעלת עסק לציפורניים? העלי את העסק שלך ולקוחות מהאזור ימצאו אותך.</p>';
   } catch (err) {
     const box = $("#my-list");
-    if (box) box.innerHTML = `<p class="error" style="padding:14px">${esc(err.message)}</p>`;
+    if (box) box.innerHTML = failState(err);
   }
 }
 
@@ -1694,7 +1802,7 @@ async function renderAdmin(tab = "pending") {
 
   let list;
   try { list = await api(`/api/admin/verifications?status=${tab}`); } catch (ex) {
-    $("#admin-list").innerHTML = `<p class="error">${esc(ex.message)}</p>`;
+    $("#admin-list").innerHTML = failState(ex);
     return;
   }
   const box = $("#admin-list");
@@ -1756,12 +1864,12 @@ async function renderAdmin(tab = "pending") {
 
 
 async function renderManage(id, isNew) {
-  view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<div class="skeleton" style="aspect-ratio:2/1"></div>`;
+  view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}${loadingState()}`;
   let b;
   try {
     b = (await api("/api/my/businesses")).find((x) => x.id === id);
   } catch (err) {
-    view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}<p class="error">${esc(err.message)}</p>`;
+    view.innerHTML = `${pageTitle("ניהול עסק", "#/profile")}${failState(err)}`;
     return;
   }
   if (!b) {
@@ -2013,7 +2121,20 @@ if ("serviceWorker" in navigator && !window.NAILS_NAV) {
 }
 
 (async function start() {
-  try { SERVICES = await api("/api/services"); } catch { SERVICES = []; }
+  setTimeout(() => {                       // still on the first screen after 3s: explain
+    const boot = document.querySelector(".boot");
+    if (boot && !boot.querySelector("p")) boot.insertAdjacentHTML("beforeend", "<p>טוענים את Nails...</p>");
+  }, 3000);
+  if (!navigator.onLine) setOffline(true);
+  try { SERVICES = await api("/api/services"); } catch (err) {
+    SERVICES = [];
+    if (err.offline) {
+      document.body.classList.add("signed-out");
+      view.innerHTML = offlineState();
+      window.addEventListener("online", () => location.reload(), { once: true });
+      return;
+    }
+  }
   let cfg = { firebase: null, dev_auth: false };
   try { cfg = await api("/api/config"); } catch { /* offline */ }
 

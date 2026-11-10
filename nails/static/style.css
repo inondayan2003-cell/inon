@@ -283,7 +283,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 /* ---------- sign-in ---------- */
 body.signed-out .tabbar { display: none; }
 body.signed-out .view { padding-bottom: 40px; }
-.boot { min-height: 80vh; display: grid; place-items: center; font-size: 56px; animation: pulse 1.2s infinite alternate; }
+.boot { min-height: 80vh; display: grid; place-content: center; justify-items: center; gap: 14px; }
+.boot p { margin: 0; color: var(--muted); font-size: .95rem; animation: view-in .4s ease-out; }
 @keyframes pulse { to { transform: scale(1.12); } }
 .auth { max-width: 420px; margin: 0 auto; }
 .auth-hero { text-align: center; margin: 24px 0 22px; }
@@ -633,3 +634,44 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 4px var(--primary-
 .backup-line.ok { background: color-mix(in srgb, var(--whatsapp) 10%, var(--surface)); color: var(--whatsapp); }
 .backup-line.warn { background: var(--gold-soft); color: var(--gold-ink); }
 .backup-line.bad { background: var(--danger-soft); color: var(--danger); }
+
+/* ---------- loading & connection ---------- */
+.nail-loader { display: block; overflow: visible; stroke: none; }
+.nail-loader .nl-shell { fill: var(--surface); stroke: var(--border); stroke-width: 3; }
+.loading-state { display: grid; justify-items: center; gap: 12px; padding: 56px 16px; color: var(--muted); }
+.loading-state p { margin: 0; }
+
+#netbar { position: fixed; top: 0; inset-inline: 0; height: 3px; z-index: 4000; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--gold), var(--primary), var(--gold), transparent);
+  background-size: 200% 100%; transition: opacity .2s; }
+body.net-busy #netbar { opacity: 1; animation: netbar 1.1s linear infinite; }
+@keyframes netbar { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+.net-banner { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 50%; z-index: 3500;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px);
+  padding: 9px 16px; border-radius: 999px; font-size: .88rem; font-weight: 600;
+  background: var(--text); color: var(--bg); box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  transform: translate(-50%, -140%); opacity: 0; pointer-events: none;
+  transition: transform .35s var(--ease-spring, ease), opacity .25s; }
+.net-banner.show { transform: translate(-50%, 0); opacity: 1; }
+.net-banner.note { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.net-banner.note .nail-loader { width: 14px !important; height: 25px !important; }
+.net-banner svg { flex: none; }
+#offline-banner svg { width: 20px; height: 17px; }
+
+.no-signal { stroke: none; }
+.no-signal rect { fill: currentColor; opacity: .25; }
+.offline-state .no-signal, #offline-banner .no-signal { color: inherit; }
+@media (prefers-reduced-motion: no-preference) {
+  .no-signal rect { animation: signal 1.6s infinite; }
+  .no-signal rect:nth-child(2) { animation-delay: .2s; }
+  .no-signal rect:nth-child(3) { animation-delay: .4s; }
+  .no-signal rect:nth-child(4) { animation-delay: .6s; }
+  @keyframes signal { 0%, 100% { opacity: .2; } 40% { opacity: 1; } }
+}
+.offline-state { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 48px 16px; }
+.offline-art { width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--primary); margin-bottom: 8px; }
+.offline-art svg { width: 44px; height: 37px; }
+.offline-state h3 { margin: 0; font-family: var(--font-display); }
+.offline-state p { margin: 0 0 14px; color: var(--muted); }

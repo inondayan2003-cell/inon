@@ -13,10 +13,18 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Nails">
   <link rel="stylesheet" href="fonts/fonts.css?v=1">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=26">
 </head>
 <body class="signed-out">
-  <main id="view" class="view"><div class="boot"><img src="icon-192.png" alt="Nails" width="72" height="72"></div></main>
+  <main id="view" class="view"><div class="boot" role="status" aria-label="טוענים">
+    <svg class="nail-loader" style="width:64px;height:112px" viewBox="0 0 80 140" aria-hidden="true">
+      <defs><clipPath id="bootc"><path d="M40,6 C58,24 72,54 72,92 C72,122 58,134 40,134 C22,134 8,122 8,92 C8,54 22,24 40,6Z"/></clipPath>
+        <linearGradient id="bootg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ecd6cf"/><stop offset="1" stop-color="#c9a39a"/></linearGradient></defs>
+      <path class="nl-shell" d="M40,6 C58,24 72,54 72,92 C72,122 58,134 40,134 C22,134 8,122 8,92 C8,54 22,24 40,6Z"/>
+      <g clip-path="url(#bootc)"><rect x="0" y="140" width="80" height="140" fill="url(#bootg)"><animate attributeName="y" values="140;0;0;140" keyTimes="0;.55;.88;1" dur="1.9s" repeatCount="indefinite"/></rect>
+        <path d="M25,40 C21,62 21,88 25,110" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".7"/></g>
+    </svg>
+  </div></main>
 
   <nav class="tabbar" aria-label="ניווט">
     <a href="#/" data-tab="home">
@@ -38,8 +46,11 @@
   </nav>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="netbar" aria-hidden="true"></div>
+  <div id="offline-banner" class="net-banner" role="status" aria-live="polite"></div>
+  <div id="net-note" class="net-banner note" role="status" aria-live="polite"></div>
 
   <script src="content.js?v=7"></script>
-  <script src="app.js?v=25"></script>
+  <script src="app.js?v=27"></script>
 </body>
 </html>
