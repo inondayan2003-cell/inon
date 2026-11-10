@@ -22,13 +22,8 @@ mock = (ROOT / "demo" / "mock-api.js").read_text()
 body = index.split("<body", 1)[1].split(">", 1)[1].split("<script", 1)[0]
 body = re.sub(r'<div class="boot".*?</div>', "", body, flags=re.S)
 
-# Dark theme: follow both the system setting and an explicit data-theme choice.
-m = re.search(r"@media \(prefers-color-scheme: dark\) \{\n  :root \{(.*?)\n  \}\n\}", css, re.S)
-assert m, "dark token block not found"
-tokens = m.group(1)
-css = css.replace(m.group(0), (
-    "@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) {" + tokens +
-    "\n    color-scheme: dark;\n  }\n}\n:root[data-theme=\"dark\"] {" + tokens + "\n  color-scheme: dark;\n}"))
+# The app is always light; keep it light even when the viewer is set to dark.
+css = css.replace(":root {", ":root, :root[data-theme=\"dark\"] {", 1)
 
 # Smaller photos in the preview: they are stored in the browser.
 app = app.replace("maxSide = 1600, quality = 0.85", "maxSide = 900, quality = 0.75")
