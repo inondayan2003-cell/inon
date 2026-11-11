@@ -32,37 +32,58 @@ if [ -z "$INST" ] || [ "$INST" = "null" ]; then
   ADMIN="$(printf '%s' "$ADMIN" | tr -d ' \r\n')"
   [[ "$ADMIN" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "המייל לא תקין"
 
-  # ---------- separate network ----------
-  say "יוצר רשת נפרדת (nails-vcn) - הרשתות של הבוטים לא משתנות"
+  # ---------- network: our own if possible, otherwise an existing one (left unchanged) ----------
+  say "מכין רשת לשרת"
+  ERR="$(mktemp)"
+  REUSED=""
   VCN="$(q network vcn list -c "$C" --display-name nails-vcn --lifecycle-state AVAILABLE --query 'data[0].id' --raw-output || true)"
   if [ -z "$VCN" ] || [ "$VCN" = "null" ]; then
-    VCN="$(q network vcn create -c "$C" --cidr-blocks '["10.78.0.0/16"]' --display-name nails-vcn --dns-label nailsvcn \
-      --wait-for-state AVAILABLE --query 'data.id' --raw-output)"
+    VCN="$(oci network vcn create -c "$C" --cidr-blocks '["10.78.0.0/16"]' --display-name nails-vcn --dns-label nailsvcn \
+      --wait-for-state AVAILABLE --query 'data.id' --raw-output 2>"$ERR" || true)"
   fi
-  [ -n "$VCN" ] || die "יצירת הרשת נכשלה"
+  if [ -z "$VCN" ] || [ "$VCN" = "null" ]; then
+    echo "Oracle לא מאפשר רשת חדשה: $(grep -oE '"message": "[^"]*"' "$ERR" | head -1)"
+    say "משתמש ברשת קיימת בלי לשנות בה כלום (רק מוסיף לה שרת)"
+    for V in gold-vcn ""; do
+      if [ -n "$V" ]; then VCN="$(q network vcn list -c "$C" --display-name "$V" --lifecycle-state AVAILABLE --query 'data[0].id' --raw-output || true)"
+      else VCN="$(q network vcn list -c "$C" --lifecycle-state AVAILABLE --query 'data[0].id' --raw-output || true)"; fi
+      [ -n "$VCN" ] && [ "$VCN" != "null" ] || continue
+      SUB="$(q network subnet list -c "$C" --vcn-id "$VCN" --lifecycle-state AVAILABLE --query 'data[?"prohibit-public-ip-on-vnic"==`false`] | [0].id' --raw-output || true)"
+      [ -n "$SUB" ] && [ "$SUB" != "null" ] && break
+    done
+    [ -n "$SUB" ] && [ "$SUB" != "null" ] || die "לא נמצאה רשת ציבורית קיימת. שלח צילום מסך ל-Claude"
+    REUSED=1
+    VNAME="$(q network vcn get --vcn-id "$VCN" --query 'data."display-name"' --raw-output)"
+    SL="$(q network vcn get --vcn-id "$VCN" --query 'data."default-security-list-id"' --raw-output)"
+    PORTS="$(q network security-list get --security-list-id "$SL" --query 'data."ingress-security-rules"[]."tcp-options"."destination-port-range".min' --raw-output | tr -dc '0-9,\n ' || true)"
+    OPEN443=""; echo "$PORTS" | grep -qw 443 && OPEN443=1
+    ok "הרשת $VNAME"
+  else
+    IGW="$(q network internet-gateway list -c "$C" --vcn-id "$VCN" --query 'data[0].id' --raw-output || true)"
+    if [ -z "$IGW" ] || [ "$IGW" = "null" ]; then
+      IGW="$(q network internet-gateway create -c "$C" --vcn-id "$VCN" --is-enabled true --display-name nails-igw \
+        --wait-for-state AVAILABLE --query 'data.id' --raw-output)"
+    fi
+    RT="$(q network vcn get --vcn-id "$VCN" --query 'data."default-route-table-id"' --raw-output)"
+    oci network route-table update --rt-id "$RT" --force --route-rules \
+      "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$IGW\"}]" >/dev/null
 
-  IGW="$(q network internet-gateway list -c "$C" --vcn-id "$VCN" --query 'data[0].id' --raw-output || true)"
-  if [ -z "$IGW" ] || [ "$IGW" = "null" ]; then
-    IGW="$(q network internet-gateway create -c "$C" --vcn-id "$VCN" --is-enabled true --display-name nails-igw \
-      --wait-for-state AVAILABLE --query 'data.id' --raw-output)"
+    say "פותח פורטים 22, 80, 443 ברשת החדשה בלבד"
+    SL="$(q network vcn get --vcn-id "$VCN" --query 'data."default-security-list-id"' --raw-output)"
+    rule() { printf '{"source":"0.0.0.0/0","protocol":"6","tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}' "$1" "$1"; }
+    oci network security-list update --security-list-id "$SL" --force \
+      --ingress-security-rules "[$(rule 22),$(rule 80),$(rule 443),{\"source\":\"0.0.0.0/0\",\"protocol\":\"1\",\"icmpOptions\":{\"type\":3,\"code\":4}}]" \
+      --egress-security-rules '[{"destination":"0.0.0.0/0","protocol":"all"}]' >/dev/null
+
+    SUB="$(q network subnet list -c "$C" --vcn-id "$VCN" --display-name nails-subnet --query 'data[0].id' --raw-output || true)"
+    if [ -z "$SUB" ] || [ "$SUB" = "null" ]; then
+      SUB="$(q network subnet create -c "$C" --vcn-id "$VCN" --cidr-block 10.78.0.0/24 --display-name nails-subnet \
+        --dns-label nailssub --wait-for-state AVAILABLE --query 'data.id' --raw-output)"
+    fi
+    OPEN443=1
+    ok "הרשת מוכנה"
   fi
-  RT="$(q network vcn get --vcn-id "$VCN" --query 'data."default-route-table-id"' --raw-output)"
-  oci network route-table update --rt-id "$RT" --force --route-rules \
-    "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$IGW\"}]" >/dev/null
-
-  say "פותח פורטים 22, 80, 443 ברשת החדשה בלבד"
-  SL="$(q network vcn get --vcn-id "$VCN" --query 'data."default-security-list-id"' --raw-output)"
-  rule() { printf '{"source":"0.0.0.0/0","protocol":"6","tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}' "$1" "$1"; }
-  oci network security-list update --security-list-id "$SL" --force \
-    --ingress-security-rules "[$(rule 22),$(rule 80),$(rule 443),{\"source\":\"0.0.0.0/0\",\"protocol\":\"1\",\"icmpOptions\":{\"type\":3,\"code\":4}}]" \
-    --egress-security-rules '[{"destination":"0.0.0.0/0","protocol":"all"}]' >/dev/null
-
-  SUB="$(q network subnet list -c "$C" --vcn-id "$VCN" --display-name nails-subnet --query 'data[0].id' --raw-output || true)"
-  if [ -z "$SUB" ] || [ "$SUB" = "null" ]; then
-    SUB="$(q network subnet create -c "$C" --vcn-id "$VCN" --cidr-block 10.78.0.0/24 --display-name nails-subnet \
-      --dns-label nailssub --wait-for-state AVAILABLE --query 'data.id' --raw-output)"
-  fi
-  ok "הרשת מוכנה"
+  rm -f "$ERR"
 
   # ---------- SSH key (kept in Cloud Shell for later access) ----------
   mkdir -p "$HOME/.ssh"
@@ -109,6 +130,12 @@ fi
 IP="$(q compute instance list-vnics --instance-id "$INST" --query 'data[0]."public-ip"' --raw-output)"
 DOMAIN="nails-${IP//./-}.sslip.io"
 ok "כתובת השרת: $IP"
+
+if [ -n "${REUSED:-}" ] && [ -z "${OPEN443:-}" ]; then
+  printf '\n\033[1;33m! ברשת הקיימת פורטים 80/443 סגורים. צריך לפתוח אותם:\033[0m\n'
+  echo "  Networking > Virtual Cloud Networks > ${VNAME:-} > Security Lists > Default > Add Ingress Rules"
+  echo "  Source CIDR: 0.0.0.0/0, IP Protocol: TCP, Destination Port: 80,443"
+fi
 
 # ---------- wait for the installer on the server ----------
 say "השרת מתקין את Nails לבד (בערך 5-10 דקות). אפשר להשאיר את החלון פתוח..."
