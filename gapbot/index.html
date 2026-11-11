@@ -74,6 +74,8 @@
   .badge.broke, .badge.target { background: rgb(47 191 113 / .16); color: var(--up); }
   .badge.stopped { background: rgb(229 72 77 / .16); color: var(--down); }
   .badge.waiting { background: rgb(224 169 59 / .14); color: var(--wait); }
+  .score { font-size: 13px; font-weight: 700; color: var(--muted); direction: ltr; }
+  .score.hi { color: var(--wait); }
   .news { margin: 6px 0 10px; font-size: 13px; color: var(--muted); direction: ltr; text-align: left; }
   .news a { color: inherit; text-decoration-color: var(--line); }
   .flag { color: var(--down); font-weight: 500; }
@@ -267,6 +269,7 @@ function renderWatch(w) {
     list.innerHTML = `<div class="empty"><p>אין כרגע מניות ברשימה.</p>
       <p>הרשימה נבנית אוטומטית שעה לפני הפתיחה. במסחר המוקדם אפשר גם ללחוץ על "חשב רשימה מחדש".</p></div>`;
   } else {
+    w.items.sort((a, b) => (b.score || 0) - (a.score || 0));
     list.innerHTML = w.items.map(i => {
       const lo = i.stop, hi = i.target, span = hi - lo || 1;
       const lvl = ((i.price - lo) / span * 100).toFixed(1);
@@ -275,6 +278,7 @@ function renderWatch(w) {
         <div class="row-head">
           <span class="sym">${esc(i.symbol)}</span>
           <span class="gap">+${i.gap_pct}%</span>
+          ${i.score ? `<span class="score${i.score >= (settings ? settings.MIN_SCORE : 8) ? ' hi' : ''}">${i.score}/10</span>` : ''}
           <span class="badge ${i.status}">${STATUS[i.status] || ''} ${i.last != null ? money(i.last) : ''}</span>
         </div>
         <div class="news">${i.dilution ? '<span class="flag">חשד לדילול · </span>' : ''}${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.headline)}</a>` : esc(i.headline)}</div>
@@ -314,6 +318,7 @@ $('refreshBtn').addEventListener('click', async () => {
 let settings = null;
 const FIELDS = [
   ['בחירת מניות', [
+    ['MIN_SCORE', 'ציון מינימלי לסיגנל', '1-10. הדמו ממשיך לבדוק את כולם'],
     ['MIN_GAP_PCT', 'עלייה מינימלית', 'מסגירת אתמול, ב-%'],
     ['MAX_GAP_PCT', 'תקרת עלייה', 'ב-%. 0 = בלי תקרה'],
     ['MIN_PRICE', 'מחיר מינימלי', 'דולר'],

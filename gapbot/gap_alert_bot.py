@@ -39,6 +39,7 @@ MIN_RVOL = 2.0          # ווליום יחסי מינימלי (היום מול 
 WATCHLIST_TIME = dt.time(8, 30)  # רשימת מעקב לפני הפתיחה (שעון ניו יורק)
 WATCHLIST_SIZE = 5
 ENTRY_LIMIT_PCT = 1.5    # תקרת מחיר בכניסה בדמו (%) מעל רמת הפריצה
+MIN_SCORE = 8           # ציון מינימלי (1-10) לשליחת סיגנל אליך. מסחר הדמו מבצע הכל כדי למדוד
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
 
@@ -299,7 +300,9 @@ def watchlist_items(now):
         stop = min(stop, px(level * (1 - MIN_TARGET_PCT / RR / 100)))   # יעד של לפחות MIN_TARGET_PCT
         target = px(level + RR * (level - stop))
         h = (n or {}).get("headline", "")
+        sc = score_signal([h], (level - stop) / level * 100, level, False, None)
         items.append({"symbol": sym, "gap_pct": round(pct, 1), "pre_price": price, "prev_close": prev,
+                      "score": sc,
                       "price": level, "stop": stop, "target": target,
                       "risk_pct": round((level - stop) / level * 100, 2),
                       "headline": h[:200], "url": (n or {}).get("url", ""),
@@ -315,19 +318,23 @@ def watchlist_text(now, levels=None):
     if not (now.weekday() < 5 and dt.time(4, 0) <= now.time() < dt.time(9, 30)):
         return ("📋 רשימת מעקב זמינה רק בימי מסחר בין 11:00 לפתיחה (שעון ישראל).\n"
                 "עכשיו אין מסחר מוקדם, אז אין רמות אמיתיות לחשב.")
-    items = watchlist_items(now)
+    all_items = watchlist_items(now)
+    items = [i for i in all_items if i["score"] >= MIN_SCORE]
     open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
-    if not items:
-        return f"📋 רשימת מעקב להיום\nאין הבוקר מניות עם חדשה + עלייה של {MIN_GAP_PCT:.0f}%+ במסחר המוקדם."
-    out = [f"📋 רשימת מעקב להיום (פתיחה ב-{open_il:%H:%M})\n"]
-    for i, it in enumerate(items, 1):
-        if levels is not None:
+    if levels is not None:     # הדמו בודק את כל המניות - כדי למדוד אם הציון עובד
+        for it in all_items:
             levels.append({"symbol": it["symbol"], "price": it["price"], "stop": it["stop"],
                            "target": it["target"], "source": "watchlist", "signal_time": "pre",
                            "gap_pct": it["gap_pct"], "risk_pct": it["risk_pct"],
-                           "headline": it["headline"]})
+                           "headline": it["headline"], "score": it["score"],
+                           "sent": it["score"] >= MIN_SCORE})
+    if not items:
+        return (f"📋 רשימת מעקב להיום\nאין הבוקר מניות עם ציון {MIN_SCORE}+ "
+                f"({len(all_items)} מניות נבדקו).")
+    out = [f"📋 רשימת מעקב להיום (פתיחה ב-{open_il:%H:%M})\n"]
+    for i, it in enumerate(items, 1):
         flag = " 🚩דילול?" if it["dilution"] else ""
-        out.append(f"{i}. {it['symbol']}  +{it['gap_pct']:.1f}%  (עכשיו ${it['pre_price']:.2f})\n"
+        out.append(f"{i}. {it['symbol']}  +{it['gap_pct']:.1f}%  (עכשיו ${it['pre_price']:.2f})  ⭐ {it['score']}/10\n"
                    f"📰 {it['headline'][:120]}{flag}\n"
                    f"🎯 פריצה מעל: ${it['price']:.2f} | סטופ: ${it['stop']:.2f} | יעד: ${it['target']:.2f}\n")
     out.append("⚠️ לא הוראת קנייה - רמות להכנה. בבלינק עדיף Buy Stop/Limit ולא פקודת שוק לפתיחה.")
@@ -469,13 +476,17 @@ def daily_report(day):
                  pnl=round(pnl, 2), result=why)
         b = by_src.setdefault(tag, [0, 0, 0.0])
         b[0] += 1; b[1] += pnl > 0; b[2] += pnl
-        lines.append(f"{tag}{icon} {t['symbol']}  ${entry:.2f} → ${exit_:.2f}  ({why})  "
+        sk = "⭐" if t.get("sent", True) else "🔇"
+        b = by_src.setdefault(sk, [0, 0, 0.0])
+        b[0] += 1; b[1] += pnl > 0; b[2] += pnl
+        lines.append(f"{tag}{icon} {t['symbol']} [{t.get('score', '-')}]  ${entry:.2f} → ${exit_:.2f}  ({why})  "
                      f"{'+' if pnl >= 0 else ''}{pnl:.0f}$")
     with open(trades_file(day), "w") as f:
         json.dump(trades, f, ensure_ascii=False, indent=1)
     acct = requests.get(f"{TRADE}/v2/account", headers=HDR, timeout=15).json()
     wr = f"{wins / done * 100:.0f}%" if done else "-"
-    names = {"📋": "רשימת מעקב", "⚡": "סיגנלים בזמן אמת"}
+    names = {"📋": "רשימת מעקב", "⚡": "סיגנלים בזמן אמת",
+             "⭐": f"ציון {MIN_SCORE}+ (נשלחו אליך)", "🔇": f"ציון נמוך מ-{MIN_SCORE} (רק בדמו)"}
     src_lines = "".join(f"{k} {names[k]}: {v[0]} עסקאות | הצלחות: {v[1]} | "
                         f"{'+' if v[2] >= 0 else ''}{v[2]:.0f}$\n" for k, v in by_src.items())
     return (f"📊 דוח יומי {day}\n\n" + "\n".join(lines) + "\n\n" + src_lines +
@@ -486,7 +497,7 @@ def daily_report(day):
 
 def export_csv():
     import csv
-    cols = ["date", "source", "symbol", "signal_time", "time", "gap_pct", "rvol", "risk_pct", "price",
+    cols = ["date", "source", "score", "sent", "symbol", "signal_time", "time", "gap_pct", "rvol", "risk_pct", "price",
             "stop", "target", "qty", "entry_fill", "exit_fill", "pnl", "result", "headline", "err"]
     path = os.path.join(TRADES_DIR, "all_trades.csv")
     os.makedirs(TRADES_DIR, exist_ok=True)
@@ -503,11 +514,29 @@ def export_csv():
                       files={"document": ("trades.csv", f)}, timeout=30)
 
 
-def build_signal(sym, pct, price, stop, now, demo=False, news=""):
+EARN_RE = re.compile(r"\b(reports?|results|earnings|eps|revenue|sales|quarter|q[1-4]|fiscal|guidance)\b", re.I)
+CAT_RE = re.compile(r"\b(fda|approv|contract|award|acquir|acquisition|merger|buyout|partnership|"
+                    r"agreement|lease|patent|clearance|definitive)\b", re.I)
+
+
+def score_signal(headlines, risk_pct, price, after_940, rv):
+    """ציון 1-10 לפי מה שעבד בעסקאות הדמו: סוג החדשה, גודל הסטופ, מחיר, שעה, ווליום."""
+    h = " | ".join(headlines)
+    raw = 3 if EARN_RE.search(h) else (1.5 if CAT_RE.search(h) else 0)     # דוחות = הכי חזק
+    risk_pct = round(risk_pct, 2)
+    raw += 3 if risk_pct <= 4 else (1.5 if risk_pct <= 5.5 else 0)        # סטופ צמוד
+    raw += 1.5 if price >= 5 else (1 if price >= 2 else 0)                # לא מניית אגורות
+    raw += 1 if after_940 else 0                                          # אחרי רעש הפתיחה
+    raw += 1 if rv is not None and 2.5 <= rv <= 5 else 0.5
+    return max(1, min(10, round(raw / 9.5 * 10)))
+
+
+def build_signal(sym, pct, price, stop, now, demo=False, news="", score=None):
     risk = price - stop
     target = price + RR * risk
     head = "🧪 סיגנל דמו (בדיקה בלבד)\n" if demo else ""
-    return (f"{head}🚀 {sym}  +{pct:.1f}%\n{news}"
+    sc = f"⭐ ציון: {score}/10\n" if score else ""
+    return (f"{head}🚀 {sym}  +{pct:.1f}%\n{sc}{news}"
             f"כניסה בפריצה מעל: ${price:.2f}\n"
             f"סטופ:  ${stop:.2f}  (-{risk / price * 100:.1f}%)\n"
             f"יעד:   ${target:.2f}  (+{RR * risk / price * 100:.1f}%)\n"
@@ -619,7 +648,7 @@ EDITABLE = {  # שם: (סוג, מינימום, מקסימום)
     "MIN_TARGET_PCT": (float, 0, 100), "MAX_RISK_PCT": (float, 0.5, 50),
     "RR": (float, 0.5, 20), "MIN_RVOL": (float, 0, 50),
     "SIGNAL_WINDOW_MIN": (int, 5, 390), "WATCHLIST_SIZE": (int, 1, 20),
-    "REQUIRE_NEWS": (bool, None, None), "PAPER_TRADING": (bool, None, None),
+    "MIN_SCORE": (int, 1, 10), "REQUIRE_NEWS": (bool, None, None), "PAPER_TRADING": (bool, None, None),
     "RISK_PER_TRADE": (float, 1, 100000), "MAX_POSITION": (float, 10, 1000000),
 }
 
@@ -806,13 +835,17 @@ def main():
                         break
                     continue
                 alerted.add(sym)
-                HEALTH["signals"] += 1
                 target = entry + RR * risk
-                send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news)))
+                sc = score_signal([n.get("headline", "") for n in news], risk / entry * 100, entry,
+                                  now >= ses[0] + dt.timedelta(minutes=10), rv)
+                if sc >= MIN_SCORE:
+                    HEALTH["signals"] += 1
+                    send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news), score=sc))
                 if PAPER_TRADING and sym not in traded:
                     pending[sym] = {"symbol": sym, "source": "signal", "price": entry, "stop": stop, "target": target,
                                     "signal_time": f"{now:%H:%M}", "gap_pct": round(pct, 1),
                                     "rvol": round(rv, 1), "risk_pct": round(risk / entry * 100, 2),
+                                    "score": sc, "sent": sc >= MIN_SCORE,
                                     "headline": (news[0].get("headline", "") if news else "")[:200]}
                 save_state(day, alerted, pending)
         time.sleep(SCAN_EVERY_SEC)
