@@ -989,7 +989,7 @@ async function renderBusiness(id) {
         <button class="icon-btn" id="fav" aria-label="מועדפים">${ICON.heart}</button>
       </div>
     </div>
-    <div class="gallery" id="gallery" tabindex="0" role="region" aria-label="תמונות של העבודות, אפשר לגלול לצדדים">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
+    <div class="gallery" id="gallery" tabindex="0" role="region" aria-label="תמונות של העבודות, אפשר לגלול לצדדים וללחוץ להגדלה">${b.photos.map((p) => `<img src="${esc(p.url)}" alt="עבודה של ${esc(b.name)}" loading="lazy">`).join("")}</div>
     ${b.photos.length > 1 ? `<div class="gallery-dots" aria-hidden="true">${b.photos.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>` : ""}
     <div class="biz-head">
       <h1>${esc(b.name)}${verifiedBadge(b.verified, true)}</h1>
@@ -1029,6 +1029,16 @@ async function renderBusiness(id) {
   });
   $("#share").addEventListener("click", () => openShare(b));
   const gallery = $("#gallery");
+  gallery.addEventListener("click", (e) => {
+    const img = e.target.closest("img");
+    if (img) openViewer(b.photos.map((p) => p.url), [...gallery.children].indexOf(img), b.name);
+  });
+  gallery.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const mid = gallery.getBoundingClientRect().left + gallery.clientWidth / 2;
+    const i = [...gallery.children].findIndex((im) => { const r = im.getBoundingClientRect(); return r.left <= mid && r.right >= mid; });
+    openViewer(b.photos.map((p) => p.url), Math.max(0, i), b.name);
+  });
   const dots = [...document.querySelectorAll(".gallery-dots i")];
   if (dots.length) {
     gallery.addEventListener("scroll", () => {
@@ -1052,6 +1062,64 @@ async function renderBusiness(id) {
 /* ================= share ================= */
 
 const businessLink = (id) => `${location.origin}${location.pathname}#/b/${id}`;
+
+// Full-screen photo viewer: swipe between photos, pinch to zoom, close with X, Escape or the phone's back.
+function openViewer(urls, start, name) {
+  if (!urls.length) return;
+  const box = document.createElement("div");
+  box.className = "viewer";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", `התמונות של ${name}`);
+  box.innerHTML = `
+    <div class="viewer-top">
+      <button type="button" class="viewer-close" aria-label="סגירה">${ICON.close}</button>
+      <span class="viewer-count" dir="ltr" aria-live="polite"></span>
+    </div>
+    <div class="viewer-strip">${urls.map((u, i) => `<figure><img src="${esc(u)}" alt="עבודה ${i + 1} מתוך ${urls.length} של ${esc(name)}"></figure>`).join("")}</div>
+    ${urls.length > 1 ? `<button type="button" class="viewer-nav prev" aria-label="התמונה הקודמת">›</button>
+      <button type="button" class="viewer-nav next" aria-label="התמונה הבאה">‹</button>` : ""}`;
+  document.body.appendChild(box);
+  document.body.classList.add("viewer-open");
+  const strip = box.querySelector(".viewer-strip");
+  const figs = [...strip.children];
+  const count = box.querySelector(".viewer-count");
+  let current = Math.min(Math.max(start, 0), urls.length - 1);
+  const show = (i) => { current = i; count.textContent = urls.length > 1 ? `${i + 1} / ${urls.length}` : ""; };
+  const go = (i) => { if (i >= 0 && i < figs.length) figs[i].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" }); };
+  figs[current].scrollIntoView({ inline: "center", block: "nearest" });
+  show(current);
+  strip.addEventListener("scroll", () => {
+    const mid = strip.getBoundingClientRect().left + strip.clientWidth / 2;
+    const i = figs.findIndex((f) => { const r = f.getBoundingClientRect(); return r.left <= mid && r.right >= mid; });
+    if (i >= 0 && i !== current) show(i);
+  }, { passive: true });
+  box.querySelector(".prev")?.addEventListener("click", () => go(current - 1));
+  box.querySelector(".next")?.addEventListener("click", () => go(current + 1));
+
+  let closed = false;
+  const close = (fromBack) => {
+    if (closed) return;
+    closed = true;
+    window.removeEventListener("popstate", onBack);
+    document.removeEventListener("keydown", onKey);
+    document.body.classList.remove("viewer-open");
+    box.classList.add("out");
+    setTimeout(() => box.remove(), 180);
+    if (!fromBack) history.back();          // drop the entry we added
+  };
+  const onBack = () => close(true);
+  const onKey = (e) => {
+    if (e.key === "Escape") close(false);
+    else if (e.key === "ArrowLeft") go(current + 1);   // RTL: left is the next photo
+    else if (e.key === "ArrowRight") go(current - 1);
+  };
+  history.pushState({ viewer: true }, "");   // the phone's back button closes the viewer
+  window.addEventListener("popstate", onBack);
+  document.addEventListener("keydown", onKey);
+  box.querySelector(".viewer-close").addEventListener("click", () => close(false));
+  box.querySelector(".viewer-close").focus();
+}
 
 function openShare(b) {
   const url = businessLink(b.id);

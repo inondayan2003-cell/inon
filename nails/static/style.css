@@ -700,3 +700,33 @@ body.searching .search-note { display: inline; }
 body.searching #radius { opacity: .45; }
 .search input:focus { box-shadow: none; outline: none; }
 body.searching .hero { display: none; }
+
+/* ---------- full-screen photo viewer ---------- */
+.gallery img { cursor: zoom-in; }
+body.viewer-open { overflow: hidden; }
+.viewer {
+  position: fixed; inset: 0; z-index: 2500; background: #0d0709; color: #fff;
+  display: flex; flex-direction: column; animation: viewer-in .2s var(--ease-out);
+}
+.viewer.out { opacity: 0; transition: opacity .18s; }
+@keyframes viewer-in { from { opacity: 0; transform: scale(.98); } }
+.viewer-top {
+  position: absolute; top: 0; inset-inline: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; background: linear-gradient(#000a, transparent);
+}
+.viewer-close { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #ffffff26; color: #fff; cursor: pointer; }
+.viewer-count { font-weight: 600; font-variant-numeric: tabular-nums; padding-inline: 8px; }
+.viewer-strip {
+  flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x pinch-zoom;
+}
+.viewer-strip::-webkit-scrollbar { display: none; }
+.viewer-strip figure { flex: none; width: 100%; height: 100%; margin: 0; display: grid; place-items: center; scroll-snap-align: center; scroll-snap-stop: always; }
+.viewer-strip img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-nav {
+  display: none; position: absolute; top: 50%; translate: 0 -50%; z-index: 2; width: 46px; height: 46px; border-radius: 50%;
+  border: 0; background: #ffffff26; color: #fff; font-size: 2rem; line-height: 1; cursor: pointer;
+}
+.viewer-nav.prev { inset-inline-start: 12px; }
+.viewer-nav.next { inset-inline-end: 12px; }
+@media (hover: hover) and (pointer: fine) { .viewer-nav { display: grid; place-items: center; } }
+@media (prefers-reduced-motion: reduce) { .viewer { animation: none; } }
