@@ -99,3 +99,74 @@ def report(m1: pd.DataFrame, cost: float = 0.35) -> str:
     lines += ["כלל נחשב שימושי רק אם הוא רווחי בכל 3 התקופות, וגם השורטים שלו רווחיים "
               "(אחרת הוא רק 'קונה זהב בשוק עולה', ו'תמיד לונג' עושה את זה בלי כלל)."]
     return "\n".join(lines)
+
+
+# ---------- סבב 2: לונג בלבד עם תזמון. האם כלל כניסה מנצח "לונג בכל יום"? ----------
+def _features(d: pd.DataFrame) -> pd.DataFrame:
+    d = d.copy()
+    ch = d.close.diff()
+    d["down1"], d["down2"], d["down3"] = ch < 0, (ch < 0) & (ch.shift() < 0), (ch < 0) & (ch.shift() < 0) & (ch.shift(2) < 0)
+    up2 = ch.clip(lower=0).rolling(2).mean()
+    dn2 = (-ch).clip(lower=0).rolling(2).mean()
+    d["rsi2"] = 100 - 100 / (1 + up2 / dn2.replace(0, np.nan))
+    d["low5"] = d.close <= d.close.rolling(5).min()
+    d["high20"] = d.close >= d.close.rolling(20).max()
+    d["up"] = d.close > d.sma200
+    return d
+
+
+LONG_RULES = {
+    "מעל ממוצע 200 (הבוט היום)": lambda d: d.up,
+    "דיפ: יום ירידה אחד": lambda d: d.up & d.down1,
+    "דיפ: יומיים ירידה": lambda d: d.up & d.down2,
+    "דיפ: שלושה ימי ירידה": lambda d: d.up & d.down3,
+    "דיפ: RSI(2) מתחת ל-20": lambda d: d.up & (d.rsi2 < 20),
+    "דיפ: RSI(2) מתחת ל-10": lambda d: d.up & (d.rsi2 < 10),
+    "דיפ: שפל של 5 ימים": lambda d: d.up & d.low5,
+    "דיפ: ירידה של ATR ב-5 ימים": lambda d: d.up & (d.ret5 < -d.atr),
+    "פריצה: שיא של 20 יום": lambda d: d.up & d.high20,
+    "דיפ בלי מסנן מגמה: RSI(2)<10": lambda d: d.rsi2 < 10,
+}
+SPLITS = (("גילוי 2018-2022", "2018-01-01", "2023-01-01"), ("מבחן 2023-2024", "2023-01-01", "2025-01-01"),
+          ("מבחן 2025-היום", "2025-01-01", "2100-01-01"))
+
+
+def _welch(a: pd.Series, b: pd.Series) -> float:
+    if len(a) < 5 or len(b) < 5:
+        return 0.0
+    se = np.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b))
+    return float((a.mean() - b.mean()) / se) if se > 0 else 0.0
+
+
+def report2(m1: pd.DataFrame, cost: float = 0.35) -> str:
+    d = _features(daily(m1))
+    lines = [f"### 🧪 סבב 2: לונג עם תזמון מול 'לונג בכל יום' · {d.index[0]:%Y-%m} עד {d.index[-1]:%Y-%m} · עלות {cost}$", "",
+             "בכל תא: מספר עסקאות · R ממוצע לעסקה · t של העודף מעל 'לונג בכל יום' באותה תקופה. "
+             "בחירה רק לפי 'גילוי' (t עודף ≥ 2), ואז צריך עודף חיובי בשני המבחנים.", ""]
+    passed = []
+    for hold in (1, 3, 5):
+        base = trades(m1, d, pd.Series(1, d.index), hold, 1.5, cost)
+        lines += [f"#### החזקה {hold} ימים", "", "| כלל | " + " | ".join(s[0] for s in SPLITS) + " | סה\"כ R | עבר? |",
+                  "|" + "---|" * (len(SPLITS) + 3)]
+        cut = lambda x, a, b: x[(x.t >= a) & (x.t < b)].r
+        lines.append("| לונג בכל יום (ביקורת) | " + " | ".join(
+            f"{len(cut(base, a, b))} · {cut(base, a, b).mean():+.3f}" for _, a, b in SPLITS) + f" | {base.r.sum():+.0f} | - |")
+        for name, f in LONG_RULES.items():
+            tr = trades(m1, d, f(d).fillna(False).astype(int), hold, 1.5, cost)
+            if len(tr) < 30:
+                continue
+            cells, ts, ex = [], [], []
+            for _, a, b in SPLITS:
+                x, y = cut(tr, a, b), cut(base, a, b)
+                t = _welch(x, y)
+                ts.append(t)
+                ex.append(x.mean() - y.mean() if len(x) else -1)
+                cells.append(f"{len(x)} · {x.mean():+.3f} · t {t:+.1f}" if len(x) > 4 else "-")
+            ok = ts[0] >= 2 and ex[1] > 0 and ex[2] > 0 and all(cut(tr, a, b).mean() > 0 for _, a, b in SPLITS)
+            if ok:
+                passed.append(f"{name} · החזקה {hold}")
+            lines.append(f"| {name} | " + " | ".join(cells) + f" | {tr.r.sum():+.0f} | {'✅' if ok else ''} |")
+        lines.append("")
+    lines.append(f"**עברו את המבחן העיוור: {len(passed)} מתוך {3 * len(LONG_RULES)}**" +
+                 (": " + " ; ".join(passed) if passed else ". במקרה צפוי לעבור בערך 0-1."))
+    return "\n".join(lines)

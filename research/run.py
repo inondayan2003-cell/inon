@@ -112,7 +112,7 @@ def main():
         from research import daily_bias
         full = histdata.fetch_minutes(dt.date(2018, 1, 1), end, Path(a.cache))
         full = full[~full.index.duplicated()].sort_index()
-        print(daily_bias.report(full, a.cost), flush=True)
+        print(daily_bias.report2(full, a.cost), flush=True)
         return
     if a.clone:
         from research import cryptonew84
