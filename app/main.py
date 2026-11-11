@@ -117,7 +117,7 @@ def get_candles(tf: str = "15m", limit: int = 200):
 @app.get("/api/trades")
 def get_trades():
     trades = store.trades(200)
-    by_method = {m: trade_stats([t for t in trades if t.get("method", "trend") == m]) for m in ("channel_fade",)}
+    by_method = {m: trade_stats([t for t in trades if t.get("method", "trend") == m]) for m in ("channel_fade", "daily_long")}
     return {"trades": trades[:30], "stats": trade_stats(trades), "by_method": by_method}
 
 

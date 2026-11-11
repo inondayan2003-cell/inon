@@ -28,7 +28,8 @@ def test_report_today_and_totals(tmp_path):
     portfolio.record(store, trade(2, -1.0, "sl", closed="2026-11-08T12:00:00+00:00"))
     text = portfolio.report(store, "2026-11-09", open_trades=[{"id": 3, "direction": -1, "entry": 4010.0, "sl": 4025.0}])
     assert "עסקאות שנסגרו היום (1)" in text and "#1 BUY" in text and "#2" not in text.split("יתרה")[0]
-    assert "פתוחה: #3 SELL" in text and "5,000$" in text and "2 עסקאות" in text
+    assert "📡 שיטת הערוץ: 2 עסקאות" in text
+    assert "#3 SELL" in text and "5,000$" in text and "2 עסקאות" in text
     assert "לא נסגרו עסקאות היום" in portfolio.report(store, "2026-11-10")
 
 

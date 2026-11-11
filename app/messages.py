@@ -32,7 +32,7 @@ def _align(snapshot: dict | None) -> str:
     return f"\nיישור טווחים: {marks}"
 
 
-METHODS = {"reopen_long": "🌏 לונג בפתיחה", "channel_fade": "📡 שיטת הערוץ", "london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
+METHODS = {"daily_long": "🧭 לונג יומי", "reopen_long": "🌏 לונג בפתיחה", "channel_fade": "📡 שיטת הערוץ", "london_short": "🇬🇧 שורט לונדון", "smc": "🏦 SMC", "trend": "📈 מגמה", "liquidity": "💧 נזילות", "range": "🎯 טווחים"}
 
 
 def _label(tr: dict) -> str:
@@ -134,6 +134,30 @@ def channel_message(ev: dict) -> str:
     ])
 
 
+def daily_message(ev: dict) -> str | None:
+    """הודעת הבוקר של הלונג היומי: כיוון השוק ומה לעשות."""
+    kind, d, tr = ev["type"], ev.get("daily"), ev.get("trade")
+    if ev.get("state") == "nodata":
+        return "🧭 <b>כיוון יומי</b>: אין עדיין מספיק היסטוריה (200 ימים) כדי לקבוע כיוון."
+    gap = f"סגירה {_p(d['close'])} · ממוצע 200 יום {_p(d['sma'])} ({(d['close'] / d['sma'] - 1) * 100:+.1f}%)"
+    head = "🧭 <b>כיוון יומי לזהב</b>"
+    if kind == "dl_signal":
+        risk = tr["entry"] - tr["sl"]
+        return "\n".join([head, f"🟢 <b>למעלה</b> · {gap}", "",
+                          f"🟢 BUY עכשיו: <b>{_p(tr['entry'])}</b>", f"⛔️ SL: {tr['sl']:.0f} ({risk:.0f}$ מהכניסה)",
+                          "⏳ מחזיקים עד 5 ימים. אני אגיד מתי לצאת: בשינוי כיוון, בסטופ או בסוף הזמן.",
+                          "<i>סטופ רחוק = לוט קטן. הרווח ההיסטורי של השיטה בא מהעלייה של הזהב, לא מניבוי.</i>"])
+    if kind == "dl_exit":
+        return "\n".join([head, f"🔴 <b>שינוי כיוון - לצאת</b> · {gap}", "",
+                          f"לסגור את הלונג #{tr['id']} במחיר השוק ({_p(ev['price'])}). נשארים בחוץ עד שהזהב חוזר מעל הממוצע."])
+    if ev.get("state") == "hold":
+        pnl = ev["price"] - tr["entry"]
+        return "\n".join([head, f"🟢 <b>למעלה - ממשיכים להחזיק</b> · {gap}",
+                          f"לונג #{tr['id']} מ-{_p(tr['entry'])} · עכשיו {_p(ev['price'])} ({pnl:+.1f}$) · "
+                          f"יום {tr['days']} מתוך 5 · SL {tr['sl']:.0f}"])
+    return "\n".join([head, f"⚪ <b>בחוץ - לא לקנות</b> · {gap}", "הזהב מתחת לממוצע 200 יום. אין שורטים בשיטה הזאת."])
+
+
 def london_message(ev: dict) -> str:
     tr = ev["trade"]
     risk = abs(tr["entry"] - tr["sl"])
@@ -196,6 +220,8 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
         return (f"🌏 <b>אין לונג בפתיחה הלילה</b> · סוג השוק: {ev['label']}.\n"
                 "<i>מהיום השיטה שולחת סיגנל רק בשוק עולה ורגוע (מעל ממוצע 100 ימים, תנודתיות נמוכה) - "
                 "סוג השוק היחיד שבו היא לא הפסידה באף תקופה ב-2018-2026.</i>")
+    if kind.startswith("dl_"):
+        return daily_message(ev)
     if kind == "cf_signal":
         return channel_message(ev)
     if kind == "cf_filled":
@@ -239,6 +265,8 @@ def event_message(ev: dict, snapshot: dict | None = None) -> str | None:
     if kind == "closed":
         if tr.get("method") in ("range", "london_short", "reopen_long", "channel_fade") and tr["status"] == "tp2":
             return f"🏆 <b>היעד הושג</b> ({_label(tr)})\nיציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>"
+        if tr.get("method") == "daily_long" and tr["status"] == "reversed":
+            return f"🔄 <b>נסגר בשינוי כיוון</b> ({_label(tr)})\nיציאה: {_p(tr['exit_price'])} · תוצאה: <b>{tr['result_r']:+.2f}R</b>"
         titles = {"tp2": "🏆 יעד 2 הושג - העסקה נסגרה", "sl": "🛑 הסטופ נלקח",
                   "be": "⚖️ נסגר בנקודת כניסה (אחרי יעד 1)", "expired": "⏰ הזמן נגמר - לסגור במחיר השוק",
                   "reversed": "🔄 העסקה נסגרה - סיגנל הפוך"}

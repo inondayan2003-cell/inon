@@ -766,8 +766,77 @@ class ChannelFadeStrategy:
         return events
 
 
+class DailyLongStrategy:
+    """לונג יומי: הדבר היחיד שהרוויח בכל התקופות במחקר (research/daily_bias.py, 2018-2026).
+
+    כל בוקר (שני-שישי, 08:00 שעון ישראל) בודקים את הסגירה היומית האחרונה מול ממוצע 200 יום:
+    - מעל הממוצע ואין עסקה -> BUY במחיר השוק, סטופ 1.5 ATR(14) יומי, החזקה עד 5 ימים.
+    - מתחת לממוצע -> בחוץ. אם יש עסקה פתוחה: יוצאים ("שינוי כיוון").
+    - אחרי 5 ימים העסקה נסגרת, ואם הכיוון עדיין למעלה נפתחת חדשה באותו בוקר.
+    אין שורטים: במחקר שורט על זהב הפסיד בכל כלל שנבדק. הרווח ההיסטורי בא מהעלייה של הזהב, לא מניבוי.
+    """
+    HOUR, STOP_ATR, HOLD_DAYS = 8, 1.5, 5
+    TZ = "Asia/Jerusalem"
+
+    def __init__(self, cfg: Settings, state: dict | None = None, ids: dict | None = None):
+        st = state or {}
+        self.cfg = cfg
+        self.ids = ids if ids is not None else {"next": 1}
+        self.trade: dict | None = st.get("trade")
+        self.last_day: str | None = st.get("last_day")
+        self.nodata: bool = st.get("nodata", False)
+
+    def to_state(self) -> dict:
+        return {"trade": self.trade, "last_day": self.last_day, "nodata": self.nodata}
+
+    def _close(self, t, px, status) -> dict:
+        tr = self.trade
+        r = (px - tr["entry"]) / (tr["entry"] - tr["sl"])
+        x = Trade(**{k: v for k, v in tr.items() if k in Trade.__dataclass_fields__})
+        x.result_r, x.status, x.exit_price, x.closed_at = round(r, 2), status, round(px, 2), t.isoformat()
+        self.trade = None
+        return {"type": "closed", "trade": asdict(x), "t": t.isoformat()}
+
+    def _open(self, t, close, atr) -> dict:
+        entry = round(close, 2)
+        sl = float(round(entry - self.STOP_ATR * atr))
+        self.trade = {"id": self.ids["next"], "direction": 1, "opened_at": t.isoformat(), "entry": entry, "sl": sl,
+                      "tp1": entry, "tp2": entry, "score": 0.0, "stop": sl, "method": "daily_long", "days": 0,
+                      "note": f"החזקה עד {self.HOLD_DAYS} ימים"}
+        self.ids["next"] += 1
+        return {"type": "dl_signal", "trade": dict(self.trade), "t": t.isoformat()}
+
+    def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
+        t, lo, close = row["t"], float(row["low"]), float(row["close"])
+        events = []
+        if self.trade and lo <= self.trade["sl"]:
+            events.append(self._close(t, self.trade["sl"], "sl"))
+        il = t.tz_convert(self.TZ)
+        today = il.date().isoformat()
+        if not allow_entry or il.weekday() >= 5 or il.hour < self.HOUR or self.last_day == today:
+            return events
+        self.last_day = today
+        d = row.get("daily")
+        if not isinstance(d, dict):
+            first, self.nodata = not self.nodata, True   # מודיעים פעם אחת, לא כל בוקר
+            return events + ([{"type": "dl_note", "method": "daily_long", "t": t.isoformat(), "state": "nodata"}] if first else [])
+        up = d["close"] > d["sma"]
+        info = {"method": "daily_long", "t": t.isoformat(), "daily": d, "price": close}
+        if self.trade:
+            self.trade["days"] += 1
+            if not up:
+                return events + [{**info, "type": "dl_exit", "trade": dict(self.trade)}, self._close(t, close, "reversed")]
+            if self.trade["days"] < self.HOLD_DAYS:
+                return events + [{**info, "type": "dl_note", "state": "hold", "trade": dict(self.trade)}]
+            events.append(self._close(t, close, "expired"))
+        if up:
+            sig = self._open(t, close, d["atr"])
+            return events + [{**info, **sig}]
+        return events + [{**info, "type": "dl_note", "state": "out"}]
+
+
 class Strategy:
-    """השיטה שרצה בבוט: שיטת הערוץ Cryptonew84 בלבד (ChannelFadeStrategy).
+    """השיטות שרצות בבוט: שיטת הערוץ (ChannelFadeStrategy) והלונג היומי (DailyLongStrategy), כל אחת עם עסקה משלה.
     השיטות הקודמות (לונג בפתיחה, שורט לונדון וכו') נשארו בקוד למחקר בלבד ולא רצות בבוט."""
 
     def __init__(self, cfg: Settings, state: dict | None = None):
@@ -775,18 +844,20 @@ class Strategy:
         self.ids = {"next": state.get("next_id", 1)}
         self.last_t: str | None = state.get("last_t")
         self.channel = ChannelFadeStrategy(cfg, state.get("channel"), self.ids)
+        self.daily = DailyLongStrategy(cfg, state.get("daily"), self.ids)
 
     def to_state(self) -> dict:
-        return {"next_id": self.ids["next"], "last_t": self.last_t, "channel": self.channel.to_state()}
+        return {"next_id": self.ids["next"], "last_t": self.last_t, "channel": self.channel.to_state(),
+                "daily": self.daily.to_state()}
 
     def on_bar(self, row, allow_entry: bool = True) -> list[dict]:
         """מעבד נר 5 דקות סגור אחד ומחזיר רשימת אירועים להתראה."""
         self.last_t = row["t"].isoformat()
-        return self.channel.on_bar(row, allow_entry)
+        return self.channel.on_bar(row, allow_entry) + self.daily.on_bar(row, allow_entry)
 
     @property
     def open_trades(self) -> list[dict]:
-        return [self.channel.trade] if self.channel.trade else []
+        return [x for x in (self.channel.trade, self.daily.trade) if x]
 
     @property
     def pending(self) -> dict | None:

@@ -42,3 +42,27 @@ def tag_rows(rows: list[dict], reg: pd.DataFrame | None) -> list[dict]:
             cache[key] = lookup(reg, pd.Timestamp(r["t"]))
         r["regime_ok"], r["regime_label"] = cache[key]
     return rows
+
+
+def daily_bars(h1: pd.DataFrame) -> pd.DataFrame:
+    """נרות יומיים (יום מסחר = 17:00-17:00 ניו יורק) עם ממוצע 200 יום ו-ATR(14). לשיטת הלונג היומי."""
+    idx = h1.index if h1.index.tz is not None else h1.index.tz_localize("UTC")
+    day = (idx.tz_convert("America/New_York") + pd.Timedelta(hours=7)).normalize().tz_localize(None)
+    d = h1.groupby(day).agg(high=("high", "max"), low=("low", "min"), close=("close", "last"), n=("close", "size"))
+    d = d[d.n >= 12]
+    tr = pd.concat([d.high - d.low, (d.high - d.close.shift()).abs(), (d.low - d.close.shift()).abs()], axis=1).max(axis=1)
+    d["atr"] = tr.rolling(14).mean()
+    d["sma"] = d.close.rolling(200, min_periods=150).mean()   # הבוט מחזיק ~215 ימים של נרות שעה
+    return d
+
+
+def daily_lookup(d: pd.DataFrame | None, t: pd.Timestamp) -> dict | None:
+    """היום המלא האחרון לפני t: {day, close, sma, atr}. None אם אין מספיק היסטוריה."""
+    if d is None or d.empty:
+        return None
+    today = (t.tz_convert("America/New_York") + pd.Timedelta(hours=7)).normalize().tz_localize(None)
+    past = d[d.index < today]
+    if past.empty or pd.isna(past.sma.iloc[-1]) or pd.isna(past.atr.iloc[-1]):
+        return None
+    r = past.iloc[-1]
+    return {"day": past.index[-1].date().isoformat(), "close": float(r.close), "sma": float(r.sma), "atr": float(r.atr)}

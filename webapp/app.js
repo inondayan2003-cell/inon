@@ -5,7 +5,7 @@ const fmt = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", { minim
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const ilTime = (iso) => new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 const ilDate = (iso) => new Date(iso).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
-const METHOD = { reopen_long: "🌏 לונג בפתיחה", channel_fade: "📡 שיטת הערוץ", london_short: "🇬🇧 שורט לונדון", smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
+const METHOD = { daily_long: "🧭 לונג יומי", reopen_long: "🌏 לונג בפתיחה", channel_fade: "📡 שיטת הערוץ", london_short: "🇬🇧 שורט לונדון", smc: "🏦 SMC", range: "🎯 טווחים", trend: "📈 מגמה", liquidity: "💧 נזילות" };
 const STATUS = { tp2: "🏆 יעד 2", sl: "🛑 סטופ", be: "⚖️ יעד 1 + כניסה", expired: "⏰ פג תוקף", reversed: "🔄 התהפך", open: "⏳ פתוחה" };
 
 let tf = "15m", chart, candles, ema = {}, priceLines = [], last = null;
@@ -39,6 +39,14 @@ function channelCells(t) {
     ${(t.tps || []).map((x, i) => `<div class="tp"><span>TP${i + 1} · +${n(Math.abs(x - t.entry))}$${(t.hits || 0) > i ? " ✓" : ""}</span><b>${n(x)}</b></div>`).join("")}`;
 }
 
+function dailyCells(t) {
+  const n = (x) => Math.round(x).toLocaleString("en-US");
+  return `
+    <div><span>🟢 BUY</span><b>${fmt(t.entry)}</b></div>
+    <div class="sl"><span>SL (${n(t.entry - t.sl)}$)</span><b>${n(t.sl)}</b></div>
+    <div><span>החזקה</span><b>יום ${t.days || 0} מתוך 5</b></div>`;
+}
+
 function renderAnalysis(a) {
   last = a;
   $("symbol").textContent = a.symbol;
@@ -69,7 +77,7 @@ function renderAnalysis(a) {
   $("tradeCard").hidden = !trades.length && !pend;
   const blocks = trades.map((t) => `
     <h2>${METHOD[t.method] || ""}${(a.alert_methods || []).includes(t.method) ? "" : " (מעקב בלבד, בלי התראות)"} · עסקה #${t.id} · ${t.direction === 1 ? "לונג" : "שורט"} מ-${ilTime(t.opened_at)}${t.tp1_hit ? " · יעד 1 הושג ✓" : ""}</h2>
-    <div class="plan">${t.method === "channel_fade" ? channelCells(t) : planCells(t, t.direction)}</div>`);
+    <div class="plan">${t.method === "channel_fade" ? channelCells(t) : t.method === "daily_long" ? dailyCells(t) : planCells(t, t.direction)}</div>`);
   if (pend) blocks.push(`
     <h2>${METHOD[pend.method] || "💧"} · הזמנת ${pend.direction === 1 ? "Buy" : "Sell"} Limit ממתינה #${pend.id} · בתוקף עד ${ilTime(pend.expires)}</h2>
     <p class="muted" style="margin-bottom:8px">${pend.note}${pend.level ? ` (${fmt(pend.level)})` : ""}</p>

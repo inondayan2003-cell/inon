@@ -28,9 +28,10 @@ def reset(store: Store, balance: float, risk_pct: float = RISK_PCT) -> dict:
     return p
 
 
-def replay(store: Store, balance: float, risk_pct: float = RISK_PCT, method: str = "channel_fade") -> dict:
+def replay(store: Store, balance: float, risk_pct: float = RISK_PCT,
+           methods: tuple = ("channel_fade", "daily_long")) -> dict:
     """מתחיל תיק חדש ומריץ עליו לפי הסדר את כל העסקאות שהבוט כבר סגר."""
-    done = [t for t in store.trades(10_000) if t.get("method") == method and t.get("result_r") is not None
+    done = [t for t in store.trades(10_000) if t.get("method") in methods and t.get("result_r") is not None
             and t.get("closed_at")]
     done.sort(key=lambda t: t["closed_at"])
     p = reset(store, balance, risk_pct)
@@ -50,7 +51,7 @@ def history(store: Store) -> str:
     il = lambda t: pd.Timestamp(t).tz_convert(IL)
     lines = [f"📜 <b>כל העסקאות ({len(p['ledger'])})</b> · התחלה {p['start']:,.0f}$", ""]
     for x in p["ledger"]:
-        lines.append(f"{il(x['opened_at']):%d/%m %H:%M} · {'BUY' if x['direction'] == 1 else 'SELL'} {x['entry']:.0f} · "
+        lines.append(f"{il(x['opened_at']):%d/%m %H:%M} · {ICON.get(x.get('method'), '')} {'BUY' if x['direction'] == 1 else 'SELL'} {x['entry']:.0f} · "
                      f"{STATUS.get(x['status'], x['status'])} · <b>{_money(x['pnl'])}</b> → {x['balance']:,.0f}$")
     return "\n".join(lines)
 
@@ -68,7 +69,7 @@ def record(store: Store, trade: dict) -> dict | None:
     oz = lots * 100
     pnl = round(trade["result_r"] * stop * oz - SPREAD * oz, 2)
     p["balance"] = round(p["balance"] + pnl, 2)
-    row = {"id": trade["id"], "direction": trade["direction"], "opened_at": trade["opened_at"],
+    row = {"method": trade.get("method", "channel_fade"), "id": trade["id"], "direction": trade["direction"], "opened_at": trade["opened_at"],
            "closed_at": trade.get("closed_at"), "entry": trade["entry"], "sl": trade["sl"],
            "exit": trade.get("exit_price"), "status": trade.get("status"), "r": trade["result_r"],
            "lots": lots, "pnl": pnl, "balance": p["balance"]}
@@ -77,7 +78,12 @@ def record(store: Store, trade: dict) -> dict | None:
     return row
 
 
-STATUS = {"tp2": "✅ כל היעדים", "be": "⚖️ TP ואז כניסה", "sl": "❌ סטופ", "expired": "⏰ נסגר בזמן"}
+STATUS = {"tp2": "✅ כל היעדים", "be": "⚖️ TP ואז כניסה", "sl": "❌ סטופ", "expired": "⏰ נסגר בזמן",
+          "reversed": "🔄 שינוי כיוון"}
+
+
+ICON = {"channel_fade": "📡", "daily_long": "🧭"}
+NAME = {"channel_fade": "📡 שיטת הערוץ", "daily_long": "🧭 לונג יומי"}
 
 
 def _money(x: float) -> str:
@@ -98,7 +104,7 @@ def report(store: Store, day: str | None = None, open_trades: list | None = None
         lines.append(f"<b>עסקאות שנסגרו היום ({len(today)}):</b>")
         for x in today:
             side = "BUY" if x["direction"] == 1 else "SELL"
-            lines.append(f"{STATUS.get(x['status'], x['status'])} · #{x['id']} {side} {x['entry']:.0f} · "
+            lines.append(f"{ICON.get(x.get('method'), '')} {STATUS.get(x['status'], x['status'])} · #{x['id']} {side} {x['entry']:.0f} · "
                          f"{x['lots']:.2f} לוט · <b>{_money(x['pnl'])}</b>")
         day_pnl = sum(x["pnl"] for x in today)
         lines += ["", f"📅 רווח/הפסד היום: <b>{_money(day_pnl)}</b>"]
@@ -106,12 +112,14 @@ def report(store: Store, day: str | None = None, open_trades: list | None = None
         lines.append("לא נסגרו עסקאות היום.")
     for t in open_trades or []:
         side = "BUY" if t["direction"] == 1 else "SELL"
-        lines.append(f"⏳ פתוחה: #{t['id']} {side} {t['entry']:.0f} · SL {t['sl']:.0f}"
+        lines.append(f"⏳ פתוחה: {ICON.get(t.get('method'), '')} #{t['id']} {side} {t['entry']:.0f} · SL {t['sl']:.0f}"
                      + (f" · {t.get('hits', 0)} יעדים הושגו" if t.get("hits") else ""))
     lines += ["", f"💰 יתרה: <b>{p['balance']:,.2f}$</b> (התחלה {p['start']:,.0f}$ · {_money(total)}, "
                   f"{100 * total / p['start']:+.1f}%)",
               f"📊 מאז {il(p['since']):%d/%m}: {len(led)} עסקאות · {len(wins)} ברווח"
               + (f" ({100 * len(wins) / len(led):.0f}%)" if led else "")
               + (f" · הכי טובה {_money(max(x['pnl'] for x in led))} · הכי גרועה {_money(min(x['pnl'] for x in led))}" if led else ""),
+              *[f"{NAME[m]}: {len(g)} עסקאות · {_money(sum(x['pnl'] for x in g))}"
+                for m in NAME if (g := [x for x in led if x.get("method", "channel_fade") == m])],
               f"<i>סיכון {p['risk_pct']:g}% מהיתרה לעסקה, כולל ספרד {SPREAD}$ לאונקיה. כסף וירטואלי בלבד.</i>"]
     return "\n".join(lines)
