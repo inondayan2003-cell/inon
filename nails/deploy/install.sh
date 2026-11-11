@@ -27,8 +27,8 @@ else die "מערכת הפעלה לא מוכרת (צריך Ubuntu או Oracle Lin
 say "מתקין חבילות בסיס (git, python)"
 if [ "$PM" = apt ]; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq git curl python3 python3-venv python3-pip ca-certificates >/dev/null
+  apt-get -o DPkg::Lock::Timeout=600 update -qq
+  apt-get -o DPkg::Lock::Timeout=600 install -y -qq git curl python3 python3-venv python3-pip ca-certificates >/dev/null
 else
   dnf install -y -q git curl python3 python3-pip ca-certificates >/dev/null
 fi
@@ -45,10 +45,10 @@ if ! command -v caddy >/dev/null; then
   done
   say "מתקין Caddy (שרת אינטרנט עם HTTPS אוטומטי)"
   if [ "$PM" = apt ]; then
-    apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg >/dev/null
+    apt-get -o DPkg::Lock::Timeout=600 install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg >/dev/null
     curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update -qq && apt-get install -y -qq caddy >/dev/null
+    apt-get -o DPkg::Lock::Timeout=600 update -qq && apt-get -o DPkg::Lock::Timeout=600 install -y -qq caddy >/dev/null
   else
     dnf install -y -q 'dnf-command(copr)' >/dev/null && dnf copr enable -y @caddy/caddy >/dev/null && dnf install -y -q caddy >/dev/null
   fi

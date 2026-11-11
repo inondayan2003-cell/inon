@@ -91,7 +91,15 @@ tests/          בדיקות
 
 ## העלאה לשרת
 
-על השרת הקיים ב-Oracle (Ubuntu או Oracle Linux), בחיבור SSH:
+**שרת חדש ונפרד (מומלץ):** ב-Oracle Cloud Shell (האייקון `>_` למעלה בקונסולה):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/inondayan2003-cell/inon/claude/modest-pasteur-2hrgkh/nails/deploy/oracle-setup.sh)
+```
+
+יוצר שרת חינמי חדש בשם `nails-server` (ARM, מעבד אחד, 6GB) עם רשת משלו (`nails-vcn`), פותח 80/443, ומתקין עליו את Nails לבד. לא נוגע בשרתים או ברשתות הקיימים.
+
+**על שרת קיים:** על השרת הקיים ב-Oracle (Ubuntu או Oracle Linux), בחיבור SSH:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inondayan2003-cell/inon/claude/modest-pasteur-2hrgkh/nails/deploy/install.sh | sudo bash
