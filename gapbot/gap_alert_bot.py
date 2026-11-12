@@ -561,6 +561,42 @@ def demo_signal():
     return build_signal(sym, pct, price, stop, now, demo=True, news=nt) + f"\n{src}"
 
 
+BACKTEST = {"running": False}
+
+
+def send_doc(path, caption):
+    with open(path, "rb") as f:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument",
+                      data={"chat_id": TG_CHAT_ID, "caption": caption},
+                      files={"document": (os.path.basename(path), f)}, timeout=60)
+
+
+def run_backtest(days):
+    if BACKTEST["running"]:
+        send_tg("🧪 בדיקה לאחור כבר רצה - התוצאות יגיעו כשתסתיים.")
+        return
+    BACKTEST["running"] = True
+    try:
+        import sys
+        here = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.exists(os.path.join(here, "backtest.py")):   # שרת עם מנגנון עדכון ישן
+            r = requests.get(f"https://raw.githubusercontent.com/inondayan2003-cell/inon/gapbot/gapbot/backtest.py",
+                             timeout=30)
+            r.raise_for_status()
+            with open(os.path.join(here, "backtest.py"), "w") as f:
+                f.write(r.text)
+        sys.path.insert(0, here)
+        import backtest
+        text, path = backtest.run(sys.modules[__name__], days, notify=send_tg)
+        send_tg(text)
+        send_doc(path, f"🧪 כל הסיגנלים מהבדיקה לאחור ({days} ימים)")
+    except Exception as e:
+        note_error("backtest", e)
+        send_tg(f"🧪 הבדיקה לאחור נכשלה: {str(e)[:300]}")
+    finally:
+        BACKTEST["running"] = False
+
+
 def status_text():
     now = dt.datetime.now(NY)
     ses = session(now.date())
@@ -610,6 +646,12 @@ def command_listener():
                     send_tg(demo_signal())
                 elif text.startswith("/watch"):
                     send_tg(watchlist_text(dt.datetime.now(NY)))
+                elif text.startswith("/backtest"):
+                    parts = text.split()
+                    days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 200
+                    days = max(5, min(days, 400))
+                    send_tg(f"🧪 מתחיל בדיקה לאחור על {days} ימי מסחר. זה ייקח 15-40 דקות, אעדכן בדרך.")
+                    threading.Thread(target=run_backtest, args=(days,), daemon=True).start()
                 elif text.startswith("/status"):
                     send_tg(status_text())
                 elif text.startswith("/export"):
@@ -621,7 +663,8 @@ def command_listener():
                             "/report - דוח מסחר הדמו של היום\n"
                             "/watch - רשימת מעקב (מניות עם חדשות שעולות)\n"
                             "/export - קובץ אקסל עם כל עסקאות הדמו\n"
-                            "/status - מצב הבוט ובדיקת תקלות")
+                            "/status - מצב הבוט ובדיקת תקלות\n"
+                            "/backtest - בדיקה לאחור (אפשר: /backtest 100)")
         except Exception as e:
             note_error("telegram", e)
             time.sleep(5)
@@ -633,6 +676,7 @@ def set_commands():
             {"command": "report", "description": "דוח מסחר הדמו של היום"},
             {"command": "export", "description": "קובץ אקסל עם כל עסקאות הדמו"},
             {"command": "status", "description": "מצב הבוט ובדיקת תקלות"},
+            {"command": "backtest", "description": "בדיקה לאחור על 200 ימי מסחר"},
             {"command": "help", "description": "רשימת הפקודות"}]
     try:
         requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/setMyCommands",

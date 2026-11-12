@@ -9,12 +9,12 @@ HAVE=$(cat "$DIR/VERSION" 2>/dev/null | tr -d '[:space:]')
 [[ "$WANT" =~ ^[0-9a-f]{40}$ ]] || exit 0
 [ "$WANT" = "$HAVE" ] && exit 0
 TMP=$(mktemp -d)
-for f in gap_alert_bot.py webapp.py index.html autodeploy.sh; do
+for f in gap_alert_bot.py webapp.py index.html backtest.py autodeploy.sh; do
   curl -sfL "$BASE/$WANT/gapbot/$f" -o "$TMP/$f" || { echo "download failed: $f"; rm -rf "$TMP"; exit 1; }
 done
-python3 -m py_compile "$TMP/gap_alert_bot.py" "$TMP/webapp.py" || { echo "compile failed"; rm -rf "$TMP"; exit 1; }
+python3 -m py_compile "$TMP/gap_alert_bot.py" "$TMP/webapp.py" "$TMP/backtest.py" || { echo "compile failed"; rm -rf "$TMP"; exit 1; }
 sed -i "s|YOUR_ALPACA_KEY_ID|$AK|; s|YOUR_ALPACA_SECRET|$AS|; s|YOUR_TELEGRAM_BOT_TOKEN|$TT|; s|YOUR_CHAT_ID|$TC|" "$TMP/gap_alert_bot.py"
-cp "$TMP/gap_alert_bot.py" "$TMP/webapp.py" "$TMP/index.html" "$DIR/"
+cp "$TMP/gap_alert_bot.py" "$TMP/webapp.py" "$TMP/index.html" "$TMP/backtest.py" "$DIR/"
 cp "$TMP/autodeploy.sh" "$DIR/autodeploy.sh" && chmod +x "$DIR/autodeploy.sh"
 echo "$WANT" > "$DIR/VERSION"
 rm -rf "$TMP"
