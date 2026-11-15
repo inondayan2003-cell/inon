@@ -39,6 +39,7 @@ MIN_RVOL = 2.0          # ווליום יחסי מינימלי (היום מול 
 WATCHLIST_TIME = dt.time(8, 30)  # רשימת מעקב לפני הפתיחה (שעון ניו יורק)
 WATCHLIST_SIZE = 5
 ENTRY_LIMIT_PCT = 1.5    # תקרת מחיר בכניסה בדמו (%) מעל רמת הפריצה
+DEMO_ONLY_SENT = True   # מסחר הדמו רק על מה שנשלח אליך (ציון MIN_SCORE ומעלה)
 MIN_SCORE = 8           # ציון מינימלי (1-10) לשליחת סיגנל אליך. מסחר הדמו מבצע הכל כדי למדוד
 SCAN_EVERY_SEC = 60     # תדירות סריקה
 # ============================================
@@ -322,7 +323,7 @@ def watchlist_text(now, levels=None):
     items = [i for i in all_items if i["score"] >= MIN_SCORE]
     open_il = now.replace(hour=9, minute=30).astimezone(ZoneInfo("Asia/Jerusalem"))
     if levels is not None:     # הדמו בודק את כל המניות - כדי למדוד אם הציון עובד
-        for it in all_items:
+        for it in (items if DEMO_ONLY_SENT else all_items):
             levels.append({"symbol": it["symbol"], "price": it["price"], "stop": it["stop"],
                            "target": it["target"], "source": "watchlist", "signal_time": "pre",
                            "gap_pct": it["gap_pct"], "risk_pct": it["risk_pct"],
@@ -692,7 +693,7 @@ EDITABLE = {  # שם: (סוג, מינימום, מקסימום)
     "MIN_TARGET_PCT": (float, 0, 100), "MAX_RISK_PCT": (float, 0.5, 50),
     "RR": (float, 0.5, 20), "MIN_RVOL": (float, 0, 50),
     "SIGNAL_WINDOW_MIN": (int, 5, 390), "WATCHLIST_SIZE": (int, 1, 20),
-    "MIN_SCORE": (int, 1, 10), "REQUIRE_NEWS": (bool, None, None), "PAPER_TRADING": (bool, None, None),
+    "MIN_SCORE": (int, 1, 10), "DEMO_ONLY_SENT": (bool, None, None), "REQUIRE_NEWS": (bool, None, None), "PAPER_TRADING": (bool, None, None),
     "RISK_PER_TRADE": (float, 1, 100000), "MAX_POSITION": (float, 10, 1000000),
 }
 
@@ -885,7 +886,7 @@ def main():
                 if sc >= MIN_SCORE:
                     HEALTH["signals"] += 1
                     send_tg(build_signal(sym, pct, entry, stop, now, news=news_text(news), score=sc))
-                if PAPER_TRADING and sym not in traded:
+                if PAPER_TRADING and sym not in traded and (sc >= MIN_SCORE or not DEMO_ONLY_SENT):
                     pending[sym] = {"symbol": sym, "source": "signal", "price": entry, "stop": stop, "target": target,
                                     "signal_time": f"{now:%H:%M}", "gap_pct": round(pct, 1),
                                     "rvol": round(rv, 1), "risk_pct": round(risk / entry * 100, 2),
