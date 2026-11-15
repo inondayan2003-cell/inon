@@ -563,6 +563,7 @@ def demo_signal():
 
 
 BACKTEST = {"running": False}
+PENDING_VIEW = []   # פריצות שממתינות בדמו - למיני-אפ
 
 
 def send_doc(path, caption):
@@ -767,6 +768,8 @@ def main():
             HEALTH.update(scans=0, signals=0, errors=0, last_error="")
         ses = session(day)
         HEALTH["pending"] = len(pending)
+        PENDING_VIEW[:] = [{k: t.get(k) for k in ("symbol", "source", "price", "stop", "target", "score")}
+                           for t in pending.values()]
 
         # רשימת מעקב - שעה לפני הפתיחה
         if not watched and now.weekday() < 5 and WATCHLIST_TIME <= now.time() < dt.time(9, 30):

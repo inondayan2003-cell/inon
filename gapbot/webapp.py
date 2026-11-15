@@ -75,6 +75,49 @@ def live_watchlist():
     return {"time": bot.LAST_WATCH["time"], "items": items}
 
 
+def portfolio():
+    """מצב תיק הדמו: חשבון, פוזיציות פתוחות, פריצות שממתינות, עסקאות היום והיסטוריה מההתחלה."""
+    import re
+    out = {"account": None, "positions": [], "pending": list(getattr(bot, "PENDING_VIEW", [])),
+           "today": [], "days": [], "totals": None}
+    try:
+        a = requests.get(f"{bot.TRADE}/v2/account", headers=bot.HDR, timeout=10).json()
+        eq, last = float(a.get("equity", 0)), float(a.get("last_equity", 0))
+        out["account"] = {"equity": eq, "day_pl": eq - last if last else 0}
+        pos = requests.get(f"{bot.TRADE}/v2/positions", headers=bot.HDR, timeout=10).json()
+        out["positions"] = [{"symbol": p["symbol"], "qty": float(p["qty"]),
+                             "entry": float(p["avg_entry_price"]), "last": float(p["current_price"]),
+                             "pl": float(p["unrealized_pl"]), "plpc": float(p["unrealized_plpc"]) * 100}
+                            for p in pos]
+    except Exception as e:
+        out["account_error"] = str(e)[:120]
+    today = str(dt.datetime.now(bot.NY).date())
+    days, allt = [], []
+    try:
+        files = sorted(f for f in os.listdir(bot.TRADES_DIR) if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f))
+    except FileNotFoundError:
+        files = []
+    for f in files:
+        d = f[:-5]
+        trades = bot.load_trades(d)
+        if d == today:
+            out["today"] = [{k: t.get(k) for k in ("symbol", "source", "score", "time", "price", "stop",
+                                                  "target", "qty", "pnl", "result", "err")} for t in trades]
+        done = [t for t in trades if isinstance(t.get("pnl"), (int, float))]
+        if done:
+            days.append({"date": d, "n": len(done), "wins": sum(t["pnl"] > 0 for t in done),
+                         "pnl": round(sum(t["pnl"] for t in done), 2)})
+            allt += done
+    out["days"] = days
+    if allt:
+        w = [t["pnl"] for t in allt if t["pnl"] > 0]
+        l = [t["pnl"] for t in allt if t["pnl"] <= 0]
+        out["totals"] = {"n": len(allt), "wins": len(w), "targets": sum(t.get("result") == "יעד" for t in allt),
+                         "pnl": round(sum(w) + sum(l), 2), "avg_win": round(sum(w) / len(w), 1) if w else 0,
+                         "avg_loss": round(sum(l) / len(l), 1) if l else 0, "since": days[0]["date"]}
+    return out
+
+
 def refresh_watchlist():
     now = dt.datetime.now(bot.NY)
     closed = bot.closed_today_text(now)
@@ -120,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "settings": bot.get_settings()})
         if path == "/api/watchlist":
             return self._send(200, live_watchlist())
+        if path == "/api/portfolio":
+            return self._send(200, portfolio())
         self._send(404, {"error": "not found"})
 
     def do_POST(self):

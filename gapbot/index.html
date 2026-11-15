@@ -102,7 +102,8 @@
   .btn[disabled] { opacity: .5; }
   .stamp { color: var(--muted); font-size: 12px; }
 
-  /* ---------- הגדרות ---------- */
+  
+/* ---------- הגדרות ---------- */
   fieldset { border: 0; padding: 0; margin: 22px 0 0; }
   legend { font-weight: 700; font-size: 16px; padding: 0; margin-bottom: 4px; }
   .field { display: grid; grid-template-columns: 1fr 104px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
@@ -118,6 +119,22 @@
   .switch input:focus-visible + i { outline: 2px solid var(--pre); outline-offset: 2px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
 
+
+  /* ---------- תיק דמו ---------- */
+  .h3 { font-size: 16px; font-weight: 700; margin: 26px 0 8px; }
+  .acct { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0 12px; }
+  .acct .eq { font-size: 26px; font-weight: 700; direction: ltr; }
+  .acct .eq small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
+  .pos { color: var(--up); } .neg { color: var(--down); }
+  .line { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .line .s { font-weight: 700; direction: ltr; text-align: right; }
+  .line .m { color: var(--muted); font-size: 12px; direction: ltr; }
+  .line .v { font-weight: 500; direction: ltr; min-width: 64px; text-align: left; }
+  .tag { font-size: 11px; color: var(--muted); margin-inline-start: 6px; font-weight: 400; }
+  .big { font-size: 40px; font-weight: 700; letter-spacing: -1px; direction: ltr; text-align: right; line-height: 1.1; }
+  .kpis { display: flex; gap: 18px; color: var(--muted); font-size: 13px; margin: 4px 0 14px; flex-wrap: wrap; }
+  .kpis b { color: var(--text); font-weight: 500; }
+  .curve { width: 100%; height: 70px; display: block; margin: 6px 0 4px; }
   .toast { position: fixed; left: 16px; right: 16px; bottom: 76px; background: var(--text); color: var(--ink); padding: 12px 14px; border-radius: 10px; font-weight: 500; transform: translateY(20px); opacity: 0; transition: .25s; pointer-events: none; z-index: 9; }
   .toast.show { transform: none; opacity: 1; }
   .toast.err { background: var(--down); color: #fff; }
@@ -160,6 +177,12 @@
     <button class="btn" id="refreshBtn" type="button">חשב רשימה מחדש</button>
     <span class="stamp" id="watchStamp"></span>
   </div>
+
+  <h2>תיק דמו</h2>
+  <p class="sub">הבוט סוחר ב-Alpaca בכסף וירטואלי רק בסיגנלים שנשלחו אליך.</p>
+  <div id="pfNow"></div>
+  <h3 class="h3">מההתחלה</h3>
+  <div id="pfTotal"></div>
 </section>
 
 <section id="tab-settings" hidden>
@@ -314,6 +337,69 @@ $('refreshBtn').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'חשב רשימה מחדש';
 });
 
+/* ---------- תיק דמו ---------- */
+const usd = (v, sign) => (sign && v > 0 ? '+' : (v < 0 ? '−' : '')) + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const cls = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : '');
+const RES = { 'יעד': '🎯 יעד', 'סטופ': '🛑 סטופ', 'סגירת יום': '⏰ סגירת יום' };
+
+function curve(days) {
+  if (days.length < 2) return '';
+  let c = 0; const pts = days.map(d => (c += d.pnl));
+  const all = [0, ...pts], lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
+  const W = 300, H = 70, step = W / (all.length - 1);
+  const xy = all.map((v, i) => `${(i * step).toFixed(1)},${(H - 4 - (v - lo) / span * (H - 8)).toFixed(1)}`).join(' ');
+  const zero = (H - 4 - (0 - lo) / span * (H - 8)).toFixed(1);
+  const col = c >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<svg class="curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="רווח מצטבר לפי יום" style="direction:ltr">
+    <line x1="0" x2="${W}" y1="${zero}" y2="${zero}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <polyline points="${xy}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function renderPortfolio(p) {
+  let now = '';
+  if (p.account) {
+    now += `<div class="acct"><div>יתרה בחשבון הדמו<br><span class="${cls(p.account.day_pl)}">${usd(p.account.day_pl, true)} היום</span></div>
+      <div class="eq">${usd(p.account.equity)}</div></div>`;
+  } else if (p.account_error) {
+    now += `<div class="empty"><p>אין חיבור לחשבון הדמו: ${esc(p.account_error)}</p></div>`;
+  }
+  p.positions.forEach(x => {
+    now += `<div class="line"><div class="s">${esc(x.symbol)}<span class="tag">פתוחה</span></div>
+      <div class="m">${x.qty} × ${money(x.entry)} → ${money(x.last)}</div>
+      <div class="v ${cls(x.pl)}">${usd(x.pl, true)}</div></div>`;
+  });
+  p.pending.forEach(x => {
+    now += `<div class="line"><div class="s">${esc(x.symbol)}<span class="tag">ממתינה לפריצה${x.score ? ' · ' + x.score + '/10' : ''}</span></div>
+      <div class="m">מעל ${money(x.price)}</div><div class="v"></div></div>`;
+  });
+  p.today.filter(t => t.pnl != null).forEach(t => {
+    now += `<div class="line"><div class="s">${esc(t.symbol)}<span class="tag">${RES[t.result] || esc(t.result || '')}</span></div>
+      <div class="m">${t.time || ''}</div><div class="v ${cls(t.pnl)}">${usd(t.pnl, true)}</div></div>`;
+  });
+  if (!p.positions.length && !p.pending.length && !p.today.some(t => t.pnl != null)) {
+    now += `<div class="empty" style="padding:10px 0"><p>אין היום עסקאות פתוחות או ממתינות.</p></div>`;
+  }
+  $('pfNow').innerHTML = now;
+
+  const T = p.totals;
+  if (!T) { $('pfTotal').innerHTML = '<div class="empty"><p>עוד אין עסקאות סגורות. התוצאות יופיעו אחרי הדוח היומי הראשון.</p></div>'; return; }
+  const since = new Date(T.since + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  let html = `<div class="big ${cls(T.pnl)}">${usd(T.pnl, true)}</div>
+    <div class="kpis"><span>עסקאות <b>${T.n}</b></span><span>ברווח <b>${Math.round(T.wins / T.n * 100)}%</b></span>
+    <span>הגיעו ליעד <b>${T.targets}</b></span><span>רווח ממוצע <b class="pos">${usd(T.avg_win)}</b></span>
+    <span>הפסד ממוצע <b class="neg">${usd(T.avg_loss)}</b></span><span>מאז <b>${since}</b></span></div>
+    ${curve(p.days)}`;
+  html += p.days.slice().reverse().map(d => `<div class="line">
+      <div class="s">${new Date(d.date + 'T12:00:00').toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' })}</div>
+      <div class="m">${d.wins}/${d.n} ברווח</div><div class="v ${cls(d.pnl)}">${usd(d.pnl, true)}</div></div>`).join('');
+  $('pfTotal').innerHTML = html;
+}
+
+async function loadPortfolio() {
+  try { renderPortfolio(await api('/api/portfolio')); }
+  catch (e) { $('pfNow').innerHTML = `<div class="empty"><p>${esc(e.message)}</p></div>`; }
+}
+
 /* ---------- הגדרות ---------- */
 let settings = null;
 const FIELDS = [
@@ -389,9 +475,10 @@ document.querySelectorAll('nav button').forEach(b => b.addEventListener('click',
 if (!INIT) {
   document.body.innerHTML = '<div class="empty" style="padding:40px 0"><p>פתח את האפליקציה מתוך הבוט בטלגרם.</p></div>';
 } else {
-  loadState().then(tick); loadWatch();
+  loadState().then(tick); loadWatch(); loadPortfolio();
   setInterval(tick, 1000);
   setInterval(loadWatch, 30000);
+  setInterval(loadPortfolio, 30000);
   setInterval(loadState, 300000);
 }
 </script>
