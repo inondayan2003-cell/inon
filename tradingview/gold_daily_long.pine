@@ -1,0 +1,65 @@
+//@version=6
+// לונג יומי (מחקר: research/daily_bias.py, 2018-2026). להדביק ב-Pine Editor של TradingView, על גרף יומי (1D).
+// כניסה: סגירה יומית מעל ממוצע 200. סטופ: 1.5 ATR(14). יציאה: אחרי 5 ימים, בסגירה מתחת לממוצע, או בסטופ.
+// אזור צהוב = הכניסה, אזור סגול = המרחק עד הסטופ. בודק האסטרטגיות (Strategy Tester) מראה את התוצאות על כל ההיסטוריה.
+strategy("Gold Daily Long", overlay = true, initial_capital = 10000, pyramiding = 0,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.35,
+     max_boxes_count = 500, max_labels_count = 500)
+
+smaLen    = input.int(200, "ממוצע (ימים)", minval = 20)
+atrLen    = input.int(14, "ATR (ימים)", minval = 2)
+stopMult  = input.float(1.5, "סטופ (כפולות ATR)", minval = 0.5, step = 0.1)
+holdBars  = input.int(5, "ימי החזקה", minval = 1)
+riskPct   = input.float(1.0, "סיכון לעסקה (% מהיתרה)", minval = 0.1, step = 0.1)
+entryCol  = input.color(color.new(color.yellow, 80), "אזור כניסה")
+stopCol   = input.color(color.new(color.purple, 85), "אזור סטופ")
+showBg    = input.bool(true, "רקע לפי מגמה (ירוק = מותר לקנות)")
+showLabel = input.bool(true, "תווית עם המספרים")
+
+sma = ta.sma(close, smaLen)
+atr = ta.atr(atrLen)
+up  = close > sma
+
+var float stopPx   = na
+var box   entryBox = na
+var box   stopBox  = na
+
+// כניסה: בסגירת נר יומי מעל הממוצע, כשאין עסקה. הגודל לפי סיכון קבוע עד הסטופ
+if strategy.position_size == 0 and up and not na(atr) and not na(sma)
+    risk = stopMult * atr
+    qty  = strategy.equity * riskPct / 100 / (risk * syminfo.pointvalue)
+    stopPx := close - risk
+    strategy.entry("Long", strategy.long, qty = qty)
+    alert("BUY " + syminfo.ticker + " ~" + str.tostring(close, format.mintick) +
+         " | SL " + str.tostring(stopPx, format.mintick), alert.freq_once_per_bar_close)
+
+// ציור האזורים ברגע שהעסקה נפתחה
+if strategy.position_size > 0 and strategy.position_size[1] == 0
+    entry = strategy.position_avg_price
+    pad   = 0.1 * atr
+    entryBox := box.new(bar_index, entry + pad, bar_index + holdBars, entry - pad, border_color = na, bgcolor = entryCol)
+    stopBox  := box.new(bar_index, entry - pad, bar_index + holdBars, stopPx, border_color = na, bgcolor = stopCol)
+    if showLabel
+        label.new(bar_index, stopPx, "BUY " + str.tostring(entry, format.mintick) + "\nSL " + str.tostring(stopPx, format.mintick) +
+             " (" + str.tostring(entry - stopPx, "#.#") + ")", style = label.style_label_up,
+             color = color.new(color.purple, 60), textcolor = color.white, size = size.small)
+
+// ניהול: סטופ, ויציאה בשינוי כיוון או אחרי ימי ההחזקה
+if strategy.position_size > 0
+    strategy.exit("SL", "Long", stop = stopPx)
+    held = bar_index - strategy.opentrades.entry_bar_index(0)
+    if not up or held >= holdBars
+        strategy.close("Long", comment = up ? "סוף החזקה" : "שינוי כיוון")
+        alert("EXIT " + syminfo.ticker + (up ? " (סוף החזקה)" : " (שינוי כיוון)"), alert.freq_once_per_bar_close)
+
+// עסקה שנסגרה: מקצרים את האזורים עד נר היציאה
+if strategy.position_size == 0 and strategy.position_size[1] > 0 and not na(stopBox)
+    box.set_right(entryBox, bar_index)
+    box.set_right(stopBox, bar_index)
+
+plot(sma, "ממוצע 200", color.new(color.orange, 30), 2)
+bgcolor(showBg ? (up ? color.new(color.green, 94) : color.new(color.gray, 94)) : na)
+
+if barstate.islast and not timeframe.isdaily
+    label.new(bar_index, high, "האינדיקטור בנוי לגרף יומי (1D)", color = color.new(color.red, 20),
+         textcolor = color.white, style = label.style_label_down)
