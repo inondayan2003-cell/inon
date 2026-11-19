@@ -1,0 +1,251 @@
+//@version=6
+// אינדיקטור נזילות: מסמן איפה יושבים הסטופים (מעל שיאים ומתחת לשפלים), מזהה מתי המחיר "קוצר" אותם (Liquidity Sweep)
+// וחוזר פנימה, ונותן נקודת כניסה לכיוון ההפוך. להדביק ב-Pine Editor של TradingView. עובד על כל טווח זמן.
+//
+// הרעיון:
+//   1. שיא מקומי = נזילות קונים (Buy-side): הסטופים של השורטיסטים יושבים מעליו.  קו אדום.
+//      שפל מקומי = נזילות מוכרים (Sell-side): הסטופים של הלונגיסטים יושבים מתחתיו. קו טורקיז.
+//      שני שיאים/שפלים כמעט באותו מחיר (EQH/EQL) = הרבה סטופים במקום אחד, קו עבה.
+//   2. סוויפ: נר שהפתיל שלו עובר את הרמה אבל הסגירה חוזרת מתחתיה/מעליה. הנזילות נאספה, המחיר נדחה.
+//   3. כניסה (מצב "מאושר"): אחרי הסוויפ מחכים לשבירת מבנה - סגירה מעבר לשיא/שפל הקטן האחרון בכיוון ההפוך.
+//      במצב "אגרסיבי" הכניסה היא בסגירת נר הסוויפ עצמו.
+//   סטופ: מעבר לקצה הפתיל של הסוויפ (+ מרווח ATR). יעד: לפי יחס סיכון/סיכוי.
+//   ★ = הסוויפ לקח שיאים/שפלים שווים (סט-אפ חזק יותר).
+indicator("Liquidity Sweep Entries", "LIQ", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+// ───────── הגדרות ─────────
+grpL      = "רמות נזילות"
+pivLen    = input.int(5, "אורך פיבוט (נרות לכל צד)", minval = 2, group = grpL,
+     tooltip = "כמה נרות משני הצדדים צריכים להיות נמוכים/גבוהים יותר כדי שנקודה תיחשב שיא/שפל. גדול יותר = רמות חשובות יותר ופחות סיגנלים.")
+maxPools  = input.int(15, "מקסימום רמות פתוחות לכל צד", minval = 1, maxval = 50, group = grpL)
+eqTol     = input.float(0.1, "סבילות לשיאים/שפלים שווים (×ATR)", minval = 0, step = 0.05, group = grpL)
+showPools = input.bool(true, "להציג קווי נזילות", group = grpL)
+
+grpE        = "כניסות"
+mode        = input.string("מאושר", "סוג כניסה", options = ["מאושר", "אגרסיבי"], group = grpE,
+     tooltip = "מאושר: אחרי הסוויפ מחכים לשבירת מבנה (פחות סיגנלים, יותר איכותיים). אגרסיבי: כניסה בסגירת נר הסוויפ.")
+mssLen      = input.int(2, "אורך פיבוט קטן לשבירת מבנה", minval = 1, group = grpE)
+confirmBars = input.int(10, "נרות מקסימום לאישור אחרי הסוויפ", minval = 1, group = grpE)
+onlyEq      = input.bool(false, "רק סוויפ של שיאים/שפלים שווים", group = grpE)
+useVol      = input.bool(true, "סינון ווליום בנר הסוויפ", group = grpE)
+volMult     = input.float(1.2, "ווליום מעל הממוצע פי", minval = 0.5, step = 0.1, group = grpE)
+useTrend    = input.bool(false, "סינון מגמה (לונג רק מעל EMA, שורט רק מתחת)", group = grpE)
+emaLen      = input.int(200, "EMA", minval = 10, group = grpE)
+
+grpR   = "סטופ ויעד"
+slPad  = input.float(0.2, "מרווח לסטופ מעבר לפתיל (×ATR)", minval = 0, step = 0.05, group = grpR)
+rr     = input.float(2.0, "יחס סיכון/סיכוי ליעד", minval = 0.5, step = 0.25, group = grpR)
+boxLen = input.int(20, "אורך אזורי סטופ/יעד (נרות)", minval = 5, group = grpR)
+
+grpC  = "צבעים"
+colHi = input.color(color.red, "נזילות מעל (Buy-side)", group = grpC)
+colLo = input.color(color.teal, "נזילות מתחת (Sell-side)", group = grpC)
+colTP = input.color(color.new(color.green, 85), "אזור יעד", group = grpC)
+colSL = input.color(color.new(color.red, 85), "אזור סטופ", group = grpC)
+
+// ───────── חישובים בסיסיים ─────────
+atr    = ta.atr(14)
+ema    = ta.ema(close, emaLen)
+volAvg = ta.sma(volume, 20)
+volOk  = not useVol or na(volAvg) or volume >= volAvg * volMult
+
+ph  = ta.pivothigh(high, pivLen, pivLen)
+pl  = ta.pivotlow(low, pivLen, pivLen)
+mph = ta.pivothigh(high, mssLen, mssLen)
+mpl = ta.pivotlow(low, mssLen, mssLen)
+
+// השיא/השפל הקטן האחרון - הרמה ששבירתה = שינוי מבנה
+var float minorHigh = na
+var float minorLow  = na
+if not na(mph)
+    minorHigh := mph
+if not na(mpl)
+    minorLow := mpl
+
+// ───────── מאגרי נזילות ─────────
+var array<float> hiPx = array.new<float>()
+var array<bool>  hiEq = array.new<bool>()
+var array<line>  hiLn = array.new<line>()
+var array<float> loPx = array.new<float>()
+var array<bool>  loEq = array.new<bool>()
+var array<line>  loLn = array.new<line>()
+
+// הוספת רמה חדשה, וסימון שיאים/שפלים שווים
+addPool(array<float> px, array<bool> eq, array<line> ln, float lvl, bool isHigh) =>
+    bool isEq = false
+    for [i, p] in px
+        if math.abs(p - lvl) <= eqTol * atr
+            isEq := true
+            array.set(eq, i, true)
+            line old = array.get(ln, i)
+            if not na(old)
+                line.set_width(old, 2)
+                line.set_style(old, line.style_solid)
+                line.set_color(old, isHigh ? colHi : colLo)
+    color c = isHigh ? colHi : colLo
+    line nl = showPools ? line.new(bar_index - pivLen, lvl, bar_index, lvl, color = color.new(c, isEq ? 0 : 45),
+         width = isEq ? 2 : 1, style = isEq ? line.style_solid : line.style_dashed) : na
+    if showPools and isEq
+        label.new(bar_index - pivLen, lvl, isHigh ? "EQH" : "EQL", color = color(na), textcolor = c, size = size.tiny,
+             style = isHigh ? label.style_label_down : label.style_label_up)
+    array.push(px, lvl)
+    array.push(eq, isEq)
+    array.push(ln, nl)
+    if array.size(px) > maxPools
+        array.shift(px)
+        array.shift(eq)
+        line.delete(array.shift(ln))
+    isEq
+
+// בדיקת סוויפ: פתיל מעבר לרמה וסגירה חזרה פנימה. רמה שנלקחה (בסוויפ או בפריצה אמיתית) יוצאת מהרשימה
+checkPools(array<float> px, array<bool> eq, array<line> ln, bool isHigh) =>
+    bool swept   = false
+    bool sweptEq = false
+    int n = array.size(px)
+    if n > 0
+        for i = n - 1 to 0
+            float p = array.get(px, i)
+            line  l = array.get(ln, i)
+            bool taken = isHigh ? high > p : low < p
+            if taken
+                bool rejected = isHigh ? close < p : close > p
+                if rejected
+                    swept   := true
+                    sweptEq := sweptEq or array.get(eq, i)
+                if not na(l)
+                    line.set_x2(l, bar_index)
+                    line.set_style(l, line.style_dotted)
+                    line.set_color(l, rejected ? (isHigh ? colHi : colLo) : color.new(color.gray, 50))
+                array.remove(px, i)
+                array.remove(eq, i)
+                array.remove(ln, i)
+            else if not na(l)
+                line.set_x2(l, bar_index)
+    [swept, sweptEq]
+
+if not na(ph)
+    addPool(hiPx, hiEq, hiLn, ph, true)
+if not na(pl)
+    addPool(loPx, loEq, loLn, pl, false)
+
+[bearSweep, bearEq] = checkPools(hiPx, hiEq, hiLn, true)   // נזילות מעל נאספה -> פוטנציאל שורט
+[bullSweep, bullEq] = checkPools(loPx, loEq, loLn, false)  // נזילות מתחת נאספה -> פוטנציאל לונג
+
+bullValid = bullSweep and volOk and (not onlyEq or bullEq)
+bearValid = bearSweep and volOk and (not onlyEq or bearEq)
+aggressive = mode == "אגרסיבי"
+
+// ───────── לוגיקת כניסה ─────────
+var bool  pendL    = false
+var int   pendLBar = 0
+var float pendLExt = na
+var float pendLLvl = na
+var bool  pendLEq  = false
+var bool  pendS    = false
+var int   pendSBar = 0
+var float pendSExt = na
+var float pendSLvl = na
+var bool  pendSEq  = false
+
+bool  longSig  = false
+bool  shortSig = false
+float longExt  = na
+float shortExt = na
+bool  longEq   = false
+bool  shortEq  = false
+
+if aggressive
+    if bullValid
+        longSig := true
+        longExt := low
+        longEq  := bullEq
+    if bearValid
+        shortSig := true
+        shortExt := high
+        shortEq  := bearEq
+else
+    // לונג: סגירה מתחת לקצה הסוויפ מבטלת. רמת האישור = השיא הקטן האחרון (או שיא נר הסוויפ אם כבר מתחתיו)
+    if pendL and close < pendLExt
+        pendL := false
+    if bullValid
+        bool wasL = pendL
+        pendLExt := wasL ? math.min(pendLExt, low) : low
+        pendLEq  := bullEq or (wasL and pendLEq)
+        pendLLvl := na(minorHigh) or minorHigh <= close ? high : minorHigh
+        pendLBar := bar_index
+        pendL    := true
+    if pendL
+        pendLExt := math.min(pendLExt, low)
+        if bar_index - pendLBar > confirmBars
+            pendL := false
+        else if close > pendLLvl
+            longSig := true
+            longExt := pendLExt
+            longEq  := pendLEq
+            pendL   := false
+
+    // שורט: מראה של הלונג
+    if pendS and close > pendSExt
+        pendS := false
+    if bearValid
+        bool wasS = pendS
+        pendSExt := wasS ? math.max(pendSExt, high) : high
+        pendSEq  := bearEq or (wasS and pendSEq)
+        pendSLvl := na(minorLow) or minorLow >= close ? low : minorLow
+        pendSBar := bar_index
+        pendS    := true
+    if pendS
+        pendSExt := math.max(pendSExt, high)
+        if bar_index - pendSBar > confirmBars
+            pendS := false
+        else if close < pendSLvl
+            shortSig := true
+            shortExt := pendSExt
+            shortEq  := pendSEq
+            pendS    := false
+
+// סינון מגמה וחישוב סטופ/יעד
+longSL  = longExt - slPad * atr
+shortSL = shortExt + slPad * atr
+longSig  := longSig and (not useTrend or close > ema) and close - longSL > 0
+shortSig := shortSig and (not useTrend or close < ema) and shortSL - close > 0
+longTP  = close + rr * (close - longSL)
+shortTP = close - rr * (shortSL - close)
+
+// ───────── ציור ─────────
+drawTrade(bool isLong, float sl, float tp, bool strong) =>
+    box.new(bar_index, tp, bar_index + boxLen, close, border_color = na, bgcolor = colTP)
+    box.new(bar_index, close, bar_index + boxLen, sl, border_color = na, bgcolor = colSL)
+    string txt = (isLong ? "LONG" : "SHORT") + (strong ? " ★" : "")
+    string tip = "כניסה: " + str.tostring(close, format.mintick) + "\nסטופ: " + str.tostring(sl, format.mintick) +
+         "\nיעד: " + str.tostring(tp, format.mintick) + "\nסיכון: " + str.tostring(math.abs(close - sl), format.mintick)
+    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar,
+         style = isLong ? label.style_label_up : label.style_label_down,
+         color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white,
+         size = size.small, tooltip = tip)
+
+if longSig
+    drawTrade(true, longSL, longTP, longEq)
+    alert("LIQ LONG " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | SL " + str.tostring(longSL, format.mintick) +
+         " | TP " + str.tostring(longTP, format.mintick) + (longEq ? " | ★ EQL" : ""), alert.freq_once_per_bar_close)
+if shortSig
+    drawTrade(false, shortSL, shortTP, shortEq)
+    alert("LIQ SHORT " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | SL " + str.tostring(shortSL, format.mintick) +
+         " | TP " + str.tostring(shortTP, format.mintick) + (shortEq ? " | ★ EQH" : ""), alert.freq_once_per_bar_close)
+
+plotshape(bullSweep, "סוויפ נזילות מתחת", shape.diamond, location.belowbar, colLo, size = size.tiny)
+plotshape(bearSweep, "סוויפ נזילות מעל", shape.diamond, location.abovebar, colHi, size = size.tiny)
+plot(useTrend ? ema : na, "EMA", color.new(color.orange, 30), 2)
+
+// טבלת מצב: האם יש סוויפ שמחכה לאישור
+var table st = table.new(position.top_right, 1, 1, bgcolor = color.new(color.black, 70))
+if barstate.islast
+    string s = pendL ? "ממתין לאישור לונג (מעל " + str.tostring(pendLLvl, format.mintick) + ")" :
+         pendS ? "ממתין לאישור שורט (מתחת " + str.tostring(pendSLvl, format.mintick) + ")" : "אין סט-אפ פתוח"
+    table.cell(st, 0, 0, s, text_color = color.white, text_size = size.small)
+
+alertcondition(longSig, "LIQ Long", "Liquidity sweep LONG on {{ticker}} @ {{close}}")
+alertcondition(shortSig, "LIQ Short", "Liquidity sweep SHORT on {{ticker}} @ {{close}}")
+alertcondition(bullSweep, "Sell-side sweep", "Sell-side liquidity swept on {{ticker}}")
+alertcondition(bearSweep, "Buy-side sweep", "Buy-side liquidity swept on {{ticker}}")
