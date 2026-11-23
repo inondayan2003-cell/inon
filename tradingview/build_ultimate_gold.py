@@ -1,4 +1,4 @@
-"""Build the two TradingView files from the single shared source.
+"""Build the TradingView files (indicator + strategy) from each shared source.
 
     python tradingview/build_ultimate_gold.py
 
@@ -12,8 +12,14 @@ Everything else is shared, so both scripts run exactly the same logic.
 from pathlib import Path
 
 HERE = Path(__file__).parent
-SRC = HERE / "src" / "ultimate_gold.src.pine"
-OUT = {"IND": HERE / "Ultimate_Gold_Indicator.pine", "STR": HERE / "Ultimate_Gold_Strategy.pine"}
+SOURCES = {
+    # 4H swing system (base version)
+    HERE / "src" / "ultimate_gold.src.pine": {"IND": HERE / "Ultimate_Gold_Indicator.pine",
+                                               "STR": HERE / "Ultimate_Gold_Strategy.pine"},
+    # intraday multi-timeframe system (4H / 1H / 15M / 5M)
+    HERE / "src" / "ultimate_gold_intraday.src.pine": {"IND": HERE / "Ultimate_Gold_Intraday_Indicator.pine",
+                                                        "STR": HERE / "Ultimate_Gold_Intraday_Strategy.pine"},
+}
 
 
 def build(kind: str, text: str) -> str:
@@ -37,7 +43,8 @@ def build(kind: str, text: str) -> str:
 
 
 if __name__ == "__main__":
-    text = SRC.read_text()
-    for kind, path in OUT.items():
-        path.write_text(build(kind, text))
-        print("wrote", path)
+    for src, outs in SOURCES.items():
+        text = src.read_text()
+        for kind, path in outs.items():
+            path.write_text(build(kind, text))
+            print("wrote", path)
