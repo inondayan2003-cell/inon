@@ -8,7 +8,7 @@ from pathlib import Path
 
 from research.gold4h.duka_hourly import month
 
-SAMPLES = [(2012, 6), (2015, 6), (2018, 6), (2020, 3), (2021, 6), (2023, 6), (2024, 6), (2025, 6), (2026, 6), (2026, 10)]
+SAMPLES = [(2015, 6), (2021, 6), (2026, 6)]
 
 if __name__ == "__main__":
     cache = Path(sys.argv[1])

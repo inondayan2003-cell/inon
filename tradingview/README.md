@@ -18,3 +18,10 @@
 ## הבדלים מהבוט
 - כאן הכניסה בפתיחת הנר היומי הבא, בבוט ב-08:00 שעון ישראל. המספרים יהיו קרובים, לא זהים.
 - העמלה מוגדרת כ-0.35$ ליחידה, ו-1% סיכון לעסקה. אפשר לשנות במאפייני האסטרטגיה.
+
+---
+
+# Ultimate Gold (XAUUSD 4H): SMC / ICT
+`Ultimate_Gold_Indicator.pine` ו-`Ultimate_Gold_Strategy.pine` נבנים מ-`src/ultimate_gold.src.pine`
+עם `python tradingview/build_ultimate_gold.py`. אסור לערוך אותם ישירות.
+הסבר, התקנה, התראות ומגבלות: `docs/ULTIMATE_GOLD.md`. תוצאות הבדיקה: `docs/ULTIMATE_GOLD_BACKTEST.md`.
