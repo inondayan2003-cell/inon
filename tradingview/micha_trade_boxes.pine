@@ -78,6 +78,7 @@ pendBars    = input.int(2, "B/C: נרות להמתנה לאישור", minval = 1
 usePathHVN  = input.bool(true, "דלג אם יש HVN בדרך ליעד", group = grpRk)
 usePathGap  = input.bool(true, "דלג אם יש גאפ פתוח בדרך ליעד", group = grpRk)
 useMeasured = input.bool(true, "A: דלג אם יעד הספל קרוב מהיעד", group = grpRk)
+costPx      = input.float(0.0, "עלות לעסקה: ספרד + עמלה (במחיר, זהב ≈ 0.4)", minval = 0, step = 0.05, group = grpRk)
 
 // ───────────── Colors ─────────────
 color cBull  = #1D9E75
@@ -450,6 +451,7 @@ var int   tFrom   = na
 var box   tBoxP   = na
 var box   tBoxR   = na
 var int   tOpen   = na
+var float tRisk   = na
 var label tBanner = na
 
 var int   nTrades = 0
@@ -535,6 +537,7 @@ if cDir != 0
         tFrom   := cFrom
         tTag    := cTag
         tOpen   := bar_index
+        tRisk   := risk
         tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + fwdBars, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
         tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + fwdBars, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
         tBoxes.push(tBoxP)
@@ -594,19 +597,20 @@ if inTrade
             bool win = hitTP and not hitSL
             box.set_right(tBoxP, bar_index)
             box.set_right(tBoxR, bar_index)
+            float tCost = tRisk > 0 ? costPx / tRisk : 0.0
             nTrades += 1
             if win
                 nWins   += 1
-                netR    += rr
+                netR    += rr - tCost
                 curLoss := 0
             else
-                netR    -= 1
+                netR    -= 1 + tCost
                 curLoss += 1
                 maxLoss := math.max(maxLoss, curLoss)
             int si = tTag == "A" ? 0 : tTag == "B" ? 1 : 2
             sN.set(si, sN.get(si) + 1)
             sW.set(si, sW.get(si) + (win ? 1 : 0))
-            sR_.set(si, sR_.get(si) + (win ? rr : -1.0))
+            sR_.set(si, sR_.get(si) + (win ? rr : -1.0) - tCost)
             bool above = (tDir == 1 and win) or (tDir == -1 and not win)
             tLabels.push(label.new(bar_index, win ? tTP : tSL, win ? "+" + str.tostring(rr) + "R" : "-1R", style = above ? label.style_label_down : label.style_label_up, color = win ? cBull : cBear, textcolor = color.white, size = size.small))
             label.delete(tBanner)
