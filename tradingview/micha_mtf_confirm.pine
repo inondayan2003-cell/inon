@@ -1,0 +1,337 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════
+//  Micha.Stocks – MTF Confirm
+//  סורק 4 טווחי זמן (ברירת מחדל: יומי, 4 שעות, שעה, 15 דקות) ובודק בכל אחד:
+//  מגמה (EMA 20/50), נר אחרון (פטיש / בליעה), מיקום מול תמיכה/התנגדות, עייפות (5 נרות רצופים).
+//  כשהטווחים מסכימים על כיוון, הגרף הנוכחי (מומלץ: דקה או 5 דקות) נותן רק את האישור הסופי:
+//  פולבק לממוצע + נר היפוך עם נפח, וכניסה בפריצת השיא/השפל שלו.
+//  הנתונים מהטווחים הגבוהים נלקחים מהנר הסגור האחרון שלהם, כך שאין הצצה לעתיד.
+//  כלי עזר בלבד – לא ייעוץ השקעות.
+// ═══════════════════════════════════════════════════════════════════════
+indicator("Micha.Stocks – MTF Confirm", shorttitle = "Micha MTF", overlay = true,
+     max_boxes_count = 500, max_labels_count = 500, max_lines_count = 100)
+
+// ───────────── Inputs ─────────────
+grpTF = "1. טווחי זמן ומשקלים"
+tf1 = input.timeframe("D",   "טווח 1", inline = "t1", group = grpTF)
+w1  = input.int(3, "משקל", minval = 0, inline = "t1", group = grpTF)
+tf2 = input.timeframe("240", "טווח 2", inline = "t2", group = grpTF)
+w2  = input.int(3, "משקל", minval = 0, inline = "t2", group = grpTF)
+tf3 = input.timeframe("60",  "טווח 3", inline = "t3", group = grpTF)
+w3  = input.int(2, "משקל", minval = 0, inline = "t3", group = grpTF)
+tf4 = input.timeframe("15",  "טווח 4", inline = "t4", group = grpTF)
+w4  = input.int(1, "משקל", minval = 0, inline = "t4", group = grpTF)
+minScorePct = input.int(70, "ציון מינימלי לאישור (% מהמקסימום)", minval = 10, maxval = 100, group = grpTF)
+vetoBig     = input.bool(true, "וטו: טווח 1 או 2 נגד הכיוון = אין עסקה", group = grpTF)
+useExhMTF   = input.bool(true, "חסום אם יש עייפות בטווח 2 או 3 בכיוון העסקה", group = grpTF)
+useZone     = input.bool(true, "חסום לונג ליד התנגדות (ושורט ליד תמיכה) של טווח 3", group = grpTF)
+
+grpTrg = "2. טריגר בגרף הנוכחי"
+emaLen     = input.int(20, "EMA לפולבק", minval = 2, group = grpTrg)
+pbBars     = input.int(10, "פולבק: נגיעה בממוצע ב-X נרות אחרונים", minval = 1, group = grpTrg)
+needVol    = input.bool(true, "נפח נר הטריגר מעל ממוצע 20", group = grpTrg)
+wickMult   = input.float(2.0, "פטיש: פתיל ≥ × גוף", step = 0.5, group = grpTrg)
+pendBars   = input.int(2, "נרות להמתנה לפריצה", minval = 1, group = grpTrg)
+
+grpRk = "3. סיכון"
+rr         = input.float(2.0, "יחס סיכוי/סיכון (R)", minval = 1.0, step = 0.5, group = grpRk)
+slBufATR   = input.float(0.2, "מרווח סטופ (×ATR)", step = 0.05, group = grpRk)
+minRiskATR = input.float(0.5, "סיכון מינימלי (×ATR)", step = 0.1, minval = 0, group = grpRk)
+maxRiskATR = input.float(4.0, "סיכון מקסימלי (×ATR)", step = 0.5, group = grpRk)
+costPx     = input.float(0.0, "עלות לעסקה: ספרד + עמלה (במחיר)", minval = 0, step = 0.05, group = grpRk, tooltip = "NQ ≈ 0.5, זהב ≈ 0.4")
+allowLong  = input.bool(true, "לונג", inline = "dir", group = grpRk)
+allowShort = input.bool(true, "שורט", inline = "dir", group = grpRk)
+
+grpDay = "4. יום מסחר"
+useSess    = input.bool(true, "רק בשעות מסחר", group = grpDay)
+sess       = input.session("0930-1555", "שעות מסחר", group = grpDay, tooltip = "נאסד\"ק/S&P: 0930-1555 ניו יורק. זהב: 0800-1555")
+sessTz     = input.string("America/New_York", "אזור זמן", group = grpDay)
+maxPerDay  = input.int(3, "מקסימום עסקאות ביום (0 = ללא)", minval = 0, group = grpDay)
+maxLossDay = input.int(2, "עצור אחרי X הפסדים ביום (0 = ללא)", minval = 0, group = grpDay)
+flatEOD    = input.bool(true, "סגור עסקה בסוף שעות המסחר", group = grpDay)
+
+grpVis = "5. תצוגה"
+showDash   = input.bool(true, "לוח טווחי זמן", group = grpVis)
+showStats  = input.bool(true, "טבלת סטטיסטיקה", group = grpVis)
+showBg     = input.bool(true, "צבע רקע לפי הכיוון המאושר", group = grpVis)
+showBanner = input.bool(true, "הכרזת \"כניסה מאושרת\"", group = grpVis)
+fwdBars    = input.int(20, "תיבת עסקה: נרות קדימה", minval = 1, maxval = 200, group = grpVis)
+maxShown   = input.int(60, "מקסימום עסקאות מוצגות", minval = 5, maxval = 150, group = grpVis)
+
+color cBull = #1D9E75
+color cBear = #E24B4A
+color cNeut = #888780
+color cBlue = #378ADD
+
+// ───────────── Helpers ─────────────
+tfName(string tf) =>
+    float m = timeframe.in_seconds(tf) / 60.0
+    m >= 10080 ? "W" : m >= 1440 ? "D" : m >= 60 ? str.tostring(m / 60, "#") + "H" : str.tostring(m, "#") + "m"
+
+arrow(int v) =>
+    v == 1 ? "▲" : v == -1 ? "▼" : "—"
+
+dirCol(int v) =>
+    v == 1 ? cBull : v == -1 ? cBear : chart.fg_color
+
+// מצב של טווח זמן אחד, מהנר הסגור האחרון שלו
+tfState() =>
+    float e20 = ta.ema(close, 20)
+    float e50 = ta.ema(close, 50)
+    float a   = ta.atr(14)
+    float b   = math.abs(close - open)
+    float rg  = high - low
+    float uw  = high - math.max(open, close)
+    float lw  = math.min(open, close) - low
+    int   trd = close > e20 and e20 > e50 and e20 > e20[3] ? 1 : close < e20 and e20 < e50 and e20 < e20[3] ? -1 : 0
+    bool  bullC = (rg > 0 and lw >= 2 * b and uw <= b) or (close > open and close[1] < open[1] and close >= open[1] and open <= close[1])
+    bool  bearC = (rg > 0 and uw >= 2 * b and lw <= b) or (close < open and close[1] > open[1] and close <= open[1] and open >= close[1])
+    int   cs  = bullC and not bearC ? 1 : bearC and not bullC ? -1 : 0
+    float lo20 = ta.lowest(low, 20)
+    float hi20 = ta.highest(high, 20)
+    int   zn  = close - lo20 <= a ? 1 : hi20 - close <= a ? -1 : 0
+    int   ex  = ta.barssince(close <= open) >= 5 ? 1 : ta.barssince(close >= open) >= 5 ? -1 : 0
+    [trd[1], cs[1], zn[1], ex[1]]
+
+// ───────────── Multi-timeframe scan ─────────────
+[t1, c1, z1, x1] = request.security(syminfo.tickerid, tf1, tfState(), lookahead = barmerge.lookahead_on)
+[t2, c2, z2, x2] = request.security(syminfo.tickerid, tf2, tfState(), lookahead = barmerge.lookahead_on)
+[t3, c3, z3, x3] = request.security(syminfo.tickerid, tf3, tfState(), lookahead = barmerge.lookahead_on)
+[t4, c4, z4, x4] = request.security(syminfo.tickerid, tf4, tfState(), lookahead = barmerge.lookahead_on)
+
+int   s1 = nz(t1)
+int   s2 = nz(t2)
+int   s3 = nz(t3)
+int   s4 = nz(t4)
+int   wTot  = w1 + w2 + w3 + w4
+int   score = s1 * w1 + s2 * w2 + s3 * w3 + s4 * w4
+float need  = minScorePct / 100.0 * wTot
+
+bool longBias  = allowLong and wTot > 0 and score >= need and (not vetoBig or (s1 >= 0 and s2 >= 0)) and
+     (not useExhMTF or (nz(x2) != 1 and nz(x3) != 1)) and (not useZone or nz(z3) != -1)
+bool shortBias = allowShort and wTot > 0 and -score >= need and (not vetoBig or (s1 <= 0 and s2 <= 0)) and
+     (not useExhMTF or (nz(x2) != -1 and nz(x3) != -1)) and (not useZone or nz(z3) != 1)
+
+// ───────────── Trigger on the chart timeframe ─────────────
+float atr    = ta.atr(14)
+float ema    = ta.ema(close, emaLen)
+float volAvg = ta.sma(volume, 20)
+float body   = math.abs(close - open)
+float rng    = high - low
+float upW    = high - math.max(open, close)
+float loW    = math.min(open, close) - low
+float lo3    = ta.lowest(low, 3)
+float hi3    = ta.highest(high, 3)
+bool  pbL    = ta.lowest(low, pbBars) <= ema
+bool  pbS    = ta.highest(high, pbBars) >= ema
+bool  volOK  = not needVol or volume >= volAvg
+
+bool hammer  = rng > 0 and loW >= wickMult * body and upW <= body
+bool star    = rng > 0 and upW >= wickMult * body and loW <= body
+bool bullEng = close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and body > body[1]
+bool bearEng = close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and body > body[1]
+bool bullTrig = (hammer or bullEng) and close > ema and pbL and volOK
+bool bearTrig = (star or bearEng) and close < ema and pbS and volOK
+
+// ───────────── Day / session ─────────────
+bool inSess = not useSess or not na(time(timeframe.period, sess, sessTz))
+int  dayKey = dayofmonth(time, sessTz)
+var int dayTrades = 0
+var int dayLosses = 0
+if dayKey != dayKey[1]
+    dayTrades := 0
+    dayLosses := 0
+bool dayOK = inSess and (maxPerDay == 0 or dayTrades < maxPerDay) and (maxLossDay == 0 or dayLosses < maxLossDay)
+
+// ───────────── Trade engine ─────────────
+var int   pDir   = 0
+var float pEntry = na
+var float pSL    = na
+var int   pExp   = na
+
+var bool  inTrade = false
+var int   tDir    = 0
+var float tEntry  = na
+var float tSL     = na
+var float tTP     = na
+var float tRisk   = na
+var int   tOpen   = na
+var box   tBoxP   = na
+var box   tBoxR   = na
+var label tBanner = na
+
+var int   nTrades = 0
+var int   nWins   = 0
+var float netR    = 0.0
+var int   curLoss = 0
+var int   maxLoss = 0
+var int   firstT  = time
+
+var array<box>   tBoxes  = array.new<box>()
+var array<label> tLabels = array.new<label>()
+
+int   cDir   = 0
+float cEntry = na
+float cSL    = na
+
+// 1) פריצה של נר הטריגר => כניסה (רק אם כל הטווחים עדיין מאשרים)
+if not inTrade and pDir != 0
+    if bar_index > pExp or not dayOK
+        pDir := 0
+    else if pDir == 1 and high >= pEntry and longBias
+        cDir   := 1
+        cEntry := math.max(open, pEntry)
+        cSL    := pSL
+        pDir   := 0
+    else if pDir == -1 and low <= pEntry and shortBias
+        cDir   := -1
+        cEntry := math.min(open, pEntry)
+        cSL    := pSL
+        pDir   := 0
+
+if cDir != 0
+    float risk = math.abs(cEntry - cSL)
+    if risk > 0 and risk >= minRiskATR * atr and risk <= maxRiskATR * atr
+        float tp = cEntry + cDir * rr * risk
+        inTrade := true
+        tDir    := cDir
+        tEntry  := cEntry
+        tSL     := cSL
+        tTP     := tp
+        tRisk   := risk
+        tOpen   := bar_index
+        dayTrades += 1
+        tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + fwdBars, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
+        tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + fwdBars, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
+        tBoxes.push(tBoxP)
+        tBoxes.push(tBoxR)
+        string tfLine = tfName(tf1) + " " + arrow(s1) + "  " + tfName(tf2) + " " + arrow(s2) + "  " + tfName(tf3) + " " + arrow(s3) + "  " + tfName(tf4) + " " + arrow(s4)
+        string banner = "כניסה מאושרת ✓\n" + (cDir == 1 ? "LONG ▲" : "SHORT ▼") + " · ציון " + str.tostring(cDir * score) + "/" + str.tostring(wTot) +
+             "\n" + tfLine +
+             "\nכניסה  " + str.tostring(cEntry, format.mintick) +
+             "\nסטופ   " + str.tostring(cSL, format.mintick) + "  (-1R)" +
+             "\nיעד    " + str.tostring(tp, format.mintick) + "  (+" + str.tostring(rr) + "R)"
+        tLabels.push(label.new(bar_index, cEntry, cDir == 1 ? "▲" : "▼", style = label.style_label_right, color = cBlue, textcolor = color.white, size = size.small))
+        if showBanner
+            tBanner := label.new(bar_index + fwdBars, cEntry, banner, style = label.style_label_left,
+                 color = color.new(cBlue, 10), textcolor = color.white, size = size.normal, textalign = text.align_left)
+        alert("🔔 " + syminfo.ticker + " " + timeframe.period + " · " + banner, alert.freq_once_per_bar_close)
+
+// 2) נר טריגר נסגר => ממתינים לפריצה שלו
+if not inTrade and pDir == 0 and cDir == 0 and dayOK
+    float buf = slBufATR * atr
+    if longBias and bullTrig
+        pDir   := 1
+        pEntry := high
+        pSL    := lo3 - buf
+        pExp   := bar_index + pendBars
+    else if shortBias and bearTrig
+        pDir   := -1
+        pEntry := low
+        pSL    := hi3 + buf
+        pExp   := bar_index + pendBars
+
+// 3) ניהול העסקה
+if inTrade
+    bool eod   = useSess and flatEOD and not inSess and inSess[1]
+    bool hitSL = not eod and (tDir == 1 ? low <= tSL : high >= tSL)
+    bool hitTP = not eod and (tDir == 1 ? high >= tTP : low <= tTP)
+    if hitSL or hitTP or eod
+        // נר שנוגע גם בסטופ וגם ביעד = סטופ (שמרני)
+        float exitPx = eod ? open : hitSL ? tSL : tTP
+        float resR   = eod ? tDir * (open - tEntry) / tRisk : hitSL ? -1.0 : rr
+        float netT   = resR - (tRisk > 0 ? costPx / tRisk : 0.0)
+        box.set_right(tBoxP, bar_index)
+        box.set_right(tBoxR, bar_index)
+        nTrades += 1
+        netR    += netT
+        if netT > 0
+            nWins   += 1
+            curLoss := 0
+        else
+            curLoss += 1
+            maxLoss := math.max(maxLoss, curLoss)
+            dayLosses += resR < 0 ? 1 : 0
+        string resTxt = (resR >= 0 ? "+" : "") + str.tostring(resR, "#.##") + "R"
+        tLabels.push(label.new(bar_index, exitPx, resTxt, style = exitPx > tEntry ? label.style_label_down : label.style_label_up,
+             color = resR > 0 ? cBull : resR < 0 ? cBear : cNeut, textcolor = color.white, size = size.small))
+        label.delete(tBanner)
+        tBanner := na
+        alert((resR > 0 ? "✅ " : resR < 0 ? "❌ " : "➖ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה " + (eod ? "(סוף יום) " : "") + resTxt, alert.freq_once_per_bar_close)
+        inTrade := false
+    else
+        int rgt = math.max(bar_index + 1, tOpen + fwdBars)
+        box.set_right(tBoxP, rgt)
+        box.set_right(tBoxR, rgt)
+        if not na(tBanner)
+            label.set_x(tBanner, rgt)
+
+while tBoxes.size() > maxShown * 2
+    box.delete(tBoxes.shift())
+while tLabels.size() > maxShown * 2
+    label.delete(tLabels.shift())
+
+// ───────────── Visuals ─────────────
+plot(ema, "EMA", color.new(#7F77DD, 30), 1)
+plot(pDir != 0 ? pEntry : na, "כניסה ממתינה", cBlue, 2, plot.style_linebr)
+plot(pDir != 0 ? pSL : na, "סטופ ממתין", color.new(cBear, 30), 1, plot.style_linebr)
+plotshape(longBias and bullTrig and not inTrade, "טריגר לונג", shape.triangleup, location.belowbar, cBull, size = size.tiny)
+plotshape(shortBias and bearTrig and not inTrade, "טריגר שורט", shape.triangledown, location.abovebar, cBear, size = size.tiny)
+bgcolor(showBg ? (longBias ? color.new(cBull, 93) : shortBias ? color.new(cBear, 93) : na) : na)
+
+// לוח טווחי זמן
+var table dash = table.new(position.top_right, 5, 7, bgcolor = color.new(cNeut, 85), border_width = 1)
+if barstate.islast and showDash
+    table.cell(dash, 0, 0, "טווח",   text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 1, 0, "מגמה",   text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 2, 0, "נר",     text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 3, 0, "מיקום",  text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 4, 0, "עייפות", text_color = chart.fg_color, text_size = size.small)
+    array<string> names = array.from(tfName(tf1), tfName(tf2), tfName(tf3), tfName(tf4))
+    array<int> trs = array.from(s1, s2, s3, s4)
+    array<int> css = array.from(nz(c1), nz(c2), nz(c3), nz(c4))
+    array<int> zns = array.from(nz(z1), nz(z2), nz(z3), nz(z4))
+    array<int> exs = array.from(nz(x1), nz(x2), nz(x3), nz(x4))
+    for i = 0 to 3
+        int zv = zns.get(i)
+        int xv = exs.get(i)
+        table.cell(dash, 0, i + 1, names.get(i), text_color = chart.fg_color, text_size = size.small)
+        table.cell(dash, 1, i + 1, arrow(trs.get(i)), text_color = dirCol(trs.get(i)), text_size = size.small)
+        table.cell(dash, 2, i + 1, arrow(css.get(i)), text_color = dirCol(css.get(i)), text_size = size.small)
+        table.cell(dash, 3, i + 1, zv == 1 ? "תמיכה" : zv == -1 ? "התנגדות" : "—", text_color = dirCol(zv), text_size = size.small)
+        table.cell(dash, 4, i + 1, xv == 1 ? "קונים" : xv == -1 ? "מוכרים" : "—", text_color = xv != 0 ? #EF9F27 : chart.fg_color, text_size = size.small)
+    table.cell(dash, 0, 5, "ציון", text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 1, 5, (score > 0 ? "+" : "") + str.tostring(score) + " / " + str.tostring(wTot) + "  (צריך " + str.tostring(math.ceil(need)) + ")",
+         text_color = dirCol(score > 0 ? 1 : score < 0 ? -1 : 0), text_size = size.small)
+    table.merge_cells(dash, 1, 5, 4, 5)
+    string dec = inTrade ? (tDir == 1 ? "בעסקת לונג" : "בעסקת שורט") : pDir == 1 ? "ממתין לפריצה ▲" : pDir == -1 ? "ממתין לפריצה ▼" :
+         longBias ? "לונג מאושר: מחכה לטריגר" : shortBias ? "שורט מאושר: מחכה לטריגר" : "אין כיוון: לא נכנסים"
+    table.cell(dash, 0, 6, "החלטה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(dash, 1, 6, dec, text_color = color.white, bgcolor = longBias ? cBull : shortBias ? cBear : cNeut, text_size = size.small)
+    table.merge_cells(dash, 1, 6, 4, 6)
+
+// סטטיסטיקה
+var table st = table.new(position.bottom_left, 2, 7, bgcolor = color.new(cNeut, 85), border_width = 1)
+if barstate.islast and showStats
+    float winRate = nTrades > 0 ? 100.0 * nWins / nTrades : 0.0
+    float expR    = nTrades > 0 ? netR / nTrades : 0.0
+    float months  = (time - firstT) / (86400000.0 * 30.44)
+    table.cell(st, 0, 0, "עסקאות", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 0, str.tostring(nTrades), text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 1, "הצלחה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 1, str.tostring(winRate, "#.#") + "%  (איזון " + str.tostring(100 / (1 + rr), "#") + "%)", text_color = winRate >= 100 / (1 + rr) ? cBull : cBear, text_size = size.small)
+    table.cell(st, 0, 2, "סה\"כ R", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 2, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color = netR >= 0 ? cBull : cBear, text_size = size.small)
+    table.cell(st, 0, 3, "תוחלת לעסקה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 3, (expR >= 0 ? "+" : "") + str.tostring(expR, "#.##") + "R", text_color = expR >= 0 ? cBull : cBear, text_size = size.small)
+    table.cell(st, 0, 4, "עסקאות ביום", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 4, months > 0 ? str.tostring(nTrades / (months * 21), "#.##") : "—", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 5, "רצף הפסדים מקס׳", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 5, str.tostring(maxLoss), text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 6, "תקופת בדיקה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 6, str.format_time(firstT, "dd/MM/yy", sessTz) + " · " + str.tostring(months * 30.44, "#") + " ימים", text_color = chart.fg_color, text_size = size.small)
+
+// ───────────── Alerts ─────────────
+// לעסקאות: התראה מסוג "Any alert() function call". בנוסף:
+alertcondition(longBias and not longBias[1],   "Long bias on",  "Micha MTF: כל הטווחים מאשרים לונג ב-{{ticker}}")
+alertcondition(shortBias and not shortBias[1], "Short bias on", "Micha MTF: כל הטווחים מאשרים שורט ב-{{ticker}}")
