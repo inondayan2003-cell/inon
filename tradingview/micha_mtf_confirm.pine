@@ -50,6 +50,13 @@ maxPerDay  = input.int(3, "מקסימום עסקאות ביום (0 = ללא)", m
 maxLossDay = input.int(2, "עצור אחרי X הפסדים ביום (0 = ללא)", minval = 0, group = grpDay)
 flatEOD    = input.bool(true, "סגור עסקה בסוף שעות המסחר", group = grpDay)
 
+grpNews = "4ב. חדשות"
+useNews    = input.bool(true, "חסום כניסות סביב שעות חדשות", group = grpNews)
+newsList   = input.string("0830,1000", "שעות חדשות (שעון ניו יורק, מופרד בפסיק)", group = grpNews,
+     tooltip = "0830 = נתוני מאקרו (15:30 שעון ישראל). 1000 = נתונים נוספים. בימי החלטת ריבית להוסיף 1400.")
+newsMin    = input.int(10, "דקות לפני ואחרי", minval = 1, group = grpNews)
+newsExit   = input.bool(true, "סגור עסקה פתוחה לפני חדשות", group = grpNews)
+
 grpVis = "5. תצוגה"
 showDash   = input.bool(true, "לוח טווחי זמן", group = grpVis)
 showStats  = input.bool(true, "טבלת סטטיסטיקה", group = grpVis)
@@ -112,9 +119,9 @@ int   wTot  = w1 + w2 + w3 + w4
 int   score = s1 * w1 + s2 * w2 + s3 * w3 + s4 * w4
 float need  = minScorePct / 100.0 * wTot
 
-bool longBias  = allowLong and wTot > 0 and score >= need and (not vetoBig or (s1 >= 0 and s2 >= 0)) and
+bool longBias  = allowLong and wTot > 0 and score >= need and (not vetoBig or ((w1 == 0 or s1 >= 0) and (w2 == 0 or s2 >= 0))) and
      (not useExhMTF or (nz(x2) != 1 and nz(x3) != 1)) and (not useZone or nz(z3) != -1)
-bool shortBias = allowShort and wTot > 0 and -score >= need and (not vetoBig or (s1 <= 0 and s2 <= 0)) and
+bool shortBias = allowShort and wTot > 0 and -score >= need and (not vetoBig or ((w1 == 0 or s1 <= 0) and (w2 == 0 or s2 <= 0))) and
      (not useExhMTF or (nz(x2) != -1 and nz(x3) != -1)) and (not useZone or nz(z3) != 1)
 
 // ───────────── Trigger on the chart timeframe ─────────────
@@ -146,7 +153,21 @@ var int dayLosses = 0
 if dayKey != dayKey[1]
     dayTrades := 0
     dayLosses := 0
-bool dayOK = inSess and (maxPerDay == 0 or dayTrades < maxPerDay) and (maxLossDay == 0 or dayLosses < maxLossDay)
+// חלון חדשות: הנר מתחיל בין (חדשות − דקות − אורך נר) ל-(חדשות + דקות)
+var array<int> newsT = array.new<int>()
+if barstate.isfirst
+    for t in str.split(newsList, ",")
+        float v = str.tonumber(str.trim(t))
+        if not na(v)
+            newsT.push(int(math.floor(v / 100)) * 60 + int(v % 100))
+int  nowMin  = hour(time, sessTz) * 60 + minute(time, sessTz)
+int  barMin  = int(timeframe.in_seconds() / 60)
+bool newsWin = false
+if useNews
+    for t in newsT
+        if nowMin >= t - newsMin - barMin and nowMin <= t + newsMin
+            newsWin := true
+bool dayOK = not newsWin and inSess and (maxPerDay == 0 or dayTrades < maxPerDay) and (maxLossDay == 0 or dayLosses < maxLossDay)
 
 // ───────────── Trade engine ─────────────
 var int   pDir   = 0
@@ -238,7 +259,8 @@ if not inTrade and pDir == 0 and cDir == 0 and dayOK
 
 // 3) ניהול העסקה
 if inTrade
-    bool eod   = useSess and flatEOD and not inSess and inSess[1]
+    bool nwsX  = useNews and newsExit and newsWin
+    bool eod   = (useSess and flatEOD and not inSess and inSess[1]) or nwsX
     bool hitSL = not eod and (tDir == 1 ? low <= tSL : high >= tSL)
     bool hitTP = not eod and (tDir == 1 ? high >= tTP : low <= tTP)
     if hitSL or hitTP or eod
@@ -262,7 +284,7 @@ if inTrade
              color = resR > 0 ? cBull : resR < 0 ? cBear : cNeut, textcolor = color.white, size = size.small))
         label.delete(tBanner)
         tBanner := na
-        alert((resR > 0 ? "✅ " : resR < 0 ? "❌ " : "➖ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה " + (eod ? "(סוף יום) " : "") + resTxt, alert.freq_once_per_bar_close)
+        alert((resR > 0 ? "✅ " : resR < 0 ? "❌ " : "➖ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה " + (nwsX ? "(לפני חדשות) " : eod ? "(סוף יום) " : "") + resTxt, alert.freq_once_per_bar_close)
         inTrade := false
     else
         int rgt = math.max(bar_index + 1, tOpen + fwdBars)
@@ -310,7 +332,7 @@ if barstate.islast and showDash
          text_color = dirCol(score > 0 ? 1 : score < 0 ? -1 : 0), text_size = size.small)
     table.merge_cells(dash, 1, 5, 4, 5)
     string dec = inTrade ? (tDir == 1 ? "בעסקת לונג" : "בעסקת שורט") : pDir == 1 ? "ממתין לפריצה ▲" : pDir == -1 ? "ממתין לפריצה ▼" :
-         longBias ? "לונג מאושר: מחכה לטריגר" : shortBias ? "שורט מאושר: מחכה לטריגר" : "אין כיוון: לא נכנסים"
+         newsWin ? "חלון חדשות: לא נכנסים" : longBias ? "לונג מאושר: מחכה לטריגר" : shortBias ? "שורט מאושר: מחכה לטריגר" : "אין כיוון: לא נכנסים"
     table.cell(dash, 0, 6, "החלטה", text_color = chart.fg_color, text_size = size.small)
     table.cell(dash, 1, 6, dec, text_color = color.white, bgcolor = longBias ? cBull : shortBias ? cBear : cNeut, text_size = size.small)
     table.merge_cells(dash, 1, 6, 4, 6)
