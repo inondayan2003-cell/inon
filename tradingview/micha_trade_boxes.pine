@@ -80,6 +80,17 @@ usePathGap  = input.bool(true, "דלג אם יש גאפ פתוח בדרך ליע
 useMeasured = input.bool(true, "A: דלג אם יעד הספל קרוב מהיעד", group = grpRk)
 costPx      = input.float(0.0, "עלות לעסקה: ספרד + עמלה (במחיר, זהב ≈ 0.4)", minval = 0, step = 0.05, group = grpRk)
 
+grpId = "8. מסחר תוך-יומי"
+tradeMode  = input.string("אוטומטי", "סגנון", options = ["אוטומטי", "סווינג", "תוך-יומי"], group = grpId, tooltip = "אוטומטי: תוך-יומי בגרף של 15 דקות ומטה")
+sess       = input.session("0930-1555", "שעות מסחר", group = grpId, tooltip = "נאסד\"ק/S&P: 0930-1555 ניו יורק. זהב: 0800-1555")
+sessTz     = input.string("America/New_York", "אזור זמן", group = grpId)
+minRiskATR = input.float(0.5, "סיכון מינימלי (×ATR)", step = 0.1, minval = 0, group = grpId)
+volConfirm = input.bool(true, "B/C: נר האות עם נפח מעל הממוצע", group = grpId)
+maxPerDay  = input.int(3, "מקסימום עסקאות ביום (0 = ללא)", minval = 0, group = grpId)
+maxLossDay = input.int(2, "עצור אחרי X הפסדים ביום (0 = ללא)", minval = 0, group = grpId)
+beAtR      = input.float(0.0, "הזז סטופ לכניסה אחרי X R (0 = כבוי)", step = 0.5, minval = 0, group = grpId)
+flatEOD    = input.bool(true, "סגור עסקה בסוף שעות המסחר", group = grpId)
+
 // ───────────── Colors ─────────────
 color cBull  = #1D9E75
 color cBear  = #E24B4A
@@ -433,8 +444,19 @@ if showCup and bearSig
     tLabels.push(label.new(sLB, sTop, "Inv C&H", style = label.style_label_down, color = color.new(cCup, 20), textcolor = color.white, size = size.tiny))
 
 // ───────────── Trade engine ─────────────
-bool longOK  = allowLong and (not useWeekly or wUp) and not (useExh and buyExhOn)
-bool shortOK = allowShort and (not useWeekly or wDn) and not (useExh and sellExhOn)
+bool intraday = tradeMode == "תוך-יומי" or (tradeMode == "אוטומטי" and timeframe.isintraday and timeframe.in_seconds() <= 900)
+bool inSess   = not na(time(timeframe.period, sess, sessTz))
+int  dayKey   = dayofmonth(time, sessTz)
+var int dayTrades = 0
+var int dayLosses = 0
+if dayKey != dayKey[1]
+    dayTrades := 0
+    dayLosses := 0
+bool allowI = not intraday or (inSess and (maxPerDay == 0 or dayTrades < maxPerDay) and (maxLossDay == 0 or dayLosses < maxLossDay))
+bool volSig = not (intraday and volConfirm) or volume >= volAvg
+
+bool longOK  = allowLong and allowI and (not useWeekly or wUp) and not (useExh and buyExhOn)
+bool shortOK = allowShort and allowI and (not useWeekly or wDn) and not (useExh and sellExhOn)
 
 var int    pDir   = 0
 var float  pEntry = na
@@ -452,6 +474,7 @@ var box   tBoxP   = na
 var box   tBoxR   = na
 var int   tOpen   = na
 var float tRisk   = na
+var bool  tBE     = false
 var label tBanner = na
 
 var int   nTrades = 0
@@ -519,7 +542,7 @@ if not inTrade and cDir == 0 and setupA
 if cDir != 0
     float risk = math.abs(cEntry - cSL)
     float tp   = cEntry + cDir * rr * risk
-    bool  ok   = risk > 0 and risk <= maxRiskATR * atr
+    bool  ok   = risk > 0 and risk <= maxRiskATR * atr and allowI and risk >= (intraday ? minRiskATR : 0.0) * atr
     if ok and usePathHVN and hasVP
         int ka = cDir == 1 ? kOf(cEntry, vpStep) + 1 : kOf(tp, vpStep) + 1
         int kb = cDir == 1 ? kOf(tp, vpStep) - 1 : kOf(cEntry, vpStep) - 1
@@ -538,6 +561,8 @@ if cDir != 0
         tTag    := cTag
         tOpen   := bar_index
         tRisk   := risk
+        tBE     := false
+        dayTrades += 1
         tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + fwdBars, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
         tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + fwdBars, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
         tBoxes.push(tBoxP)
@@ -563,25 +588,25 @@ if not inTrade and pDir == 0 and cDir == 0
     bool touchS = hasVP and hvnIn(vp, vpAvg, kOf(math.max(open, close), vpStep), kOf(high, vpStep))
     bool gapHvnL = hasVP and gapUpFilled and hvnIn(vp, vpAvg, kOf(gapUpLvl, vpStep) - 1, kOf(gapUpLvl, vpStep) + 1)
     bool gapHvnS = hasVP and gapDnFilled and hvnIn(vp, vpAvg, kOf(gapDnLvl, vpStep) - 1, kOf(gapDnLvl, vpStep) + 1)
-    if longOK and setupB and (hammer or dragon or bullEng) and touchL
+    if longOK and setupB and volSig and (hammer or dragon or bullEng) and touchL
         pDir   := 1
         pEntry := high
         pSL    := low - buf
         pExp   := bar_index + pendBars
         pTag   := "B"
-    else if longOK and setupC and gapHvnL and close > open and close > gapUpLvl
+    else if longOK and setupC and volSig and gapHvnL and close > open and close > gapUpLvl
         pDir   := 1
         pEntry := high
         pSL    := math.min(low, gapUpLvl) - buf
         pExp   := bar_index + pendBars
         pTag   := "C"
-    else if shortOK and setupB and (shootStar or grave or bearEng) and touchS
+    else if shortOK and setupB and volSig and (shootStar or grave or bearEng) and touchS
         pDir   := -1
         pEntry := low
         pSL    := high + buf
         pExp   := bar_index + pendBars
         pTag   := "B"
-    else if shortOK and setupC and gapHvnS and close < open and close < gapDnLvl
+    else if shortOK and setupC and volSig and gapHvnS and close < open and close < gapDnLvl
         pDir   := -1
         pEntry := low
         pSL    := math.max(high, gapDnLvl) + buf
@@ -591,31 +616,37 @@ if not inTrade and pDir == 0 and cDir == 0
 // 5) ניהול העסקה הפתוחה
 if inTrade
     if bar_index >= tFrom
-        bool hitSL = tDir == 1 ? low <= tSL : high >= tSL
-        bool hitTP = tDir == 1 ? high >= tTP : low <= tTP
-        if hitSL or hitTP
-            bool win = hitTP and not hitSL
+        bool eod   = intraday and flatEOD and not inSess and inSess[1]
+        bool hitSL = not eod and (tDir == 1 ? low <= tSL : high >= tSL)
+        bool hitTP = not eod and (tDir == 1 ? high >= tTP : low <= tTP)
+        if hitSL or hitTP or eod
+            // נר שנוגע גם בסטופ וגם ביעד = סטופ (שמרני). סוף יום = יציאה בפתיחת הנר הראשון מחוץ לשעות.
+            float exitPx = eod ? open : hitSL ? tSL : tTP
+            float resR   = eod ? tDir * (open - tEntry) / tRisk : hitSL ? tDir * (tSL - tEntry) / tRisk : rr
+            float tCost  = tRisk > 0 ? costPx / tRisk : 0.0
+            float netT   = resR - tCost
+            bool  win    = netT > 0
             box.set_right(tBoxP, bar_index)
             box.set_right(tBoxR, bar_index)
-            float tCost = tRisk > 0 ? costPx / tRisk : 0.0
             nTrades += 1
+            netR    += netT
             if win
                 nWins   += 1
-                netR    += rr - tCost
                 curLoss := 0
             else
-                netR    -= 1 + tCost
                 curLoss += 1
                 maxLoss := math.max(maxLoss, curLoss)
+                dayLosses += resR < 0 ? 1 : 0
             int si = tTag == "A" ? 0 : tTag == "B" ? 1 : 2
             sN.set(si, sN.get(si) + 1)
             sW.set(si, sW.get(si) + (win ? 1 : 0))
-            sR_.set(si, sR_.get(si) + (win ? rr : -1.0) - tCost)
-            bool above = (tDir == 1 and win) or (tDir == -1 and not win)
-            tLabels.push(label.new(bar_index, win ? tTP : tSL, win ? "+" + str.tostring(rr) + "R" : "-1R", style = above ? label.style_label_down : label.style_label_up, color = win ? cBull : cBear, textcolor = color.white, size = size.small))
+            sR_.set(si, sR_.get(si) + netT)
+            string resTxt = (resR >= 0 ? "+" : "") + str.tostring(resR, "#.##") + "R"
+            string why    = eod ? "סוף יום" : hitSL ? (tBE ? "סטופ בכניסה" : "סטופ") : "יעד"
+            tLabels.push(label.new(bar_index, exitPx, resTxt, style = exitPx > tEntry ? label.style_label_down : label.style_label_up, color = resR > 0 ? cBull : resR < 0 ? cBear : cNeut, textcolor = color.white, size = size.small))
             label.delete(tBanner)
             tBanner := na
-            alert((win ? "✅ " : "❌ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה " + (win ? "ביעד +" + str.tostring(rr) + "R" : "בסטופ -1R"), alert.freq_once_per_bar_close)
+            alert((resR > 0 ? "✅ " : resR < 0 ? "❌ " : "➖ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה (" + why + ") " + resTxt, alert.freq_once_per_bar_close)
             inTrade := false
         else
             int rgt = math.max(bar_index + 1, tOpen + fwdBars)
@@ -623,6 +654,11 @@ if inTrade
             box.set_right(tBoxR, rgt)
             if not na(tBanner)
                 label.set_x(tBanner, rgt)
+            // הזזת סטופ לכניסה (נבדק רק אחרי שהנר לא נסגר בסטופ/יעד, כדי לא לנחש את הסדר בתוך הנר)
+            if beAtR > 0 and not tBE and tDir * ((tDir == 1 ? high : low) - tEntry) >= beAtR * tRisk
+                tSL := tEntry
+                tBE := true
+                box.set_bgcolor(tBoxR, color.new(cNeut, 85))
 
 // ניקוי ציורים ישנים
 while tBoxes.size() > maxShown * 2
