@@ -655,7 +655,8 @@ if barstate.islast
         pocLn := line.new(vpAnchor, pocP, bar_index + 3, pocP, color = color.new(cBull, 20), style = line.style_dashed)
 
 // ───────────── Stats table ─────────────
-var table st = table.new(position.top_right, 2, 13, bgcolor = color.new(cNeut, 85), border_width = 1)
+var int firstT = time
+var table st = table.new(position.top_right, 2, 15, bgcolor = color.new(cNeut, 85), border_width = 1)
 if barstate.islast and showStats
     float winRate = nTrades > 0 ? 100.0 * nWins / nTrades : 0.0
     float beRate  = 100.0 / (1 + rr)
@@ -683,6 +684,11 @@ if barstate.islast and showStats
     float expR = nTrades > 0 ? netR / nTrades : 0.0
     table.cell(st, 0, 9, "תוחלת לעסקה", text_color = chart.fg_color, text_size = size.small)
     table.cell(st, 1, 9, (expR >= 0 ? "+" : "") + str.tostring(expR, "#.##") + "R", text_color = expR >= 0 ? cBull : cBear, text_size = size.small)
+    float months = (time - firstT) / (86400000.0 * 30.44)
+    table.cell(st, 0, 13, "תקופת בדיקה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 13, str.format_time(firstT, "MM/yyyy") + " · " + str.tostring(months / 12, "#.#") + " שנים", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 14, "עסקאות בחודש", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 14, months > 0 ? str.tostring(nTrades / months, "#.#") : "—", text_color = chart.fg_color, text_size = size.small)
     for si = 0 to 2
         int   n  = sN.get(si)
         float rt = sR_.get(si)
