@@ -27,7 +27,8 @@ maxShown   = input.int(60, "מקסימום עסקאות מוצגות", minval = 
 
 grpTr = "2. מגמה"
 emaLen    = input.int(20, "EMA", minval = 2, group = grpTr)
-useWeekly = input.bool(true, "מסנן מגמה שבועית", group = grpTr)
+useWeekly = input.bool(true, "מסנן מגמה בטווח עליון", group = grpTr)
+htf       = input.timeframe("W", "טווח המגמה העליונה (W / D)", group = grpTr)
 showEma   = input.bool(true, "הצג EMA", group = grpTr)
 
 grpCd = "3. נרות"
@@ -245,7 +246,7 @@ float ema    = ta.ema(close, emaLen)
 float volAvg = ta.sma(volume, 20)
 bool  volOK  = volume >= volMult * volAvg
 
-[wC, wE, wE2] = request.security(syminfo.tickerid, "W", [close[1], ta.ema(close, emaLen)[1], ta.ema(close, emaLen)[2]], lookahead = barmerge.lookahead_on)
+[wC, wE, wE2] = request.security(syminfo.tickerid, htf, [close[1], ta.ema(close, emaLen)[1], ta.ema(close, emaLen)[2]], lookahead = barmerge.lookahead_on)
 bool wUp = wC > wE and wE > wE2
 bool wDn = wC < wE and wE < wE2
 bool upCtx = close[1] > ema[1]
@@ -309,7 +310,7 @@ if gn > 0
         bool  filled = up ? low <= bt : high >= t
         if filled
             gapsFilled += 1
-            fillDays   += bar_index - gStart.get(i)
+            fillDays   += (time - gStart.get(i)) / 86400000.0
             if up
                 gapUpFilled := true
                 gapUpLvl    := bt
@@ -349,7 +350,7 @@ if gapUp or gapDn
     gTop.push(nTop)
     gBot.push(nBot)
     gUp.push(gapUp)
-    gStart.push(bar_index)
+    gStart.push(time)
     if gTop.size() > maxGaps
         box old = gBox.shift()
         if not na(old)
@@ -452,6 +453,10 @@ var int   nWins   = 0
 var float netR    = 0.0
 var int   curLoss = 0
 var int   maxLoss = 0
+var string tTag   = ""
+var array<int>   sN = array.from(0, 0, 0)
+var array<int>   sW = array.from(0, 0, 0)
+var array<float> sR_ = array.from(0.0, 0.0, 0.0)
 
 int    cDir   = 0
 float  cEntry = na
@@ -524,6 +529,7 @@ if cDir != 0
         tSL     := cSL
         tTP     := tp
         tFrom   := cFrom
+        tTag    := cTag
         tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + 1, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
         tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + 1, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
         tBoxes.push(tBoxP)
@@ -583,6 +589,10 @@ if inTrade
                 netR    -= 1
                 curLoss += 1
                 maxLoss := math.max(maxLoss, curLoss)
+            int si = tTag == "A" ? 0 : tTag == "B" ? 1 : 2
+            sN.set(si, sN.get(si) + 1)
+            sW.set(si, sW.get(si) + (win ? 1 : 0))
+            sR_.set(si, sR_.get(si) + (win ? rr : -1.0))
             bool above = (tDir == 1 and win) or (tDir == -1 and not win)
             tLabels.push(label.new(bar_index, win ? tTP : tSL, win ? "+" + str.tostring(rr) + "R" : "-1R", style = above ? label.style_label_down : label.style_label_up, color = win ? cBull : cBear, textcolor = color.white, size = size.small))
             inTrade := false
@@ -628,7 +638,7 @@ if barstate.islast
         pocLn := line.new(vpAnchor, pocP, bar_index + 3, pocP, color = color.new(cBull, 20), style = line.style_dashed)
 
 // ───────────── Stats table ─────────────
-var table st = table.new(position.top_right, 2, 9, bgcolor = color.new(cNeut, 85), border_width = 1)
+var table st = table.new(position.top_right, 2, 13, bgcolor = color.new(cNeut, 85), border_width = 1)
 if barstate.islast and showStats
     float winRate = nTrades > 0 ? 100.0 * nWins / nTrades : 0.0
     float beRate  = 100.0 / (1 + rr)
@@ -653,6 +663,15 @@ if barstate.islast and showStats
     table.cell(st, 1, 7, str.tostring(fillRate, "#.#") + "%", text_color = chart.fg_color, text_size = size.small)
     table.cell(st, 0, 8, "ימים עד סגירה", text_color = chart.fg_color, text_size = size.small)
     table.cell(st, 1, 8, str.tostring(avgDays, "#.#"), text_color = chart.fg_color, text_size = size.small)
+    float expR = nTrades > 0 ? netR / nTrades : 0.0
+    table.cell(st, 0, 9, "תוחלת לעסקה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 9, (expR >= 0 ? "+" : "") + str.tostring(expR, "#.##") + "R", text_color = expR >= 0 ? cBull : cBear, text_size = size.small)
+    for si = 0 to 2
+        int   n  = sN.get(si)
+        float rt = sR_.get(si)
+        string txt = n > 0 ? str.tostring(n) + " · " + str.tostring(100.0 * sW.get(si) / n, "#") + "% · " + (rt >= 0 ? "+" : "") + str.tostring(rt, "#.#") + "R" : "—"
+        table.cell(st, 0, 10 + si, "סוג " + (si == 0 ? "A" : si == 1 ? "B" : "C"), text_color = chart.fg_color, text_size = size.small)
+        table.cell(st, 1, 10 + si, txt, text_color = n == 0 ? chart.fg_color : rt >= 0 ? cBull : cBear, text_size = size.small)
 
 // ───────────── Plots ─────────────
 plot(showEma ? ema : na, "EMA", color.new(cCup, 30), 1)
