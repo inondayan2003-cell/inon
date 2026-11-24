@@ -24,6 +24,8 @@ setupB     = input.bool(true, "B · נר היפוך על HVN", group = grpGen)
 setupC     = input.bool(true, "C · סגירת גאפ על HVN", group = grpGen)
 showStats  = input.bool(true, "טבלת סטטיסטיקה", group = grpGen)
 maxShown   = input.int(60, "מקסימום עסקאות מוצגות", minval = 5, maxval = 120, group = grpGen)
+fwdBars    = input.int(20, "תיבת עסקה: נרות קדימה", minval = 1, maxval = 200, group = grpGen)
+showBanner = input.bool(true, "הכרזת \"הכניסה הופעלה\" על הגרף", group = grpGen)
 
 grpTr = "2. מגמה"
 emaLen    = input.int(20, "EMA", minval = 2, group = grpTr)
@@ -447,6 +449,8 @@ var float tTP     = na
 var int   tFrom   = na
 var box   tBoxP   = na
 var box   tBoxR   = na
+var int   tOpen   = na
+var label tBanner = na
 
 var int   nTrades = 0
 var int   nWins   = 0
@@ -530,14 +534,24 @@ if cDir != 0
         tTP     := tp
         tFrom   := cFrom
         tTag    := cTag
-        tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + 1, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
-        tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + 1, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
+        tOpen   := bar_index
+        tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + fwdBars, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
+        tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + fwdBars, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
         tBoxes.push(tBoxP)
         tBoxes.push(tBoxR)
         string side = cDir == 1 ? "LONG" : "SHORT"
         string tip  = side + " " + cTag + " · " + syminfo.ticker + "\nEntry " + str.tostring(cEntry, format.mintick) + "\nSL " + str.tostring(cSL, format.mintick) + "\nTP " + str.tostring(tp, format.mintick)
         tLabels.push(label.new(bar_index, cEntry, cTag + (cDir == 1 ? " ▲" : " ▼"), style = label.style_label_right, color = cEntryCol, textcolor = color.white, size = size.small, tooltip = tip))
-        alert(tip, alert.freq_once_per_bar_close)
+        string dirTxt = cDir == 1 ? "LONG ▲" : "SHORT ▼"
+        string kind   = cTag == "A" ? "פריצת Cup & Handle" : cTag == "B" ? "נר היפוך על HVN" : "סגירת גאפ על HVN"
+        string banner = "הכניסה הופעלה\n" + dirTxt + " · " + cTag + " · " + kind +
+             "\nכניסה  " + str.tostring(cEntry, format.mintick) +
+             "\nסטופ   " + str.tostring(cSL, format.mintick) + "  (-1R, " + str.tostring(risk, format.mintick) + ")" +
+             "\nיעד    " + str.tostring(tp, format.mintick) + "  (+" + str.tostring(rr) + "R)"
+        if showBanner
+            tBanner := label.new(bar_index + fwdBars, cEntry, banner, style = label.style_label_left,
+                 color = color.new(cEntryCol, 10), textcolor = color.white, size = size.normal, textalign = text.align_left)
+        alert("🔔 " + syminfo.ticker + " " + timeframe.period + " · " + banner, alert.freq_once_per_bar_close)
 
 // 4) קביעת כניסה ממתינה B/C (בפריצת שיא/שפל נר האות)
 if not inTrade and pDir == 0 and cDir == 0
@@ -595,13 +609,16 @@ if inTrade
             sR_.set(si, sR_.get(si) + (win ? rr : -1.0))
             bool above = (tDir == 1 and win) or (tDir == -1 and not win)
             tLabels.push(label.new(bar_index, win ? tTP : tSL, win ? "+" + str.tostring(rr) + "R" : "-1R", style = above ? label.style_label_down : label.style_label_up, color = win ? cBull : cBear, textcolor = color.white, size = size.small))
+            label.delete(tBanner)
+            tBanner := na
+            alert((win ? "✅ " : "❌ ") + syminfo.ticker + " " + timeframe.period + " · העסקה נסגרה " + (win ? "ביעד +" + str.tostring(rr) + "R" : "בסטופ -1R"), alert.freq_once_per_bar_close)
             inTrade := false
         else
-            box.set_right(tBoxP, bar_index)
-            box.set_right(tBoxR, bar_index)
-    else
-        box.set_right(tBoxP, bar_index)
-        box.set_right(tBoxR, bar_index)
+            int rgt = math.max(bar_index + 1, tOpen + fwdBars)
+            box.set_right(tBoxP, rgt)
+            box.set_right(tBoxR, rgt)
+            if not na(tBanner)
+                label.set_x(tBanner, rgt)
 
 // ניקוי ציורים ישנים
 while tBoxes.size() > maxShown * 2
