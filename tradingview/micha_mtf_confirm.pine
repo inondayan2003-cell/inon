@@ -87,9 +87,14 @@ tfState() =>
     bool  bullC = (rg > 0 and lw >= 2 * b and uw <= b) or (close > open and close[1] < open[1] and close >= open[1] and open <= close[1])
     bool  bearC = (rg > 0 and uw >= 2 * b and lw <= b) or (close < open and close[1] > open[1] and close <= open[1] and open >= close[1])
     int   cs  = bullC and not bearC ? 1 : bearC and not bullC ? -1 : 0
-    float lo20 = ta.lowest(low, 20)
-    float hi20 = ta.highest(high, 20)
-    int   zn  = close - lo20 <= a ? 1 : hi20 - close <= a ? -1 : 0
+    // תמיכה/התנגדות = נקודות Swing מאושרות (לא השפל/השיא של התנועה הנוכחית, שאחרת חוסם כל עסקה עם המגמה)
+    float pvL = ta.pivotlow(low, 5, 5)
+    float pvH = ta.pivothigh(high, 5, 5)
+    float sup = ta.valuewhen(not na(pvL), pvL, 0)
+    float res = ta.valuewhen(not na(pvH), pvH, 0)
+    bool  nearSup = not na(sup) and close > sup and close - sup <= a
+    bool  nearRes = not na(res) and close < res and res - close <= a
+    int   zn  = nearSup and not nearRes ? 1 : nearRes and not nearSup ? -1 : 0
     int   ex  = ta.barssince(close <= open) >= 5 ? 1 : ta.barssince(close >= open) >= 5 ? -1 : 0
     [trd[1], cs[1], zn[1], ex[1]]
 
