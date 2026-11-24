@@ -1,0 +1,685 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════
+//  Micha.Stocks – Trade Boxes 1:3
+//  מתודולוגיה: נרות יפניים · גאפים (85%) · עייפות · Volume Profile מעוגן ·
+//  Cup & Handle · עסקאות בתיבות עם סטופ ויעד של פי R מהסיכון.
+//
+//  סוגי כניסה:
+//   A – פריצת Cup & Handle (או שבירה של Cup הפוך) עם נפח חריג. כניסה בסגירה.
+//   B – נר היפוך (Hammer / Dragonfly / Engulfing) שנוגע ב-HVN. כניסה בפריצת שיא הנר.
+//   C – סגירת גאפ שיושב על HVN + נר בכיוון המגמה. כניסה בפריצת שיא הנר.
+//  יעד = כניסה ± R × (כניסה − סטופ).  נר שנוגע גם ביעד וגם בסטופ = הפסד (שמרני).
+//  כלי עזר בלבד – לא ייעוץ השקעות. ה-Backtest לא כולל עמלות/החלקה.
+// ═══════════════════════════════════════════════════════════════════════
+indicator("Micha.Stocks – Trade Boxes 1:3", shorttitle = "Micha 1:3", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 1000)
+
+// ───────────── Inputs ─────────────
+grpGen = "1. כללי"
+rr         = input.float(3.0, "יחס סיכוי/סיכון (R)", minval = 1.0, step = 0.5, group = grpGen)
+allowLong  = input.bool(true, "לונג", inline = "dir", group = grpGen)
+allowShort = input.bool(true, "שורט", inline = "dir", group = grpGen)
+setupA     = input.bool(true, "A · פריצת Cup & Handle", group = grpGen)
+setupB     = input.bool(true, "B · נר היפוך על HVN", group = grpGen)
+setupC     = input.bool(true, "C · סגירת גאפ על HVN", group = grpGen)
+showStats  = input.bool(true, "טבלת סטטיסטיקה", group = grpGen)
+maxShown   = input.int(60, "מקסימום עסקאות מוצגות", minval = 5, maxval = 120, group = grpGen)
+
+grpTr = "2. מגמה"
+emaLen    = input.int(20, "EMA", minval = 2, group = grpTr)
+useWeekly = input.bool(true, "מסנן מגמה שבועית", group = grpTr)
+showEma   = input.bool(true, "הצג EMA", group = grpTr)
+
+grpCd = "3. נרות"
+showCandles = input.bool(true, "הצג דפוסי נרות", group = grpCd)
+showMinor   = input.bool(false, "הצג גם Doji / Spinning Top / Harami", group = grpCd)
+minRngATR   = input.float(0.3, "טווח נר מינימלי (×ATR)", step = 0.1, group = grpCd)
+dojiPct     = input.float(10, "Doji: גוף ≤ % מהטווח", group = grpCd)
+maruPct     = input.float(90, "Marubozu: גוף ≥ % מהטווח", group = grpCd)
+wickMult    = input.float(2.0, "Hammer: פתיל ≥ × גוף", step = 0.5, group = grpCd)
+
+grpGp = "4. גאפים ועייפות"
+showGaps   = input.bool(true, "הצג גאפים פתוחים", group = grpGp)
+showFilled = input.bool(false, "השאר גאפים שנסגרו (אפור)", group = grpGp)
+minGapATR  = input.float(0.05, "גודל גאפ מינימלי (×ATR)", step = 0.05, group = grpGp)
+maxGaps    = input.int(50, "מקסימום גאפים פתוחים", minval = 5, maxval = 150, group = grpGp)
+exhDays    = input.int(5, "עייפות: נרות רצופים", minval = 2, group = grpGp)
+exhGaps    = input.int(2, "עייפות: מינימום גאפים ברצף", minval = 0, group = grpGp)
+useExh     = input.bool(true, "חסום כניסות בזמן עייפות", group = grpGp)
+
+grpVp = "5. Volume Profile"
+showVP     = input.bool(true, "הצג Volume Profile", group = grpVp)
+anchorMode = input.string("כל Swing", "עיגון", options = ["כל Swing", "Swing High", "Swing Low"], group = grpVp)
+pivotLen   = input.int(20, "Swing: נרות מכל צד", minval = 3, maxval = 100, group = grpVp)
+vpStepATR  = input.float(0.25, "גובה שורה (×ATR)", step = 0.05, minval = 0.05, group = grpVp)
+hvnMult    = input.float(1.5, "HVN: נפח ≥ × ממוצע", step = 0.1, group = grpVp)
+lvnMult    = input.float(0.4, "LVN: נפח ≤ × ממוצע", step = 0.1, group = grpVp)
+vpWidth    = input.int(25, "רוחב היסטוגרמה (נרות)", minval = 5, group = grpVp)
+
+grpCp = "6. Cup & Handle"
+showCup    = input.bool(true, "צייר דפוס בפריצה", group = grpCp)
+cupPivot   = input.int(5, "Pivot לשפות", minval = 2, group = grpCp)
+minCupBars = input.int(15, "רוחב ספל מינימלי (נרות)", minval = 5, group = grpCp)
+maxCupBars = input.int(150, "רוחב ספל מקסימלי (נרות)", maxval = 400, group = grpCp)
+minDepth   = input.float(12, "עומק מינימלי %", group = grpCp)
+maxDepth   = input.float(35, "עומק מקסימלי %", group = grpCp)
+rimTol     = input.float(5, "הפרש מותר בין השפות %", group = grpCp)
+handleMax  = input.float(33, "ידית: ירידה מקסימלית (% מהעומק)", group = grpCp)
+maxHandle  = input.int(20, "ידית: נרות מקסימום", group = grpCp)
+volMult    = input.float(1.5, "נפח פריצה ≥ × ממוצע 20", step = 0.1, group = grpCp)
+
+grpRk = "7. סיכון ומסננים"
+slBufATR    = input.float(0.2, "מרווח סטופ (×ATR)", step = 0.05, group = grpRk)
+maxRiskATR  = input.float(3.0, "סיכון מקסימלי (×ATR)", step = 0.5, group = grpRk)
+pendBars    = input.int(2, "B/C: נרות להמתנה לאישור", minval = 1, group = grpRk)
+usePathHVN  = input.bool(true, "דלג אם יש HVN בדרך ליעד", group = grpRk)
+usePathGap  = input.bool(true, "דלג אם יש גאפ פתוח בדרך ליעד", group = grpRk)
+useMeasured = input.bool(true, "A: דלג אם יעד הספל קרוב מהיעד", group = grpRk)
+
+// ───────────── Colors ─────────────
+color cBull  = #1D9E75
+color cBear  = #E24B4A
+color cNeut  = #888780
+color cGap   = #EF9F27
+color cCup   = #7F77DD
+color cEntryCol = #378ADD
+
+// ───────────── Helpers ─────────────
+kOf(float p, float s) =>
+    math.floor(p / s)
+
+vpAdd(map<int, float> m, float step, float h, float l, float v) =>
+    int k1 = math.floor(l / step)
+    int k2 = math.floor(h / step)
+    int n  = k2 - k1 + 1
+    if n > 0 and n <= 400 and not na(v)
+        float part = v / n
+        for k = k1 to k2
+            m.put(k, nz(m.get(k)) + part)
+
+vpStats(map<int, float> m) =>
+    int   kmin = na
+    int   kmax = na
+    int   pocK = na
+    float tot  = 0.0
+    float mx   = 0.0
+    if m.size() > 0
+        array<int> ks = m.keys()
+        for k in ks
+            float v = nz(m.get(k))
+            tot += v
+            if v > mx
+                mx   := v
+                pocK := k
+            kmin := na(kmin) ? k : math.min(kmin, k)
+            kmax := na(kmax) ? k : math.max(kmax, k)
+    float avg = m.size() > 0 ? tot / (kmax - kmin + 1) : na
+    [avg, mx, pocK, kmin, kmax]
+
+// האם יש שורת HVN בטווח המפתחות k1..k2
+hvnIn(map<int, float> m, float avg, int k1, int k2) =>
+    bool found = false
+    if not na(avg) and not na(k1) and not na(k2) and k2 >= k1 and k2 - k1 <= 500
+        for k = k1 to k2
+            if nz(m.get(k)) >= hvnMult * avg
+                found := true
+                break
+    found
+
+// dir = 1: קצה תחתון של אזור ה-HVN הקרוב מתחת למחיר. dir = -1: קצה עליון של ה-HVN הקרוב מעל.
+hvnZoneEdge(map<int, float> m, float step, float avg, int kmin, int kmax, float price, int dir) =>
+    float res = na
+    if not na(avg) and not na(kmin) and not na(step)
+        float thr = hvnMult * avg
+        int k   = math.floor(price / step) - dir
+        int hit = na
+        while k >= kmin and k <= kmax
+            if nz(m.get(k)) >= thr
+                hit := k
+                break
+            k -= dir
+        if not na(hit)
+            int e = hit
+            while e - dir >= kmin and e - dir <= kmax and nz(m.get(e - dir)) >= thr
+                e -= dir
+            res := dir == 1 ? e * step : (e + 1) * step
+    res
+
+gapInPath(array<float> tops, array<float> bots, array<bool> ups, int dir, float entry, float tp) =>
+    bool blocked = false
+    int n = tops.size()
+    if n > 0
+        for i = 0 to n - 1
+            if dir == 1 and not ups.get(i) and bots.get(i) > entry and bots.get(i) < tp
+                blocked := true
+                break
+            if dir == -1 and ups.get(i) and tops.get(i) < entry and tops.get(i) > tp
+                blocked := true
+                break
+    blocked
+
+// Cup & Handle. לשורט קוראים עם מחירים שליליים (-low, -high, -close) => Cup הפוך.
+detectCup(float hi, float lo, float cl, bool vOK) =>
+    var array<float> pP = array.new<float>()
+    var array<int>   pB = array.new<int>()
+    var bool  act  = false
+    var float R    = na
+    var float cLow = na
+    var int   b1   = na
+    var int   b2   = na
+    var int   lowB = na
+    var float hLow = na
+    bool  sig  = false
+    float sR   = na
+    float sLow = na
+    float sHL  = na
+    int   sB1  = na
+    int   sB2  = na
+    int   sLB  = na
+    float ph = ta.pivothigh(hi, cupPivot, cupPivot)
+    if not na(ph)
+        int pb = bar_index - cupPivot
+        int n  = pP.size()
+        if n > 0 and not act
+            for j = n - 1 to 0
+                int   lbar = pB.get(j)
+                float lp   = pP.get(j)
+                int   w    = pb - lbar
+                if w > maxCupBars
+                    break
+                if w >= minCupBars and math.abs(lp) > 0 and math.abs(ph - lp) / math.abs(lp) * 100 <= rimTol
+                    float rim = math.max(ph, lp)
+                    float mn  = lo[bar_index - pb]
+                    int   mnB = pb
+                    for k = bar_index - pb to bar_index - lbar
+                        if lo[k] < mn
+                            mn  := lo[k]
+                            mnB := bar_index - k
+                    float dep = (rim - mn) / math.abs(rim) * 100
+                    float pos = float(mnB - lbar) / w
+                    int lowBars = 0
+                    for k = bar_index - pb to bar_index - lbar
+                        if lo[k] <= mn + (rim - mn) * 0.25
+                            lowBars += 1
+                    // ספל מעוגל (U): התחתית באמצע ויש כמה נרות ליד התחתית, לא V חד
+                    if dep >= minDepth and dep <= maxDepth and pos >= 0.2 and pos <= 0.8 and lowBars >= 3
+                        act  := true
+                        R    := rim
+                        cLow := mn
+                        b1   := lbar
+                        b2   := pb
+                        lowB := mnB
+                        hLow := lo
+                        for k = 1 to cupPivot
+                            hLow := math.min(hLow, lo[k])
+                        break
+        pP.push(ph)
+        pB.push(pb)
+        if pP.size() > 30
+            pP.shift()
+            pB.shift()
+    if act and bar_index > b2
+        hLow := math.min(hLow, lo)
+        float depth = R - cLow
+        if cl > R
+            if vOK
+                sig  := true
+                sR   := R
+                sLow := cLow
+                sHL  := hLow
+                sB1  := b1
+                sB2  := b2
+                sLB  := lowB
+            act := false
+        else if hLow < R - depth * handleMax / 100 or bar_index - b2 > maxHandle + cupPivot
+            act := false
+    [sig, sR, sLow, sHL, sB1, sB2, sLB]
+
+// ───────────── Core series ─────────────
+float atr    = ta.atr(14)
+float body   = math.abs(close - open)
+float rng    = high - low
+float upW    = high - math.max(open, close)
+float loW    = math.min(open, close) - low
+float ema    = ta.ema(close, emaLen)
+float volAvg = ta.sma(volume, 20)
+bool  volOK  = volume >= volMult * volAvg
+
+[wC, wE, wE2] = request.security(syminfo.tickerid, "W", [close[1], ta.ema(close, emaLen)[1], ta.ema(close, emaLen)[2]], lookahead = barmerge.lookahead_on)
+bool wUp = wC > wE and wE > wE2
+bool wDn = wC < wE and wE < wE2
+bool upCtx = close[1] > ema[1]
+bool dnCtx = close[1] < ema[1]
+
+// ───────────── Candles ─────────────
+bool valid     = rng > 0 and rng >= minRngATR * atr
+bool isDoji    = valid and body <= rng * dojiPct / 100
+bool isMaru    = valid and body >= rng * maruPct / 100
+bool dragon    = isDoji and loW >= rng * 0.7
+bool grave     = isDoji and upW >= rng * 0.7
+bool hamShape  = valid and not isDoji and loW >= wickMult * body and upW <= body
+bool invShape  = valid and not isDoji and upW >= wickMult * body and loW <= body
+bool hammer    = hamShape and dnCtx
+bool hangMan   = hamShape and upCtx
+bool invHam    = invShape and dnCtx
+bool shootStar = invShape and upCtx
+bool spinTop   = valid and not isDoji and body <= rng * 0.3 and upW >= rng * 0.25 and loW >= rng * 0.25
+bool bullEng   = valid and close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and body > body[1]
+bool bearEng   = valid and close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and body > body[1]
+bool bullHar   = valid and close > open and close[1] < open[1] and close < open[1] and open > close[1]
+bool bearHar   = valid and close < open and close[1] > open[1] and close > open[1] and open < close[1]
+
+// ───────────── Gaps ─────────────
+bool gapUp = low > high[1] and (low - high[1]) >= minGapATR * atr
+bool gapDn = high < low[1] and (low[1] - high) >= minGapATR * atr
+
+var int   lastGU     = na
+var float lastGUEdge = na
+var int   lastGD     = na
+var float lastGDEdge = na
+bool islandTop = gapDn and not na(lastGU) and bar_index - lastGU <= 10 and high < lastGUEdge
+bool islandBot = gapUp and not na(lastGD) and bar_index - lastGD <= 10 and low > lastGDEdge
+if gapUp
+    lastGU     := bar_index
+    lastGUEdge := high[1]
+if gapDn
+    lastGD     := bar_index
+    lastGDEdge := low[1]
+
+var array<box>   gBox   = array.new<box>()
+var array<float> gTop   = array.new<float>()
+var array<float> gBot   = array.new<float>()
+var array<bool>  gUp    = array.new<bool>()
+var array<int>   gStart = array.new<int>()
+var int   gapsTotal  = 0
+var int   gapsFilled = 0
+var float fillDays   = 0.0
+
+bool  gapUpFilled = false
+float gapUpLvl    = na
+bool  gapDnFilled = false
+float gapDnLvl    = na
+int gn = gTop.size()
+if gn > 0
+    for i = gn - 1 to 0
+        float t  = gTop.get(i)
+        float bt = gBot.get(i)
+        box   bx = gBox.get(i)
+        bool  up = gUp.get(i)
+        bool  filled = up ? low <= bt : high >= t
+        if filled
+            gapsFilled += 1
+            fillDays   += bar_index - gStart.get(i)
+            if up
+                gapUpFilled := true
+                gapUpLvl    := bt
+            else
+                gapDnFilled := true
+                gapDnLvl    := t
+            if not na(bx)
+                if showFilled
+                    box.set_right(bx, bar_index)
+                    box.set_bgcolor(bx, color.new(cNeut, 85))
+                    box.set_border_color(bx, color.new(cNeut, 60))
+                else
+                    box.delete(bx)
+            gBox.remove(i)
+            gTop.remove(i)
+            gBot.remove(i)
+            gUp.remove(i)
+            gStart.remove(i)
+        else
+            if up and low < t
+                gTop.set(i, low)
+                if not na(bx)
+                    box.set_top(bx, low)
+            if not up and high > bt
+                gBot.set(i, high)
+                if not na(bx)
+                    box.set_bottom(bx, high)
+            if not na(bx)
+                box.set_right(bx, bar_index)
+
+if gapUp or gapDn
+    gapsTotal += 1
+    float nTop = gapUp ? low : low[1]
+    float nBot = gapUp ? high[1] : high
+    box nb = showGaps ? box.new(bar_index - 1, nTop, bar_index, nBot, border_color = color.new(cGap, 50), bgcolor = color.new(cGap, 80)) : na
+    gBox.push(nb)
+    gTop.push(nTop)
+    gBot.push(nBot)
+    gUp.push(gapUp)
+    gStart.push(bar_index)
+    if gTop.size() > maxGaps
+        box old = gBox.shift()
+        if not na(old)
+            box.delete(old)
+        gTop.shift()
+        gBot.shift()
+        gUp.shift()
+        gStart.shift()
+
+// ───────────── Exhaustion ─────────────
+var int gStreak = 0
+var int gGapCnt = 0
+var int rStreak = 0
+var int rGapCnt = 0
+if close > open
+    gStreak += 1
+    gGapCnt += gapUp ? 1 : 0
+    rStreak := 0
+    rGapCnt := 0
+else if close < open
+    rStreak += 1
+    rGapCnt += gapDn ? 1 : 0
+    gStreak := 0
+    gGapCnt := 0
+else
+    gStreak := 0
+    gGapCnt := 0
+    rStreak := 0
+    rGapCnt := 0
+bool buyExh    = gStreak >= exhDays and gGapCnt >= exhGaps
+bool sellExh   = rStreak >= exhDays and rGapCnt >= exhGaps
+bool buyExhOn  = nz(ta.barssince(buyExh), 999) <= 3
+bool sellExhOn = nz(ta.barssince(sellExh), 999) <= 3
+
+// ───────────── Anchored Volume Profile ─────────────
+var map<int, float> vp = map.new<int, float>()
+var float vpStep   = na
+var int   vpAnchor = na
+float phA = ta.pivothigh(high, pivotLen, pivotLen)
+float plA = ta.pivotlow(low, pivotLen, pivotLen)
+bool newAnchor = (anchorMode != "Swing Low" and not na(phA)) or (anchorMode != "Swing High" and not na(plA))
+if newAnchor and atr > 0
+    vp.clear()
+    vpStep   := atr * vpStepATR
+    vpAnchor := bar_index - pivotLen
+    for i = pivotLen to 0
+        vpAdd(vp, vpStep, high[i], low[i], volume[i])
+else if not na(vpStep)
+    vpAdd(vp, vpStep, high, low, volume)
+[vpAvg, vpMax, vpPoc, vpKmin, vpKmax] = vpStats(vp)
+bool hasVP = not na(vpStep) and not na(vpAvg) and vpAvg > 0
+
+// ───────────── Cup & Handle ─────────────
+[bullSig, bR, bLow, bHL, bB1, bB2, bLB] = detectCup(high, low, close, volOK)
+[bearSig, nR, nLow, nHL, sB1, sB2, sLB] = detectCup(-low, -high, -close, volOK)
+float sR   = -nR    // תמיכה (קו השבירה)
+float sTop = -nLow  // שיא הספל ההפוך
+float sHH  = -nHL   // שיא הידית
+
+var array<box>   tBoxes  = array.new<box>()
+var array<label> tLabels = array.new<label>()
+var array<line>  tLines  = array.new<line>()
+
+if showCup and bullSig
+    tLines.push(line.new(bB1, bR, bar_index, bR, color = cCup, width = 1))
+    tLines.push(line.new(bB1, bR, bLB, bLow, color = color.new(cCup, 30), style = line.style_dashed))
+    tLines.push(line.new(bLB, bLow, bB2, bR, color = color.new(cCup, 30), style = line.style_dashed))
+    float measL = bR + (bR - bLow)
+    tLines.push(line.new(bar_index, measL, bar_index + 15, measL, color = cBull, style = line.style_dotted))
+    tLabels.push(label.new(bLB, bLow, "C&H", style = label.style_label_up, color = color.new(cCup, 20), textcolor = color.white, size = size.tiny))
+if showCup and bearSig
+    tLines.push(line.new(sB1, sR, bar_index, sR, color = cCup, width = 1))
+    tLines.push(line.new(sB1, sR, sLB, sTop, color = color.new(cCup, 30), style = line.style_dashed))
+    tLines.push(line.new(sLB, sTop, sB2, sR, color = color.new(cCup, 30), style = line.style_dashed))
+    float measS = sR - (sTop - sR)
+    tLines.push(line.new(bar_index, measS, bar_index + 15, measS, color = cBear, style = line.style_dotted))
+    tLabels.push(label.new(sLB, sTop, "Inv C&H", style = label.style_label_down, color = color.new(cCup, 20), textcolor = color.white, size = size.tiny))
+
+// ───────────── Trade engine ─────────────
+bool longOK  = allowLong and (not useWeekly or wUp) and not (useExh and buyExhOn)
+bool shortOK = allowShort and (not useWeekly or wDn) and not (useExh and sellExhOn)
+
+var int    pDir   = 0
+var float  pEntry = na
+var float  pSL    = na
+var int    pExp   = na
+var string pTag   = ""
+
+var bool  inTrade = false
+var int   tDir    = 0
+var float tEntry  = na
+var float tSL     = na
+var float tTP     = na
+var int   tFrom   = na
+var box   tBoxP   = na
+var box   tBoxR   = na
+
+var int   nTrades = 0
+var int   nWins   = 0
+var float netR    = 0.0
+var int   curLoss = 0
+var int   maxLoss = 0
+
+int    cDir   = 0
+float  cEntry = na
+float  cSL    = na
+float  cMeas  = na
+string cTag   = ""
+int    cFrom  = na
+
+// 1) מילוי של כניסה ממתינה (B/C)
+if not inTrade and pDir != 0
+    if bar_index > pExp
+        pDir := 0
+    else if pDir == 1 and high >= pEntry
+        cDir   := 1
+        cEntry := math.max(open, pEntry)
+        cSL    := pSL
+        cTag   := pTag
+        cFrom  := bar_index
+        pDir   := 0
+    else if pDir == -1 and low <= pEntry
+        cDir   := -1
+        cEntry := math.min(open, pEntry)
+        cSL    := pSL
+        cTag   := pTag
+        cFrom  := bar_index
+        pDir   := 0
+
+// 2) פריצת Cup & Handle – כניסה בסגירה
+if not inTrade and cDir == 0 and setupA
+    if bullSig and longOK
+        float sl0 = bHL
+        float hv  = hasVP ? hvnZoneEdge(vp, vpStep, vpAvg, vpKmin, vpKmax, close, 1) : na
+        if not na(hv) and hv < sl0 and sl0 - hv <= atr
+            sl0 := hv
+        cDir   := 1
+        cEntry := close
+        cSL    := sl0 - slBufATR * atr
+        cTag   := "A"
+        cFrom  := bar_index + 1
+        cMeas  := bR + (bR - bLow)
+    else if bearSig and shortOK
+        float sh0 = sHH
+        float hvS = hasVP ? hvnZoneEdge(vp, vpStep, vpAvg, vpKmin, vpKmax, close, -1) : na
+        if not na(hvS) and hvS > sh0 and hvS - sh0 <= atr
+            sh0 := hvS
+        cDir   := -1
+        cEntry := close
+        cSL    := sh0 + slBufATR * atr
+        cTag   := "A"
+        cFrom  := bar_index + 1
+        cMeas  := sR - (sTop - sR)
+
+// 3) פתיחת עסקה + מסננים
+if cDir != 0
+    float risk = math.abs(cEntry - cSL)
+    float tp   = cEntry + cDir * rr * risk
+    bool  ok   = risk > 0 and risk <= maxRiskATR * atr
+    if ok and usePathHVN and hasVP
+        int ka = cDir == 1 ? kOf(cEntry, vpStep) + 1 : kOf(tp, vpStep) + 1
+        int kb = cDir == 1 ? kOf(tp, vpStep) - 1 : kOf(cEntry, vpStep) - 1
+        ok := not hvnIn(vp, vpAvg, ka, kb)
+    if ok and usePathGap
+        ok := not gapInPath(gTop, gBot, gUp, cDir, cEntry, tp)
+    if ok and useMeasured and not na(cMeas)
+        ok := cDir == 1 ? cMeas >= tp : cMeas <= tp
+    if ok
+        inTrade := true
+        tDir    := cDir
+        tEntry  := cEntry
+        tSL     := cSL
+        tTP     := tp
+        tFrom   := cFrom
+        tBoxP := box.new(bar_index, math.max(tp, cEntry), bar_index + 1, math.min(tp, cEntry), border_color = color.new(cBull, 40), bgcolor = color.new(cBull, 85))
+        tBoxR := box.new(bar_index, math.max(cSL, cEntry), bar_index + 1, math.min(cSL, cEntry), border_color = color.new(cBear, 40), bgcolor = color.new(cBear, 85))
+        tBoxes.push(tBoxP)
+        tBoxes.push(tBoxR)
+        string side = cDir == 1 ? "LONG" : "SHORT"
+        string tip  = side + " " + cTag + " · " + syminfo.ticker + "\nEntry " + str.tostring(cEntry, format.mintick) + "\nSL " + str.tostring(cSL, format.mintick) + "\nTP " + str.tostring(tp, format.mintick)
+        tLabels.push(label.new(bar_index, cEntry, cTag + (cDir == 1 ? " ▲" : " ▼"), style = label.style_label_right, color = cEntryCol, textcolor = color.white, size = size.small, tooltip = tip))
+        alert(tip, alert.freq_once_per_bar_close)
+
+// 4) קביעת כניסה ממתינה B/C (בפריצת שיא/שפל נר האות)
+if not inTrade and pDir == 0 and cDir == 0
+    float buf = slBufATR * atr
+    bool touchL = hasVP and hvnIn(vp, vpAvg, kOf(low, vpStep), kOf(math.min(open, close), vpStep))
+    bool touchS = hasVP and hvnIn(vp, vpAvg, kOf(math.max(open, close), vpStep), kOf(high, vpStep))
+    bool gapHvnL = hasVP and gapUpFilled and hvnIn(vp, vpAvg, kOf(gapUpLvl, vpStep) - 1, kOf(gapUpLvl, vpStep) + 1)
+    bool gapHvnS = hasVP and gapDnFilled and hvnIn(vp, vpAvg, kOf(gapDnLvl, vpStep) - 1, kOf(gapDnLvl, vpStep) + 1)
+    if longOK and setupB and (hammer or dragon or bullEng) and touchL
+        pDir   := 1
+        pEntry := high
+        pSL    := low - buf
+        pExp   := bar_index + pendBars
+        pTag   := "B"
+    else if longOK and setupC and gapHvnL and close > open and close > gapUpLvl
+        pDir   := 1
+        pEntry := high
+        pSL    := math.min(low, gapUpLvl) - buf
+        pExp   := bar_index + pendBars
+        pTag   := "C"
+    else if shortOK and setupB and (shootStar or grave or bearEng) and touchS
+        pDir   := -1
+        pEntry := low
+        pSL    := high + buf
+        pExp   := bar_index + pendBars
+        pTag   := "B"
+    else if shortOK and setupC and gapHvnS and close < open and close < gapDnLvl
+        pDir   := -1
+        pEntry := low
+        pSL    := math.max(high, gapDnLvl) + buf
+        pExp   := bar_index + pendBars
+        pTag   := "C"
+
+// 5) ניהול העסקה הפתוחה
+if inTrade
+    if bar_index >= tFrom
+        bool hitSL = tDir == 1 ? low <= tSL : high >= tSL
+        bool hitTP = tDir == 1 ? high >= tTP : low <= tTP
+        if hitSL or hitTP
+            bool win = hitTP and not hitSL
+            box.set_right(tBoxP, bar_index)
+            box.set_right(tBoxR, bar_index)
+            nTrades += 1
+            if win
+                nWins   += 1
+                netR    += rr
+                curLoss := 0
+            else
+                netR    -= 1
+                curLoss += 1
+                maxLoss := math.max(maxLoss, curLoss)
+            bool above = (tDir == 1 and win) or (tDir == -1 and not win)
+            tLabels.push(label.new(bar_index, win ? tTP : tSL, win ? "+" + str.tostring(rr) + "R" : "-1R", style = above ? label.style_label_down : label.style_label_up, color = win ? cBull : cBear, textcolor = color.white, size = size.small))
+            inTrade := false
+        else
+            box.set_right(tBoxP, bar_index)
+            box.set_right(tBoxR, bar_index)
+    else
+        box.set_right(tBoxP, bar_index)
+        box.set_right(tBoxR, bar_index)
+
+// ניקוי ציורים ישנים
+while tBoxes.size() > maxShown * 2
+    box.delete(tBoxes.shift())
+while tLabels.size() > maxShown * 3
+    label.delete(tLabels.shift())
+while tLines.size() > maxShown * 4
+    line.delete(tLines.shift())
+
+// ───────────── Volume Profile drawing (last bar) ─────────────
+var array<box> vpBoxes = array.new<box>()
+var line pocLn = na
+if barstate.islast
+    for b in vpBoxes
+        box.delete(b)
+    vpBoxes.clear()
+    if not na(pocLn)
+        line.delete(pocLn)
+    if showVP and hasVP and vpMax > 0
+        int span = vpKmax - vpKmin + 1
+        int grp  = math.max(1, int(math.ceil(span / 150.0)))
+        int k = vpKmin
+        while k <= vpKmax
+            float v = 0.0
+            for j = 0 to grp - 1
+                v += nz(vp.get(k + j))
+            int len = int(math.round(v / (vpMax * grp) * vpWidth))
+            bool isPoc = vpPoc >= k and vpPoc < k + grp
+            color col = isPoc ? color.new(cBull, 0) : v >= hvnMult * vpAvg * grp ? color.new(cBull, 45) : v <= lvnMult * vpAvg * grp ? color.new(cNeut, 75) : color.new(cNeut, 50)
+            if len > 0
+                vpBoxes.push(box.new(bar_index + 3, (k + grp) * vpStep, bar_index + 3 + len, k * vpStep, border_width = 0, bgcolor = col))
+            k += grp
+        float pocP = (vpPoc + 0.5) * vpStep
+        pocLn := line.new(vpAnchor, pocP, bar_index + 3, pocP, color = color.new(cBull, 20), style = line.style_dashed)
+
+// ───────────── Stats table ─────────────
+var table st = table.new(position.top_right, 2, 9, bgcolor = color.new(cNeut, 85), border_width = 1)
+if barstate.islast and showStats
+    float winRate = nTrades > 0 ? 100.0 * nWins / nTrades : 0.0
+    float beRate  = 100.0 / (1 + rr)
+    string openTxt = inTrade ? (tDir == 1 ? "LONG " : "SHORT ") + str.tostring(tEntry, format.mintick) : "—"
+    float fillRate = gapsTotal > 0 ? 100.0 * gapsFilled / gapsTotal : 0.0
+    float avgDays  = gapsFilled > 0 ? fillDays / gapsFilled : 0.0
+    table.cell(st, 0, 0, "עסקאות", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 0, str.tostring(nTrades), text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 1, "הצלחה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 1, str.tostring(winRate, "#.#") + "%", text_color = winRate >= beRate ? cBull : cBear, text_size = size.small)
+    table.cell(st, 0, 2, "סה\"כ R", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 2, str.tostring(netR, "#.#") + "R", text_color = netR >= 0 ? cBull : cBear, text_size = size.small)
+    table.cell(st, 0, 3, "נקודת איזון", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 3, str.tostring(beRate, "#.#") + "%", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 4, "רצף הפסדים מקס׳", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 4, str.tostring(maxLoss), text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 5, "עסקה פתוחה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 5, openTxt, text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 6, "גאפים", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 6, str.tostring(gapsTotal), text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 7, "גאפים שנסגרו", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 7, str.tostring(fillRate, "#.#") + "%", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 0, 8, "ימים עד סגירה", text_color = chart.fg_color, text_size = size.small)
+    table.cell(st, 1, 8, str.tostring(avgDays, "#.#"), text_color = chart.fg_color, text_size = size.small)
+
+// ───────────── Plots ─────────────
+plot(showEma ? ema : na, "EMA", color.new(cCup, 30), 1)
+
+plotshape(showCandles and hammer,               "Hammer",          shape.triangleup,   location.belowbar, cBull, text = "Hammer",    size = size.tiny)
+plotshape(showCandles and dragon,               "Dragonfly",       shape.triangleup,   location.belowbar, cBull, text = "Dragonfly", size = size.tiny)
+plotshape(showCandles and invHam,               "Inverted Hammer", shape.triangleup,   location.belowbar, cBull, text = "Inv H",     size = size.tiny)
+plotshape(showCandles and bullEng,              "Bull Engulfing",  shape.triangleup,   location.belowbar, cBull, text = "Engulf",    size = size.tiny)
+plotshape(showCandles and isMaru and close > open, "Marubozu up",  shape.square,       location.belowbar, cBull, text = "Maru",      size = size.tiny)
+plotshape(showCandles and hangMan,              "Hanging Man",     shape.triangledown, location.abovebar, cBear, text = "Hanging",   size = size.tiny)
+plotshape(showCandles and shootStar,            "Shooting Star",   shape.triangledown, location.abovebar, cBear, text = "Shooting",  size = size.tiny)
+plotshape(showCandles and grave,                "Gravestone",      shape.triangledown, location.abovebar, cBear, text = "Grave",     size = size.tiny)
+plotshape(showCandles and bearEng,              "Bear Engulfing",  shape.triangledown, location.abovebar, cBear, text = "Engulf",    size = size.tiny)
+plotshape(showCandles and isMaru and close < open, "Marubozu down", shape.square,      location.abovebar, cBear, text = "Maru",      size = size.tiny)
+plotshape(showCandles and showMinor and isDoji and not dragon and not grave, "Doji", shape.xcross, location.abovebar, cNeut, text = "Doji", size = size.tiny)
+plotshape(showCandles and showMinor and spinTop, "Spinning Top",   shape.diamond,      location.abovebar, cNeut, text = "Spin",      size = size.tiny)
+plotshape(showCandles and showMinor and bullHar, "Bull Harami",    shape.circle,       location.belowbar, cBull, text = "Harami",    size = size.tiny)
+plotshape(showCandles and showMinor and bearHar, "Bear Harami",    shape.circle,       location.abovebar, cBear, text = "Harami",    size = size.tiny)
+plotshape(showGaps and islandTop,               "Island Top",      shape.labeldown,    location.abovebar, cBear, text = "Island",    textcolor = color.white, size = size.small)
+plotshape(showGaps and islandBot,               "Island Bottom",   shape.labelup,      location.belowbar, cBull, text = "Island",    textcolor = color.white, size = size.small)
+plotshape(buyExh and not buyExh[1],             "Buyer exhaustion",  shape.labeldown,  location.abovebar, cGap,  text = "עייפות",    textcolor = color.white, size = size.small)
+plotshape(sellExh and not sellExh[1],           "Seller exhaustion", shape.labelup,    location.belowbar, cGap,  text = "עייפות",    textcolor = color.white, size = size.small)
+
+// ───────────── Alerts ─────────────
+// לעסקאות: צור התראה מסוג "Any alert() function call" – תקבל Entry/SL/TP.
+alertcondition(buyExh and not buyExh[1],  "Buyer exhaustion",  "Micha: עייפות קונים ב-{{ticker}}")
+alertcondition(sellExh and not sellExh[1], "Seller exhaustion", "Micha: עייפות מוכרים ב-{{ticker}}")
+alertcondition(gapUp or gapDn,             "New gap",           "Micha: גאפ חדש ב-{{ticker}}")
+alertcondition(gapUpFilled or gapDnFilled, "Gap filled",        "Micha: גאפ נסגר ב-{{ticker}}")
+alertcondition(bullSig or bearSig,         "C&H breakout",      "Micha: פריצת Cup & Handle ב-{{ticker}}")
